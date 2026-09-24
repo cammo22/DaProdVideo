@@ -4,6 +4,27 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.2] — 2026-09-24 · Istantanee e transizioni da regia digitale 📸
+
+### Istantanea del fotogramma
+- **P** fotografa il fotogramma sotto il cursore e lo mette **nel contenitore come immagine** ("Istantanea 00.00.05.12.png"). Dal **Recorder** si fotografa il montaggio intero, con titoli, trasparenze ed effetti; dal **Player** la sorgente a piena risoluzione. Il monitor fa il lampo come una macchina fotografica.
+- L'istantanea si trascina nella timeline e **si allunga quanto vuoi** dal bordo. Oppure, nelle proprietà, il gruppo **Durata**: scrivi i secondi o usa **+1 s**, **+5 s**, **−1 s** e **fino alla prossima** (riempie il buco fino alla clip dopo).
+- **Shift+P** fa il **fermo immagine**: due secondi dell'istantanea entrano al cursore e il resto del montaggio scorre avanti.
+- Pulsante **FOTO** sui due monitor e nella pulsantiera, e nel menu della timeline (tasto destro).
+- Le istantanee restano: nell'app si salvano nella cartella dei dati, nel browser dentro il browser. Riaprendo il progetto ci sono ancora.
+
+### Transizioni nuove
+- **Effetti digitali (DVE)**: spinta nelle quattro direzioni, scivola, **zoom incrociato** con la scia, **mosaico** dei DVE anni '90, **onda**, **lampo** bianco, **luce di pellicola**, **glitch**, **vortice**, **sfocata**, **cubo 3D** e **girata** (la cartolina che si gira).
+- **Tendine a sagoma**: **stella** (120) e **cuore** (121), con bordo morbido e colorato.
+- Il pannello Transizioni ha le **anteprime vere**: le disegna lo stesso shader del Recorder, e si muovono quando ci passi sopra.
+- Nelle proprietà un solo menu **Modello** per tendine ed effetti. Nella timeline gli effetti digitali sono magenta e hanno il nome scritto sopra. Nella EDL escono come dissolvenza con la nota `* EFFETTO`.
+- Col cursore dentro una transizione già messa, un clic su un'altra la cambia al volo.
+- Il bordo delle tendine è più netto di serie.
+
+### Rifiniture
+- Il primo fotogramma nel Recorder dopo un import arriva subito: le miniature della timeline aspettano che il monitor e la riproduzione abbiano finito col decoder.
+- **Versione prova nel browser**: anche i file che non si possono ritrovare dal disco (Firefox, Safari, file trascinati, istantanee) fino a 300 MB restano nel browser, così il progetto riparte senza ricollegarli. Con "Nuovo progetto" lo spazio si libera.
+
 ## [1.0.1] — 2026-09-24 · Rifiniture: Android, Mac e la versione prova online 🔧
 
 ### Correzioni

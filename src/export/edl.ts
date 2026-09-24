@@ -3,6 +3,7 @@
 import type { Clip, Project } from '../core/tipi';
 import { end, mediaOf } from '../core/progetto';
 import { frameToTc, s2f } from '../core/timecode';
+import { nomeModello } from '../render/transizioni';
 
 function bobina(nome: string): string {
   return (nome.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_]/g, '').toUpperCase() || 'AX').slice(0, 8).padEnd(8, ' ');
@@ -34,8 +35,10 @@ export function creaEdl(p: Project): string {
     const ch = canale.padEnd(5, ' ');
     if (c.trIn && c.kind !== 'tone') {
       // transizione: evento "C" di taglio sulla clip precedente e "D" (dissolvenza) o "W" (tendina) su questa
+      // le tendine hanno il loro numero SMPTE; gli effetti digitali nella EDL diventano una dissolvenza con la nota
       const tipo = c.trIn.type === 'wipe' ? `W${String(c.trIn.pattern).padStart(3, '0')}` : 'D   ';
       righe.push(`${num}  ${reel} ${ch} ${tipo} ${String(c.trIn.len).padStart(3, '0')} ${tc(sIn)} ${tc(sOut)} ${tc(c.start)} ${tc(end(c))}`);
+      if (c.trIn.type === 'dve' || c.trIn.type === 'dip') righe.push(`* EFFETTO: ${nomeModello(c.trIn.type, c.trIn.pattern)}`);
     } else {
       righe.push(`${num}  ${reel} ${ch} C        ${tc(sIn)} ${tc(sOut)} ${tc(c.start)} ${tc(end(c))}`);
     }

@@ -15,6 +15,10 @@ Android** e, in versione prova, **nel browser**.
 
 ![Il banco di montaggio](risorse/schermata.png)
 
+| Il cubo 3D nel Recorder | Transizioni, FOTO e Durata |
+| --- | --- |
+| ![Cubo 3D](risorse/cubo.png) | ![Pannello Transizioni](risorse/schermata-transizioni.png) |
+
 ## ▶ Come si monta
 
 1. **Importa** i video (pulsante *Importa*, `Ctrl+I`, o trascinali nel contenitore). Il primo video decide il formato del progetto.
@@ -22,7 +26,9 @@ Android** e, in versione prova, **nel browser**.
 3. Premi **`.`** per **sovrascrivere** (o **`,`** per **inserire**) nella timeline al cursore. Oppure trascina il file nella timeline.
 4. Metti il cursore dove vuoi e premi **`1`**: taglio. Clic sul pezzo che non serve e **`2`**: via. **`3`** elimina e chiude il buco.
 5. **`5`** mette la dissolvenza sul taglio, **`Alt`+`↑↓`** cambia la trasparenza al volo, **`B`** mostra le linee elastiche.
-6. **Esporta** il master (`Ctrl+M`): MP4, MOV, WebM o WAV. Oppure la **EDL** per un'altra sala.
+   Nel pannello **Transizioni** ci sono anche gli effetti digitali: spinta, zoom, mosaico, **cubo 3D**, girata, onda, lampo, luce di pellicola, glitch, vortice, sfocata, e le tendine a stella e a cuore.
+6. **`P`** fa un'**istantanea**: il fotogramma sotto il cursore finisce nel contenitore come immagine, da mettere in timeline e allungare quanto vuoi (**`Shift+P`** la mette subito al cursore come fermo immagine).
+7. **Esporta** il master (`Ctrl+M`): MP4, MOV, WebM o WAV. Oppure la **EDL** per un'altra sala.
 
 ### 🎛 La pulsantiera
 
@@ -43,6 +49,7 @@ Android** e, in versione prova, **nel browser**.
 | `Tab` | passa fra Player e Recorder | `F` | abbina fotogramma (la sorgente nel Player) |
 | `Ins` | modo inserisci / sovrascrivi | `R` `N` `B` | ripple, calamita, linee elastiche |
 | `M` | marcatore | `T` | titolo al cursore |
+| `P` | **istantanea** del fotogramma nel contenitore | `Shift+P` | **fermo immagine** di 2 s al cursore |
 | `Ctrl+Z` `Ctrl+Y` | annulla / ripeti (200 passi) | `Ctrl+C` `X` `V` | copia, taglia, incolla le clip |
 | tastierino `0-9` | scrive il timecode (`1000` = 10 s, `+25`) | `F1` | tutti i tasti |
 
@@ -112,8 +119,9 @@ npm run tauri build    # l'app desktop di rilascio
 ```bash
 npm run build
 npx playwright install chromium
-node test/prove.mjs    # oltre 40 prove: timecode, 1 taglia, 2 elimina, annulla, ripple, separa, dissolvenza,
-                       # estrai, tre punti dal Player, trasparenza, riproduzione, EDL, export WebM riletto, telefono
+node test/prove.mjs    # oltre 50 prove: timecode, 1 taglia, 2 elimina, annulla, ripple, separa, dissolvenza,
+                       # estrai, tre punti dal Player, trasparenza, istantanea e fermo immagine, transizioni
+                       # digitali (cubo 3D, cuore, mosaico), riproduzione, EDL, export WebM riletto, telefono
 node test/foto.mjs     # foto del banco (computer e telefono) in test/.out/
 ```
 

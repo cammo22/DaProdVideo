@@ -149,22 +149,30 @@ void main() {
   o = vec4(rgb * a, a);
 }`;
 
-const VS_FULL = `#version 300 es
+export const VS_FULL = `#version 300 es
 in vec2 a_pos;
 out vec2 v_uv;
 void main() { v_uv = a_pos; gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0); }`;
 
-const FS_COMBINE = `#version 300 es
+export const FS_COMBINE = `#version 300 es
 precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_a, u_b;
 uniform bool u_hasA;
-uniform int u_mode;        // 0 solo B, 1 mix, 2 tendina, 3 passaggio a colore
+uniform int u_mode;        // 0 solo B, 1 mix, 2 tendina, 3 passaggio a colore, 4 effetto digitale
 uniform float u_p, u_opacity, u_soft, u_border, u_aspect;
 uniform int u_pattern;
 uniform bool u_reverse;
 uniform vec3 u_borderColor, u_dipColor;
 out vec4 o;
+
+// q: coordinate dello schermo, 0..1 con y verso il basso. Fuori dal quadro = trasparente.
+bool fuori(vec2 q) { return q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0; }
+vec4 tA(vec2 q) { return (!u_hasA || fuori(q)) ? vec4(0.0) : texture(u_a, vec2(q.x, 1.0 - q.y)); }
+vec4 tB(vec2 q) { return fuori(q) ? vec4(0.0) : texture(u_b, vec2(q.x, 1.0 - q.y)); }
+vec4 sopra(vec4 b, vec4 a) { return b + a * (1.0 - b.a); }
+float caso(float x) { return fract(sin(x * 91.3458) * 47453.5453); }
+float dolce(float t) { return t * t * (3.0 - 2.0 * t); }
 
 float campo(vec2 uv) {
   vec2 c = uv - 0.5;
@@ -183,7 +191,174 @@ float campo(vec2 uv) {
   return uv.x;
 }
 
+// forme per le tendine a sagoma: distanza con segno (negativa dentro), di Inigo Quilez
+float sdStella(vec2 p, float r, float rf) {
+  const vec2 k1 = vec2(0.809016994375, -0.587785252292);
+  const vec2 k2 = vec2(-k1.x, k1.y);
+  p.x = abs(p.x);
+  p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+  p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+  p.x = abs(p.x);
+  p.y -= r;
+  vec2 ba = rf * vec2(-k1.y, k1.x) - vec2(0.0, 1.0);
+  float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+  return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+}
+float d2(vec2 v) { return dot(v, v); }
+float sdCuore(vec2 p) {
+  p.x = abs(p.x);
+  if (p.y + p.x > 1.0) return sqrt(d2(p - vec2(0.25, 0.75))) - sqrt(2.0) / 4.0;
+  return sqrt(min(d2(p - vec2(0.0, 1.0)), d2(p - 0.5 * max(p.x + p.y, 0.0)))) * sign(p.x - p.y);
+}
+
+vec4 tendina(vec2 q, vec4 A, vec4 B) {
+  float s = max(u_soft, 0.0005);
+  if (u_pattern == 120 || u_pattern == 121) {
+    // la sagoma cresce dal centro fino a coprire tutto il quadro
+    vec2 c = (q - 0.5) * vec2(u_aspect, 1.0);
+    c.y = -c.y;
+    float mezzaDiag = length(vec2(u_aspect, 1.0) * 0.5);
+    float k = u_reverse ? 1.0 - u_p : u_p;
+    float d;
+    if (u_pattern == 120) { float r = k * mezzaDiag * 3.4 + 0.0001; d = sdStella(c, r, 0.45); }
+    else { float sc = k * mezzaDiag * 4.2 + 0.0001; d = sdCuore(c / sc + vec2(0.0, 0.5)) * sc; }
+    float m = 1.0 - smoothstep(-s * 0.5, s * 0.5, d);
+    if (u_reverse) m = 1.0 - m;
+    vec4 r = mix(A, B, m);
+    if (u_border > 0.0) {
+      float bm = smoothstep(-s * 0.5, s * 0.5, d) * (1.0 - smoothstep(u_border * 0.6 - s * 0.5, u_border * 0.6 + s * 0.5, d));
+      r = mix(r, vec4(u_borderColor, 1.0), bm * step(0.001, u_p) * step(u_p, 0.999));
+    }
+    return r;
+  }
+  float f = campo(q);
+  if (u_reverse) f = 1.0 - f;
+  float e = u_p * (1.0 + 2.0 * s + u_border) - s - u_border;
+  float m = 1.0 - smoothstep(e - s, e, f);
+  vec4 r = mix(A, B, m);
+  if (u_border > 0.0) {
+    float bm = smoothstep(e - s, e, f) * (1.0 - smoothstep(e + u_border - s, e + u_border, f));
+    r = mix(r, vec4(u_borderColor, 1.0), bm);
+  }
+  return r;
+}
+
+// un piano (la faccia di un cubo o una cartolina) visto da un occhio davanti allo schermo
+vec2 ruotaY(vec2 xz, float a) { float c = cos(a), s = sin(a); return vec2(c * xz.x - s * xz.y, s * xz.x + c * xz.y); }
+
+vec4 effetto(vec2 q, float p) {
+  float e = dolce(p);
+  float arco = sin(p * 3.14159265);
+  if (u_pattern == 301) return q.x < 1.0 - e ? tA(q + vec2(e, 0.0)) : tB(q - vec2(1.0 - e, 0.0));
+  if (u_pattern == 302) return q.x > e ? tA(q - vec2(e, 0.0)) : tB(q + vec2(1.0 - e, 0.0));
+  if (u_pattern == 303) return q.y < 1.0 - e ? tA(q + vec2(0.0, e)) : tB(q - vec2(0.0, 1.0 - e));
+  if (u_pattern == 304) return q.y > e ? tA(q - vec2(0.0, e)) : tB(q + vec2(0.0, 1.0 - e));
+  if (u_pattern == 311) return q.x >= 1.0 - e ? sopra(tB(q - vec2(1.0 - e, 0.0)), tA(q)) : tA(q);
+  if (u_pattern == 321) {
+    vec2 c = q - 0.5;
+    float sa = 1.0 + e * 1.6, sb = 1.0 + (1.0 - e) * 1.6;
+    vec4 a = vec4(0.0), b = vec4(0.0);
+    for (int i = 0; i < 10; i++) {
+      float k = float(i) / 9.0 * arco * 0.35;
+      a += tA(0.5 + c / (sa + k));
+      b += tB(0.5 + c / (sb + k));
+    }
+    return mix(a / 10.0, b / 10.0, smoothstep(0.4, 0.6, p));
+  }
+  if (u_pattern == 331) {
+    float lato = mix(0.0015, 0.075, 1.0 - abs(2.0 * p - 1.0));
+    vec2 cella = vec2(lato / u_aspect, lato);
+    vec2 qq = (floor(q / cella) + 0.5) * cella;
+    return mix(tA(qq), tB(qq), smoothstep(0.45, 0.55, p));
+  }
+  if (u_pattern == 341) {
+    vec2 d = q - 0.5;
+    float r = length(d * vec2(u_aspect, 1.0));
+    vec2 w = d / max(r, 1e-4) * sin(r * 42.0 - p * 32.0) * arco * 0.028;
+    return mix(tA(q + w), tB(q + w), smoothstep(0.3, 0.7, p));
+  }
+  if (u_pattern == 351) {
+    vec4 m = mix(tA(q), tB(q), smoothstep(0.45, 0.55, p));
+    return mix(m, vec4(1.0), pow(arco, 3.0));
+  }
+  if (u_pattern == 361) {
+    vec4 m = mix(tA(q), tB(q), smoothstep(0.35, 0.65, p));
+    float n = sin(q.x * 6.0 + p * 9.0) * 0.5 + sin(q.y * 9.0 - p * 7.0 + q.x * 3.0) * 0.5;
+    float fronte = smoothstep(0.0, 1.0, (q.x * 0.9 + n * 0.22 + 0.25 - (1.0 - p) * 1.3) * 2.2);
+    float l = arco * fronte * 1.5;
+    vec3 luce = vec3(1.0, 0.55, 0.18) * l + vec3(1.0, 0.92, 0.7) * pow(l, 4.0);
+    return vec4(min(vec3(1.0), m.rgb + luce), max(m.a, min(1.0, l)));
+  }
+  if (u_pattern == 371) {
+    float fase = floor(p * 18.0);
+    float riga = floor(q.y * 26.0);
+    float h = caso(riga * 13.7 + fase * 7.3);
+    float sh = (h - 0.5) * 0.25 * arco * step(0.55, caso(riga + fase * 1.7));
+    vec2 qq = q + vec2(sh, 0.0);
+    float sw = step(caso(fase * 3.1 + riga * 0.7), p);
+    float rs = 0.014 * arco;
+    vec4 base = mix(tA(qq), tB(qq), sw);
+    vec4 r1 = mix(tA(qq + vec2(rs, 0.0)), tB(qq + vec2(rs, 0.0)), sw);
+    vec4 b1 = mix(tA(qq - vec2(rs, 0.0)), tB(qq - vec2(rs, 0.0)), sw);
+    return vec4(r1.r, base.g, b1.b, base.a);
+  }
+  if (u_pattern == 381) {
+    vec2 c = (q - 0.5) * vec2(u_aspect, 1.0);
+    float ang = arco * 3.0 * max(0.0, 1.0 - length(c) * 1.2);
+    vec2 r = vec2(cos(ang) * c.x - sin(ang) * c.y, sin(ang) * c.x + cos(ang) * c.y) / vec2(u_aspect, 1.0) + 0.5;
+    return mix(tA(r), tB(r), smoothstep(0.35, 0.65, p));
+  }
+  if (u_pattern == 391) {
+    float rad = arco * 0.028;
+    vec4 a = vec4(0.0), b = vec4(0.0);
+    for (int i = -3; i <= 3; i++) for (int j = -3; j <= 3; j++) {
+      vec2 d = vec2(float(i), float(j)) * rad / 3.0 * vec2(1.0 / u_aspect, 1.0);
+      a += tA(q + d);
+      b += tB(q + d);
+    }
+    return mix(a / 49.0, b / 49.0, smoothstep(0.3, 0.7, p));
+  }
+  if (u_pattern == 401 || u_pattern == 411) {
+    // raggio dall'occhio (0,0,-D) attraverso il punto dello schermo; lo schermo è il piano z = 0
+    float a = u_aspect;
+    vec3 s3 = vec3((q.x - 0.5) * a, 0.5 - q.y, 0.0);
+    float D = 2.4;
+    vec3 O = vec3(0.0, 0.0, -D);
+    vec3 dir = normalize(s3 - O);
+    bool cubo = u_pattern == 401;
+    float ang = cubo ? e * 1.5707963 : e * 3.14159265;
+    float lontano = arco * (cubo ? 0.45 : 0.6);
+    vec3 C = vec3(0.0, 0.0, (cubo ? a * 0.5 : 0.0) + lontano);
+    // si porta il raggio nel riferimento dell'oggetto: l'oggetto ruota verso sinistra (la faccia di destra viene davanti),
+    // qui si applica la rotazione inversa
+    vec2 oxz = ruotaY((O - C).xz, ang), dxz = ruotaY(dir.xz, ang);
+    vec3 ol = vec3(oxz.x, O.y - C.y, oxz.y), dl = vec3(dxz.x, dir.y, dxz.y);
+    vec4 col = vec4(0.0);
+    float tMin = 1e9;
+    if (cubo) {
+      // faccia A davanti (z = -a/2), faccia B a destra (x = +a/2)
+      float t = (-a * 0.5 - ol.z) / dl.z;
+      vec3 h = ol + t * dl;
+      if (t > 0.0 && abs(h.x) <= a * 0.5 && abs(h.y) <= 0.5) { tMin = t; col = tA(vec2((h.x + a * 0.5) / a, 0.5 - h.y)) * (0.55 + 0.45 * cos(ang)); }
+      t = (a * 0.5 - ol.x) / dl.x;
+      h = ol + t * dl;
+      if (t > 0.0 && t < tMin && abs(h.z) <= a * 0.5 && abs(h.y) <= 0.5) { col = tB(vec2((h.z + a * 0.5) / a, 0.5 - h.y)) * (0.55 + 0.45 * sin(ang)); }
+    } else {
+      float t = -ol.z / dl.z;
+      vec3 h = ol + t * dl;
+      if (t > 0.0 && abs(h.x) <= a * 0.5 && abs(h.y) <= 0.5) {
+        float u = (h.x + a * 0.5) / a;
+        float luce = 0.6 + 0.4 * abs(cos(ang));
+        col = (ang < 1.5707963 ? tA(vec2(u, 0.5 - h.y)) : tB(vec2(1.0 - u, 0.5 - h.y))) * luce;
+      }
+    }
+    return col;
+  }
+  return mix(tA(q), tB(q), p);
+}
+
 void main() {
+  vec2 q = vec2(v_uv.x, 1.0 - v_uv.y);
   vec4 B = texture(u_b, v_uv);
   vec4 A = u_hasA ? texture(u_a, v_uv) : vec4(0.0);
   vec4 r = B;
@@ -191,20 +366,49 @@ void main() {
   else if (u_mode == 3) {
     vec4 d = vec4(u_dipColor, 1.0);
     r = u_p < 0.5 ? mix(A, d, u_p * 2.0) : mix(d, B, (u_p - 0.5) * 2.0);
-  } else if (u_mode == 2) {
-    float f = campo(vec2(v_uv.x, 1.0 - v_uv.y));
-    if (u_reverse) f = 1.0 - f;
-    float s = max(u_soft, 0.0005);
-    float e = u_p * (1.0 + 2.0 * s + u_border) - s - u_border;
-    float m = 1.0 - smoothstep(e - s, e, f);
-    r = mix(A, B, m);
-    if (u_border > 0.0) {
-      float bm = smoothstep(e - s, e, f) * (1.0 - smoothstep(e + u_border - s, e + u_border, f));
-      r = mix(r, vec4(u_borderColor, 1.0), bm);
-    }
-  }
+  } else if (u_mode == 2) r = tendina(q, A, B);
+  else if (u_mode == 4) r = effetto(q, clamp(u_p, 0.0, 1.0));
   o = r * u_opacity;
 }`;
+
+export const NOMI_COMBINA = ['u_a', 'u_b', 'u_hasA', 'u_mode', 'u_p', 'u_opacity', 'u_soft', 'u_border', 'u_aspect', 'u_pattern', 'u_reverse', 'u_borderColor', 'u_dipColor'];
+
+/** imposta le uniform della combinazione: le usano il compositore e le anteprime del pannello Transizioni */
+export function impostaCombina(gl: WebGL2RenderingContext, u: Record<string, WebGLUniformLocation | null>, tr: Transition | null, prog: number, opacity: number, hasA: boolean, aspect: number) {
+  gl.uniform1i(u.u_a, 0);
+  gl.uniform1i(u.u_b, 1);
+  gl.uniform1i(u.u_hasA, hasA ? 1 : 0);
+  const mode = !tr ? 0 : tr.type === 'mix' ? 1 : tr.type === 'wipe' ? 2 : tr.type === 'dve' ? 4 : 3;
+  gl.uniform1i(u.u_mode, mode);
+  gl.uniform1f(u.u_p, Math.max(0, Math.min(1, prog)));
+  gl.uniform1f(u.u_opacity, opacity);
+  gl.uniform1f(u.u_soft, tr?.soft ?? 0);
+  gl.uniform1f(u.u_border, tr?.border ?? 0);
+  gl.uniform1f(u.u_aspect, aspect);
+  gl.uniform1i(u.u_pattern, tr?.pattern ?? 1);
+  gl.uniform1i(u.u_reverse, tr?.reverse ? 1 : 0);
+  const bc = hex(tr?.borderColor ?? '#ffffff'), dc = hex(tr?.color ?? '#000000');
+  gl.uniform3f(u.u_borderColor, bc[0], bc[1], bc[2]);
+  gl.uniform3f(u.u_dipColor, dc[0], dc[1], dc[2]);
+}
+
+/** compila un programma GLSL (errori con il testo del compilatore) */
+export function compila(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
+  const mk = (type: number, src: string) => {
+    const sh = gl.createShader(type)!;
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  const p = gl.createProgram()!;
+  gl.attachShader(p, mk(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'a_pos');
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('programma: ' + gl.getProgramInfoLog(p));
+  return p;
+}
 
 type Tex = { tex: WebGLTexture; src: unknown; w: number; h: number };
 
@@ -240,8 +444,7 @@ export class Compositore {
     this.pComb = this.prog(VS_FULL, FS_COMBINE);
     for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv'])
       this.uL[n] = gl.getUniformLocation(this.pLayer, n);
-    for (const n of ['u_a', 'u_b', 'u_hasA', 'u_mode', 'u_p', 'u_opacity', 'u_soft', 'u_border', 'u_aspect', 'u_pattern', 'u_reverse', 'u_borderColor', 'u_dipColor'])
-      this.uC[n] = gl.getUniformLocation(this.pComb, n);
+    for (const n of NOMI_COMBINA) this.uC[n] = gl.getUniformLocation(this.pComb, n);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     const buf = gl.createBuffer();
@@ -260,21 +463,7 @@ export class Compositore {
   }
 
   private prog(vs: string, fs: string) {
-    const gl = this.gl;
-    const mk = (type: number, s: string) => {
-      const sh = gl.createShader(type)!;
-      gl.shaderSource(sh, s);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(sh));
-      return sh;
-    };
-    const p = gl.createProgram()!;
-    gl.attachShader(p, mk(gl.VERTEX_SHADER, vs));
-    gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
-    gl.bindAttribLocation(p, 0, 'a_pos');
-    gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('programma: ' + gl.getProgramInfoLog(p));
-    return p;
+    return compila(this.gl, vs, fs);
   }
 
   private newTex() {
@@ -469,23 +658,9 @@ export class Compositore {
     const u = this.uC;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.fbo[0].tex);
-    gl.uniform1i(u.u_a, 0);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.fbo[1].tex);
-    gl.uniform1i(u.u_b, 1);
-    gl.uniform1i(u.u_hasA, hasA ? 1 : 0);
-    const mode = !tr ? 0 : tr.type === 'mix' ? 1 : tr.type === 'wipe' ? 2 : 3;
-    gl.uniform1i(u.u_mode, mode);
-    gl.uniform1f(u.u_p, Math.max(0, Math.min(1, prog)));
-    gl.uniform1f(u.u_opacity, opacity);
-    gl.uniform1f(u.u_soft, tr?.soft ?? 0);
-    gl.uniform1f(u.u_border, tr?.border ?? 0);
-    gl.uniform1f(u.u_aspect, this.canvas.width / this.canvas.height);
-    gl.uniform1i(u.u_pattern, tr?.pattern ?? 1);
-    gl.uniform1i(u.u_reverse, tr?.reverse ? 1 : 0);
-    const bc = hex(tr?.borderColor ?? '#ffffff'), dc = hex(tr?.color ?? '#000000');
-    gl.uniform3f(u.u_borderColor, bc[0], bc[1], bc[2]);
-    gl.uniform3f(u.u_dipColor, dc[0], dc[1], dc[2]);
+    impostaCombina(gl, u, tr, prog, opacity, hasA, this.canvas.width / this.canvas.height);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.activeTexture(gl.TEXTURE0);
   }

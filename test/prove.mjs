@@ -210,6 +210,72 @@ try {
   prova('Alt+↓ due volte = opacità 80%', Math.abs(d.clips.find((c) => c.id === perOpac.id).opacity - 0.8) < 1e-6);
   await tasto('Control+z'); await tasto('Control+z');
 
+  console.log('▶ Istantanea e fermo immagine');
+  {
+    await page.evaluate(() => { window.__dpv.select([]); window.__motore.setMonitor('recorder'); window.__motore.vaiA(50); });
+    await page.waitForTimeout(400);
+    const m0 = (await doc()).media.length;
+    await page.locator('.tl-tela').focus();
+    await tasto('p');
+    await page.waitForFunction((n) => window.__dpv.doc.media.length > n, m0, { timeout: 15000 });
+    let dd = await doc();
+    const foto = dd.media[dd.media.length - 1];
+    prova('P: l\'istantanea finisce nel contenitore come immagine', foto.type === 'image' && foto.name.startsWith('Istantanea') && foto.width === dd.w && foto.height === dd.h, `${foto.type} ${foto.width}×${foto.height}`);
+    // nella timeline e allungata di 5 secondi con il gruppo Durata delle proprietà
+    const fine0 = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    await page.evaluate(({ id, f }) => { window.__motore.caricaPlayer(id); window.__dpv.edit('prova foto', (p) => window.__dpvTest.M.placeSource(p, { mediaId: id, srcIn: 0, srcOut: 2 }, f, null, { video: p.tracks.find((t) => t.name === 'V1').id, audio: [] }, 'overwrite')); }, { id: foto.id, f: fine0 });
+    dd = await doc();
+    const clipFoto = dd.clips.find((c) => c.media === foto.id);
+    await page.evaluate((id) => window.__dpv.select([id]), clipFoto.id);
+    await page.click('.lato .scheda[data-s=clip]');
+    await page.waitForTimeout(200);
+    await page.click('.isp-pulsanti button:has-text("+5 s")');
+    dd = await doc();
+    prova('l\'istantanea si allunga (+5 s dalle proprietà)', dd.clips.find((c) => c.id === clipFoto.id).len === 50 + 125, dd.clips.find((c) => c.id === clipFoto.id).len);
+    await tasto('Control+z'); await tasto('Control+z');
+    // fermo immagine al fotogramma 100: due secondi dentro, il resto scorre avanti di 50
+    const fineA = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    await page.evaluate(() => { window.__dpv.select([]); window.__motore.vaiA(100); });
+    await page.locator('.tl-tela').focus();
+    const nClip = await conta();
+    await tasto('Shift+P');
+    await page.waitForFunction((n) => window.__dpv.doc.clips.length > n, nClip, { timeout: 15000 });
+    const fineB = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    dd = await doc();
+    const fermo = dd.clips.find((c) => c.start === 100 && dd.media.find((m) => m.id === c.media)?.type === 'image');
+    prova('Shift+P: fermo immagine di 2 s al cursore, il resto scorre', !!fermo && fermo.len === 50 && fineB === fineA + 50, `${fermo?.len} · ${fineA} → ${fineB}`);
+    await tasto('Control+z');
+  }
+
+  console.log('▶ Transizioni nuove');
+  {
+    await page.click('.contenitore .scheda[data-s=transizioni]');
+    await page.waitForTimeout(300);
+    prova('il pannello ha gli effetti digitali e le tendine a sagoma', (await page.locator('.gen-lista .gen-voce').count()) >= 30);
+    const v1b = (await doc()).tracks.find((t) => t.name === 'V1').id;
+    const taglio2 = (await doc()).clips.filter((c) => c.track === v1b).sort((a, b) => a.start - b.start)[1];
+    await page.evaluate((f) => { window.__dpv.select([]); window.__motore.vaiA(f); }, taglio2.start);
+    await page.locator('.gen-voce', { hasText: 'Cubo 3D' }).click();
+    let dd = await doc();
+    const cubo = dd.clips.find((c) => c.id === taglio2.id);
+    prova('clic su "Cubo 3D": effetto digitale sul taglio', cubo.trIn?.type === 'dve' && cubo.trIn?.pattern === 401, JSON.stringify(cubo.trIn));
+    await page.evaluate((f) => window.__motore.vaiA(f), taglio2.start + Math.round(cubo.trIn.len / 2));
+    let lum = 0;
+    for (let i = 0; i < 25 && lum <= 8; i++) {
+      await page.waitForTimeout(200);
+      lum = await page.evaluate(() => { const px = new Uint8Array(64 * 36 * 4); window.__motore.rec.leggiPiccolo(64, 36, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return s / (64 * 36 * 3); });
+    }
+    prova('a metà del cubo il Recorder mostra le due facce', lum > 8, lum.toFixed(1));
+    await page.locator('.gen-voce', { hasText: '121 · Cuore' }).click();
+    dd = await doc();
+    prova('clic su "Cuore": diventa una tendina 121', dd.clips.find((c) => c.id === taglio2.id).trIn?.pattern === 121 && dd.clips.find((c) => c.id === taglio2.id).trIn?.type === 'wipe');
+    await page.locator('.gen-voce', { hasText: 'Mosaico' }).click();
+    const edl2 = await page.evaluate(() => window.__dpvTest.creaEdl(window.__dpv.doc));
+    prova('la EDL annota l\'effetto digitale', edl2.includes('* EFFETTO: Mosaico'));
+    await tasto('Control+z'); await tasto('Control+z'); await tasto('Control+z');
+    await page.click('.contenitore .scheda[data-s=media]');
+  }
+
   console.log('▶ Riproduzione');
   await page.evaluate(() => { window.__dpv.select([]); window.__motore.setMonitor('recorder'); window.__motore.vaiA(0); });
   await tasto('Space');

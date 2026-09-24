@@ -263,6 +263,10 @@ export function miniatura(id: string, t: number): CanvasImageSource | null {
   return null;
 }
 
+/** chi usa il decoder per i monitor dice qui se è occupato: le miniature aspettano il loro turno */
+let decoderOccupato: () => boolean = () => false;
+export function quandoDecoderOccupato(fn: () => boolean) { decoderOccupato = fn; }
+
 async function lavoraMiniature(id: string) {
   const r = rt.get(id);
   if (!r?.v) return;
@@ -270,7 +274,9 @@ async function lavoraMiniature(id: string) {
   const sink = new CanvasSink(r.v, { width: THUMB_W, fit: 'contain' });
   try {
     while (inCoda.get(id)?.size) {
-      const ts = [...inCoda.get(id)!].sort((a, b) => a - b).slice(0, 24);
+      // prima il fotogramma del monitor e la riproduzione, poi le miniature
+      for (let attese = 0; decoderOccupato() && attese < 100; attese++) await new Promise((ok) => setTimeout(ok, 40));
+      const ts = [...inCoda.get(id)!].sort((a, b) => a - b).slice(0, 8);
       for (const t of ts) inCoda.get(id)!.delete(t);
       let i = 0;
       for await (const w of sink.canvasesAtTimestamps(ts)) {

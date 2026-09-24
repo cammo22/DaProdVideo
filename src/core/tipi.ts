@@ -29,7 +29,8 @@ export type ClipKind = 'media' | 'color' | 'bars' | 'tone' | 'countdown' | 'titl
 /** Un punto della linea elastica (rubber band): f = fotogrammi dall'inizio della clip. */
 export interface Key { f: number; v: number }
 
-export type TransitionType = 'mix' | 'wipe' | 'dip';
+/** mix = dissolvenza · wipe = tendina SMPTE · dip = passaggio a colore · dve = effetto digitale */
+export type TransitionType = 'mix' | 'wipe' | 'dip' | 'dve';
 
 export interface Transition {
   type: TransitionType;

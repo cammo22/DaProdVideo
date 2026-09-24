@@ -9,9 +9,10 @@ import type { Clip, Project, Track } from '../core/tipi';
 import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
-import { modi, esegui, montaDalPlayer, bersagli, inserisciGeneratore } from '../azioni';
+import { modi, esegui, montaDalPlayer, bersagli, inserisciGeneratore, applicaTransizione } from '../azioni';
 import { avviso, chiedi, clamp, h, icona, menuContesto, type VoceMenu } from './dom';
 import { registraBersaglio } from './trascina';
+import { nomeModello } from '../render/transizioni';
 
 const RIGHELLO = 30;
 const SEP = 8;
@@ -470,16 +471,24 @@ export class Timeline {
     // transizione in testa: il blocco a strisce sul taglio
     if (c.trIn) {
       const a = this.fX(c.start), b = this.fX(c.start + c.trIn.len);
-      ctx.fillStyle = c.trIn.type === 'dip' ? 'rgba(0,0,0,.55)' : 'rgba(255,213,74,.28)';
+      ctx.fillStyle = c.trIn.type === 'dip' ? 'rgba(0,0,0,.55)' : c.trIn.type === 'dve' ? 'rgba(255,61,242,.26)' : 'rgba(255,213,74,.28)';
       ctx.fillRect(a, top, b - a, alt);
       ctx.strokeStyle = 'rgba(255,213,74,.95)';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       if (c.trIn.type === 'mix') { ctx.moveTo(a, top + alt); ctx.lineTo(b, top); ctx.moveTo(a, top); ctx.lineTo(b, top + alt); }
       else if (c.trIn.type === 'wipe') { ctx.moveTo(a, top + alt); ctx.lineTo(b, top); ctx.lineTo(b, top + alt); ctx.closePath(); }
+      else if (c.trIn.type === 'dve') { ctx.strokeStyle = 'rgba(255,61,242,.95)'; ctx.rect(a + 2, top + 2, b - a - 4, alt - 4); ctx.moveTo(a, (top * 2 + alt) / 2); ctx.lineTo(b, (top * 2 + alt) / 2); }
       else { ctx.moveTo(a, top); ctx.lineTo((a + b) / 2, top + alt); ctx.lineTo(b, top); }
       ctx.stroke();
       ctx.lineWidth = 1;
+      // il nome del modello, se c'è posto
+      if (b - a > 46 && alt > 24 && c.trIn.type !== 'mix') {
+        ctx.fillStyle = 'rgba(255,255,255,.9)';
+        ctx.font = '700 9.5px Rajdhani, sans-serif';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(nomeModello(c.trIn.type, c.trIn.pattern), a + 3, top + alt - 2, b - a - 6);
+      }
     }
     // testa della clip
     ctx.fillStyle = 'rgba(0,0,0,.35)';
@@ -980,15 +989,11 @@ export class Timeline {
       const kind = dato.slice(2) as 'bars' | 'color' | 'countdown' | 'title' | 'nero';
       inserisciGeneratore(kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined);
     } else if (dato.startsWith('t:')) {
-      const tipo = dato.slice(2);
+      const [tipo, pat] = dato.slice(2).split(':');
       const c = riga ? store.doc.clips.find((z) => z.track === riga.t.id && Math.abs(z.start - f) < Math.max(3, 20 / this.ppf)) ?? store.doc.clips.find((z) => z.track === riga.t.id && f >= z.start && f < end(z)) : undefined;
       if (!c) { avviso('Lascia la transizione sopra un taglio', 'info'); return; }
       store.select(M.withLinked(store.doc, [c.id]));
-      esegui(tipo === 'mix' ? 'dissolvenza' : tipo === 'dip' ? 'passaggioNero' : 'tendina');
-      if (tipo.startsWith('wipe:')) {
-        const pat = Number(tipo.split(':')[1]);
-        store.edit('Tendina', (pp) => { for (const z of pp.clips) if (store.sel.has(z.id) && z.trIn) z.trIn.pattern = pat; });
-      }
+      applicaTransizione(tipo as 'mix', Number(pat) || 1);
     }
   }
 
@@ -1016,6 +1021,8 @@ export class Timeline {
         },
         { sep: true },
         { nome: 'Apri nel Player (abbina)', tasto: 'F', disattiva: !c.clip.media, fn: () => { motore.vaiA(f); esegui('abbina'); } },
+        { nome: 'Istantanea di questo fotogramma', tasto: 'P', fn: () => { motore.setMonitor('recorder'); motore.vaiA(f); esegui('istantanea'); } },
+        { nome: 'Fermo immagine qui', tasto: 'Shift+P', fn: () => { motore.setMonitor('recorder'); motore.vaiA(f); esegui('fermoImmagine'); } },
         { nome: 'Proprietà della clip…', fn: () => document.dispatchEvent(new CustomEvent('dpv:ispettore')) },
       );
     } else {
