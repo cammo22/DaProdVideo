@@ -5,6 +5,9 @@ import type { Clip, Look, TitleSpec } from '../core/tipi';
 import { isVideoClip, mediaOf, trackOf, newTransition, TF0, FX0 } from '../core/progetto';
 import { frameToTc, fps } from '../core/timecode';
 import { h } from './dom';
+import * as M from '../core/montaggio';
+import { modi } from '../azioni';
+import { EFFETTI, TENDINE, tipoDi } from '../render/transizioni';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
 
@@ -104,11 +107,23 @@ export class Ispettore {
         this.spunta('Inverti', (c) => c.fx.keyInvert, (c, v) => { c.fx.keyInvert = v; }, video),
       ], true));
     }
+    out.push(this.gruppo('durata', 'Durata', [this.durata(cs)]));
     const conTr = cs.filter((c) => c.trIn);
     out.push(this.gruppo('transizione', 'Transizione in testa', conTr.length ? [
-      this.scelta('Tipo', [['mix', 'Dissolvenza incrociata'], ['wipe', 'Tendina'], ['dip', 'Passaggio a colore']], (c) => c.trIn?.type ?? 'mix', (c, v) => { if (c.trIn) c.trIn.type = v as 'mix'; }, conTr),
+      this.scelta('Tipo', [['mix', 'Dissolvenza incrociata'], ['wipe', 'Tendina SMPTE'], ['dve', 'Effetto digitale (DVE)'], ['dip', 'Passaggio a colore']], (c) => c.trIn?.type ?? 'mix', (c, v) => {
+        if (!c.trIn) return;
+        c.trIn.type = v as 'mix';
+        // il modello deve essere della famiglia giusta
+        if (v === 'dve' && c.trIn.pattern < 300) c.trIn.pattern = 301;
+        if (v === 'wipe' && c.trIn.pattern >= 300) c.trIn.pattern = 1;
+      }, conTr),
       this.cursore('Durata', 1, Math.round(fps(p.rate) * 5), 1, (c) => c.trIn?.len ?? 0, (c, v) => { if (c.trIn) c.trIn.len = Math.min(v, c.len); }, 'fot', conTr),
-      this.scelta('Tendina SMPTE', [['1', '1 · orizzontale'], ['2', '2 · verticale'], ['3', '3 · angolo'], ['4', '4 · angolo destro'], ['21', '21 · porta'], ['22', '22 · porta orizz.'], ['41', '41 · diagonale'], ['101', '101 · scatola'], ['102', '102 · rombo'], ['119', '119 · iride'], ['201', '201 · orologio'], ['7', '7 · veneziana']], (c) => String(c.trIn?.pattern ?? 1), (c, v) => { if (c.trIn) c.trIn.pattern = Number(v); }, conTr),
+      this.scelta('Modello', [...EFFETTI, ...TENDINE].map((m) => [String(m.p), (m.p >= 300 ? 'DVE · ' : 'Tendina ') + m.nome] as [string, string]), (c) => String(c.trIn?.pattern ?? 1), (c, v) => {
+        if (!c.trIn) return;
+        c.trIn.pattern = Number(v);
+        if (c.trIn.type === 'wipe' || c.trIn.type === 'dve') c.trIn.type = tipoDi(Number(v));
+        if (!isVideoClip(c)) c.trIn.type = 'mix';
+      }, conTr),
       this.cursore('Bordo morbido', 0, 40, 1, (c) => Math.round((c.trIn?.soft ?? 0) * 100), (c, v) => { if (c.trIn) c.trIn.soft = v / 100; }, '', conTr),
       this.cursore('Bordo colorato', 0, 20, 0.5, (c) => (c.trIn?.border ?? 0) * 100, (c, v) => { if (c.trIn) c.trIn.border = v / 100; }, '', conTr),
       this.colore('Colore del bordo', (c) => c.trIn?.borderColor ?? '#ffd54a', (c, v) => { if (c.trIn) c.trIn.borderColor = v; }, conTr),
@@ -116,7 +131,7 @@ export class Ispettore {
       this.spunta('Al contrario', (c) => !!c.trIn?.reverse, (c, v) => { if (c.trIn) c.trIn.reverse = v; }, conTr),
       this.pulsanti([['Togli', () => store.edit('Togli transizione', () => { for (const c of this.sel()) c.trIn = undefined; })]]),
     ] : [
-      h('p', { class: 'nota' }, 'Nessuna transizione. Mettila con 5 (dissolvenza), 6 (tendina), 7 (passaggio al nero) o trascinandola dal pannello Transizioni.'),
+      h('p', { class: 'nota' }, 'Nessuna transizione. Mettila con 5 (dissolvenza), 6 (tendina), 7 (passaggio al nero) o trascinandola dal pannello Transizioni: ci sono anche spinta, zoom, mosaico, cubo 3D, girata, onda, lampo, luce di pellicola, glitch, vortice, stella e cuore.'),
       this.pulsanti([['Dissolvenza', () => store.edit('Transizione', () => { for (const c of this.sel()) c.trIn = newTransition('mix', Math.min(c.len, Math.round(fps(p.rate)))); })]]),
     ]));
     out.push(this.gruppo('dissolvenze', 'Dissolvenze (fade)', [
@@ -174,6 +189,45 @@ export class Ispettore {
       this.spunta('Fascia dietro', (c) => c.gen!.title!.box, (c, v) => { c.gen!.title!.box = v; }, tt),
       this.colore('Colore fascia', (c) => c.gen!.title!.boxColor.slice(0, 7), (c, v) => { c.gen!.title!.boxColor = v + 'cc'; }, tt),
     ]);
+  }
+
+  /** durata in secondi: si allunga o si accorcia dal bordo di uscita (con il ripple, se acceso) */
+  private durata(cs: Clip[]): HTMLElement {
+    const p0 = store.doc;
+    const r = fps(p0.rate);
+    // una sola clip per gruppo legato: il trim porta con sé anche l'audio o il video della stessa ripresa
+    const scelte = () => {
+      const visti = new Set<string>();
+      return store.doc.clips.filter((c) => cs.some((x) => x.id === c.id)).filter((c) => { if (!c.link) return true; if (visti.has(c.link)) return false; visti.add(c.link); return true; });
+    };
+    const n = h('input', { type: 'number', class: 'num largo', min: 0.04, step: 0.04 }) as HTMLInputElement;
+    const agg = () => { const c = scelte()[0]; if (c && document.activeElement !== n) n.value = (c.len / r).toFixed(2); };
+    agg();
+    const allunga = (label: string, fn: (c: Clip) => number) => {
+      store.edit(label, (p) => {
+        for (const c of scelte()) {
+          const d = fn(c);
+          if (d) M.trimClip(p, c.id, 'out', d, { ripple: modi.ripple, linked: true });
+        }
+      });
+      agg();
+    };
+    n.addEventListener('change', () => allunga('Durata', (c) => Math.max(1, Math.round(Number(n.value) * r)) - c.len));
+    const prossima = (c: Clip) => {
+      const dopo = store.doc.clips.filter((x) => x.track === c.track && x.start >= c.start + c.len && x.id !== c.id).sort((a, b) => a.start - b.start)[0];
+      return dopo ? dopo.start - (c.start + c.len) : 0;
+    };
+    const el = h('div', { class: 'isp-durata' },
+      h('div', { class: 'isp-riga' }, h('label', null, 'Secondi'), n, h('small', { class: 'nota' }, modi.ripple ? 'ripple: sposta le clip dopo' : 'si ferma alla clip dopo')),
+      this.pulsanti([
+        ['+1 s', () => allunga('Allunga', () => Math.round(r))],
+        ['+5 s', () => allunga('Allunga', () => Math.round(r * 5))],
+        ['−1 s', () => allunga('Accorcia', (c) => -Math.min(c.len - 1, Math.round(r)))],
+        ['↦ fino alla prossima', () => allunga('Allunga fino alla prossima', prossima)],
+      ]),
+      h('p', { class: 'nota' }, 'Le immagini e le istantanee si allungano quanto vuoi; i video fino alla fine della ripresa.'));
+    this.campi.push({ el, aggiorna: agg });
+    return el;
   }
 
   // ——— mattoncini ———

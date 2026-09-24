@@ -77,6 +77,7 @@ export function avvia(radice: HTMLElement) {
       voce('taglia'), voce('elimina'), voce('eliminaChiudi'), voce('separa'), { sep: true },
       voce('dissolvenza'), voce('tendina'), voce('passaggioNero'), voce('dissolviInOut'), { sep: true },
       voce('inserisci'), voce('sovrascrivi'), voce('solleva'), voce('estrai'), voce('rivedi'), voce('abbina'), voce('estendi'), { sep: true },
+      voce('istantanea'), voce('fermoImmagine'), { sep: true },
       voce('modoInserisci', { spunta: modi.inserisci, nome: 'Modo inserisci' }), voce('ripple', { spunta: modi.ripple }), voce('snap', { spunta: modi.snap }), voce('elastico', { spunta: modi.elastico }),
       { sep: true }, voce('tracciaV'), voce('tracciaA'),
     ]],

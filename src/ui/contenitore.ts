@@ -4,12 +4,15 @@ import { store } from '../core/store';
 import { motore } from '../motore';
 import { mediaRT, quandoPicchi } from '../media/libreria';
 import { durataUmana } from '../core/timecode';
-import { esegui, inserisciGeneratore, montaDalPlayer, modi } from '../azioni';
+import { applicaTransizione, inserisciGeneratore, montaDalPlayer, modi } from '../azioni';
 import { importaDialogo, importaDaDrop, ricollega, togliMedia } from '../progetti';
 import { avviso, chiedi, h, icona, menuContesto } from './dom';
 import { trascinabile } from './trascina';
 import type { MediaItem } from '../core/tipi';
-import { projectEnd } from '../core/progetto';
+import { projectEnd, newTransition } from '../core/progetto';
+import type { Transition } from '../core/tipi';
+import { EFFETTI, TENDINE } from '../render/transizioni';
+import { anteprimaViva } from '../render/anteprime';
 
 type Scheda = 'media' | 'generatori' | 'transizioni';
 
@@ -160,88 +163,24 @@ export class Contenitore {
   }
 
   private paginaTransizioni(): HTMLElement {
-    const t = (id: string, nome: string, desc: string, pat?: number) => {
-      const cv = h('canvas', { class: 'tr-anteprima', width: 96, height: 54 });
-      anteprimaTransizione(cv, id, pat);
+    const t = (tipo: Transition['type'], m: { p: number; nome: string; info: string }) => {
+      const cv = h('canvas', { class: 'tr-anteprima', width: 128, height: 72 });
+      anteprimaViva(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 });
       const el = h('div', {
         class: 'gen-voce', title: 'Trascina sul taglio · clic: sul taglio sotto il cursore o sulla clip selezionata',
-        on: {
-          click: () => {
-            if (id === 'mix') esegui('dissolvenza');
-            else if (id === 'dip') esegui('passaggioNero');
-            else {
-              esegui('tendina');
-              store.edit('Tendina', (p) => { for (const c of p.clips) if (c.trIn?.type === 'wipe' && (store.sel.has(c.id) || Math.abs(c.start - store.head) < 13)) c.trIn.pattern = pat ?? 1; });
-            }
-          },
-        },
-      }, cv, h('div', { class: 'bin-testo' }, h('b', null, nome), h('span', null, desc)));
-      trascinabile(el, () => 't:' + (id === 'wipe' ? 'wipe:' + pat : id), () => '✦ ' + nome);
+        on: { click: () => applicaTransizione(tipo, m.p) },
+      }, cv, h('div', { class: 'bin-testo' }, h('b', null, m.nome), h('span', null, m.info)));
+      trascinabile(el, () => `t:${tipo}:${m.p}`, () => '✦ ' + m.nome);
       return el;
     };
     return h('div', { class: 'bin-pagina gen-lista' },
-      h('p', { class: 'nota' }, 'Come sul mixer video: trascina sul taglio fra due clip. Durata e bordo si cambiano nelle proprietà.'),
-      t('mix', 'Dissolvenza incrociata', 'il MIX classico · tasto 5'),
-      t('dip', 'Passaggio al nero', 'si scende al nero e si risale · tasto 7'),
+      h('p', { class: 'nota' }, 'Come sul mixer video: trascina sul taglio fra due clip, o clic con il cursore sul taglio. Passa sopra per vederla muoversi. Durata, bordo e verso nelle proprietà.'),
+      t('mix', { p: 0, nome: 'Dissolvenza incrociata', info: 'il MIX classico · tasto 5' }),
+      t('dip', { p: 0, nome: 'Passaggio al nero', info: 'si scende al nero e si risale · tasto 7' }),
+      h('h4', null, 'Effetti digitali (DVE)'),
+      EFFETTI.map((m) => t('dve', m)),
       h('h4', null, 'Tendine SMPTE'),
-      t('wipe', '1 · Orizzontale', 'da sinistra a destra · tasto 6', 1),
-      t('wipe', '2 · Verticale', 'dall\'alto in basso', 2),
-      t('wipe', '3 · Angolo', 'dall\'angolo in alto a sinistra', 3),
-      t('wipe', '21 · Porta', 'si apre dal centro in orizzontale', 21),
-      t('wipe', '22 · Porta orizzontale', 'si apre dal centro in verticale', 22),
-      t('wipe', '41 · Diagonale', 'di traverso', 41),
-      t('wipe', '101 · Scatola', 'un quadrato che cresce dal centro', 101),
-      t('wipe', '102 · Rombo', 'un diamante dal centro', 102),
-      t('wipe', '119 · Iride', 'il cerchio del cinema muto', 119),
-      t('wipe', '201 · Orologio', 'la lancetta che gira', 201),
-      t('wipe', '7 · Veneziana', 'a strisce', 7),
+      TENDINE.map((m) => t('wipe', m)),
     );
   }
-}
-
-/** piccola anteprima animata della tendina, calcolata come nello shader */
-function anteprimaTransizione(cv: HTMLCanvasElement, id: string, pat?: number) {
-  const ctx = cv.getContext('2d')!;
-  const W = cv.width, H = cv.height;
-  const img = ctx.createImageData(W, H);
-  let t = Math.random();
-  const campo = (u: number, v: number): number => {
-    const cx = u - 0.5, cy = v - 0.5;
-    switch (pat) {
-      case 2: return v;
-      case 3: return Math.max(u, v);
-      case 21: return Math.abs(cx) * 2;
-      case 22: return Math.abs(cy) * 2;
-      case 41: return (u + v) / 2;
-      case 101: return Math.max(Math.abs(cx), Math.abs(cy)) * 2;
-      case 102: return Math.abs(cx) + Math.abs(cy);
-      case 119: return Math.hypot(cx * W / H, cy) / Math.hypot(0.5 * W / H, 0.5);
-      case 201: return ((Math.atan2(cx, -cy) / (Math.PI * 2)) + 1) % 1;
-      case 7: return (u * 8) % 1;
-      default: return u;
-    }
-  };
-  const disegna = () => {
-    t = (t + 0.012) % 1.3;
-    const p = Math.min(1, t);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const u = x / W, v = y / H;
-      let k: number;
-      if (id === 'mix') k = p;
-      else if (id === 'dip') k = p < 0.5 ? -1 + p * 2 : (p - 0.5) * 2;
-      else k = campo(u, v) < p ? 1 : 0;
-      const i = (y * W + x) * 4;
-      // A = blu DaProd, B = oro
-      const a = [40, 70, 150], b = [255, 205, 70];
-      let c: number[];
-      if (id === 'dip') c = k < 0 ? a.map((z) => z * -k) : b.map((z) => z * k);
-      else c = a.map((z, j) => z + (b[j] - z) * k);
-      img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255;
-    }
-    ctx.putImageData(img, 0, 0);
-  };
-  disegna();
-  let raf = 0;
-  cv.addEventListener('pointerenter', () => { const go = () => { disegna(); raf = requestAnimationFrame(go); }; go(); });
-  cv.addEventListener('pointerleave', () => cancelAnimationFrame(raf));
 }

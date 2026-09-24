@@ -3,7 +3,7 @@
 // anticipo, i tagli sono puliti perché la clip dopo si scalda prima) e "ricerca" da fermo o in shuttle
 // (va al fotogramma esatto; se ne arrivano tanti di fila vince l'ultimo).
 import { VideoSampleSink, type VideoSample } from 'mediabunny';
-import { mediaRT } from './libreria';
+import { mediaRT, quandoDecoderOccupato } from './libreria';
 
 export type Fotogramma = VideoSample | ImageBitmap;
 
@@ -112,6 +112,9 @@ class Ricerca {
 const sinks = new Map<string, VideoSampleSink>();
 const flussi = new Map<string, Flusso>();
 const ricerche = new Map<string, Ricerca>();
+
+// il monitor ha la precedenza sulle miniature della timeline: una ricerca in corso o un flusso in riproduzione
+quandoDecoderOccupato(() => flussi.size > 0 || [...ricerche.values()].some((r) => r.busy));
 
 function sinkDi(mediaId: string): VideoSampleSink | null {
   let s = sinks.get(mediaId);

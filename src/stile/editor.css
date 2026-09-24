@@ -374,3 +374,17 @@ kbd { font: 700 11px var(--ui); background: #26252e; border: 1px solid #3b3945; 
 .bin-voce, .gen-voce { touch-action: none; }
 .fantasma-trascina { position: fixed; left: 0; top: 0; z-index: 1200; pointer-events: none; padding: 6px 12px; border-radius: 8px; background: rgba(28, 27, 36, 0.95); border: 1px solid var(--oro); color: var(--oro); font-weight: 700; box-shadow: var(--ombra); white-space: nowrap; }
 .trascina-in-corso, .trascina-in-corso * { cursor: grabbing !important; }
+/* il lampo dell'istantanea */
+.schermo.lampo::before { content: ''; position: absolute; inset: 0; z-index: 3; background: #fff; pointer-events: none; animation: lampo 0.4s ease-out forwards; }
+@keyframes lampo { from { opacity: 0.85; } to { opacity: 0; } }
+.btn-mini.foto { display: inline-flex; align-items: center; gap: 4px; color: var(--oro); }
+.num.largo { width: 70px; }
+.isp-durata .isp-riga { grid-template-columns: 70px 76px 1fr; }
+.isp-durata .isp-riga .nota { margin: 0; font-size: 10.5px; }
+/* la pulsantiera ci deve stare tutta anche con il tasto FOTO */
+.pulsantiera { gap: 8px; padding: 6px 8px; }
+.gruppo-tasti { gap: 4px; padding-right: 8px; }
+.tasto-num { width: 54px; }
+.tasto-piccolo { padding: 0 7px; }
+.tasto-modo { padding: 0 8px; }
+.tasto-modo.largo { min-width: 118px; }

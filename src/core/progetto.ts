@@ -40,7 +40,7 @@ export function newClip(kind: ClipKind, track: string, start: number, len: numbe
 }
 
 export function newTransition(type: Transition['type'], len: number, pattern = 1): Transition {
-  return { type, len, pattern, soft: 0.08, border: 0, borderColor: '#ffd54a', reverse: false, color: '#000000' };
+  return { type, len, pattern, soft: 0.03, border: 0, borderColor: '#ffd54a', reverse: false, color: '#000000' };
 }
 
 export const TITLE0: TitleSpec = {

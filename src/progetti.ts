@@ -14,16 +14,21 @@ import { s2f } from './core/timecode';
 
 export let percorsoProgetto: string | null = null;
 
+/** fino a quanto un file si tiene dentro il browser (IndexedDB) quando non c'è altro modo di ritrovarlo */
+const FILE_LOCALE_MAX = 300 * 1024 * 1024;
+
 // ——— IndexedDB (solo browser): autosalvataggio e maniglie dei file ———
 function db(): Promise<IDBDatabase> {
   return new Promise((ok, ko) => {
-    const r = indexedDB.open('daprod-video', 1);
-    r.onupgradeneeded = () => { r.result.createObjectStore('kv'); r.result.createObjectStore('maniglie'); };
+    const r = indexedDB.open('daprod-video', 2);
+    r.onupgradeneeded = () => {
+      for (const n of ['kv', 'maniglie', 'file']) if (!r.result.objectStoreNames.contains(n)) r.result.createObjectStore(n);
+    };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => ko(r.error);
   });
 }
-async function idb<T>(store: 'kv' | 'maniglie', op: 'get' | 'put' | 'delete', key: string, val?: unknown): Promise<T | undefined> {
+async function idb<T>(store: 'kv' | 'maniglie' | 'file', op: 'get' | 'put' | 'delete', key: string, val?: unknown): Promise<T | undefined> {
   try {
     const d = await db();
     return await new Promise((ok, ko) => {
@@ -51,6 +56,9 @@ export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[
     if ('errore' in r) { errori.push(`${r.nome}: ${r.errore}`); continue; }
     nuovi.push(r.item);
     if (f.maniglia) void idb('maniglie', 'put', r.item.id, f.maniglia);
+    // nel browser, senza "maniglia" (Firefox, Safari, file trascinati, istantanee) i file piccoli si tengono
+    // dentro il browser: così il progetto li ritrova alla prossima apertura senza ricollegarli
+    else if (!isTauri && f.file && f.file.size <= FILE_LOCALE_MAX) void idb('file', 'put', r.item.id, f.file);
   }
   barra.chiudi();
   if (nuovi.length) {
@@ -160,7 +168,8 @@ export async function apri() {
 
 export async function nuovo(fmt: { w: number; h: number; rate: { num: number; den: number }; drop: boolean } = FORMATI[0]) {
   if (store.dirty && store.doc.clips.length && !(await conferma('Nuovo progetto', 'Il montaggio attuale ha modifiche non salvate. Ricominciare?', 'Nuovo', 'Annulla'))) return;
-  for (const m of store.doc.media) { chiudiMedia(m.id); dimenticaMedia(m.id); }
+  // i file tenuti nel browser per il montaggio vecchio non servono più: si libera lo spazio
+  for (const m of store.doc.media) { chiudiMedia(m.id); dimenticaMedia(m.id); void idb('file', 'delete', m.id); }
   percorsoProgetto = null;
   motore.caricaPlayer(null);
   store.load(newProject(fmt));
@@ -197,6 +206,12 @@ export async function riapriMedia(conGesto: boolean): Promise<number> {
           if (r.stato === 'ok') continue;
         }
       } catch { /* file spostato */ }
+    }
+    const tenuto = await idb<Blob>('file', 'get', m.id);
+    if (tenuto) {
+      const file = tenuto instanceof File ? tenuto : new File([tenuto], m.name, { type: tenuto.type });
+      const r = await apriMedia(m, { file });
+      if (r.stato === 'ok') continue;
     }
     mancano++;
   }
@@ -252,6 +267,7 @@ export async function togliMedia(id: string) {
   store.edit('Togli media', (p) => { p.media = p.media.filter((m) => m.id !== id); p.clips = p.clips.filter((c) => c.media !== id); });
   if (motore.playerMedia === id) motore.caricaPlayer(null);
   void idb('maniglie', 'delete', id);
+  void idb('file', 'delete', id);
 }
 
 /** barra d'avanzamento in basso per le operazioni lunghe */

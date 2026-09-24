@@ -45,6 +45,7 @@ export class PannelloMonitor {
       h('header', { class: 'mon-testa' },
         h('span', { class: 'led' }), h('b', null, rec ? 'RECORDER' : 'PLAYER'), this.nome,
         h('span', { class: 'mon-spazio' }),
+        h('button', { class: 'btn-mini foto', title: rec ? 'Istantanea del fotogramma nel contenitore (P) · Shift+P fermo immagine' : 'Istantanea della sorgente nel contenitore (P)', on: { click: () => { this.attiva(); esegui('istantanea'); } } }, icona('foto', 13), 'FOTO'),
         rec ? h('button', { class: 'btn-mini', title: 'Zone di sicurezza e croce (G)', on: { click: () => { modi.zoneSicure = !modi.zoneSicure; this.disegnaSopra(); } } }, 'ZONE') : null,
         h('select', {
           class: 'mini-select', title: 'Qualità dell\'anteprima',

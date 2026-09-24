@@ -6,6 +6,7 @@ import * as M from './core/montaggio';
 import { clipById, end, isVideoClip, newClip, newTransition, newTrack, nextTrackName, projectEnd, TITLE0, trackOf, uid } from './core/progetto';
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
+import { nomeModello } from './render/transizioni';
 import type { Clip, Transition } from './core/tipi';
 
 export interface Azione {
@@ -116,17 +117,41 @@ function transizione(t: Transition) {
     const f = head();
     // il taglio più vicino al cursore su ogni traccia (entro mezzo secondo)
     const win = Math.round(r() / 2);
-    targets = p.clips.filter((c) => Math.abs(c.start - f) <= win && !trackOf(p, c.track).lock && M.prevAdjacent(p, c));
+    // se il cursore è dentro una transizione già messa, si cambia quella
+    const vicino = (c: Clip) => Math.abs(c.start - f) <= win || (!!c.trIn && f >= c.start && f < c.start + c.trIn.len);
+    targets = p.clips.filter((c) => vicino(c) && !trackOf(p, c.track).lock && M.prevAdjacent(p, c));
     if (!targets.length) { avviso('Metti il cursore su un taglio o seleziona la clip che entra', 'info'); return; }
     const linked = M.withLinked(p, targets.map((c) => c.id));
     targets = p.clips.filter((c) => linked.has(c.id) && targets.some((x) => x.start === c.start));
   }
   const ids = new Set(targets.map((c) => c.id));
-  const tutte = targets.every((c) => c.trIn?.type === t.type);
+  // stessa transizione già messa (stesso tipo e modello) = la si toglie; altrimenti si mette o si cambia
+  const uguale = (c: Clip) => c.trIn?.type === t.type && (t.type === 'mix' || t.type === 'dip' || c.trIn?.pattern === t.pattern);
+  const video = targets.filter((c) => isVideoClip(c));
+  const tutte = (video.length ? video : targets).every(uguale);
   store.edit(tutte ? 'Togli transizione' : 'Transizione', (pp) => M.setTransition(pp, ids, tutte ? null : t));
-  const nome = t.type === 'mix' ? 'Dissolvenza' : t.type === 'wipe' ? 'Tendina' : 'Passaggio al nero';
+  const nome = nomeModello(t.type, t.pattern);
   avviso(tutte ? `${nome} tolta` : `${nome} · ${t.len} fotogrammi`, 'tasto', 1200);
 }
+
+/** mette la transizione scelta nel pannello (tipo e modello) sul taglio o sulla clip selezionata */
+export function applicaTransizione(tipo: Transition['type'], pattern = 1) {
+  const t = newTransition(tipo, Math.round(r()), pattern);
+  if (tipo === 'dve' && (pattern === 401 || pattern === 411)) t.len = Math.round(r() * 1.2);
+  transizione(t);
+}
+
+// ——— istantanea: il fotogramma diventa un'immagine del contenitore ———
+reg({
+  id: 'istantanea', nome: 'Istantanea del fotogramma (nel contenitore)', gruppo: 'Montaggio', tasti: ['P'],
+  info: 'Fotografa il fotogramma sotto il cursore (Recorder) o della sorgente (Player): finisce nel contenitore come immagine da allungare.',
+  fn: () => { void import('./istantanea').then((m) => m.istantanea()); },
+});
+reg({
+  id: 'fermoImmagine', nome: 'Fermo immagine al cursore', gruppo: 'Montaggio', tasti: ['Shift+P'],
+  info: 'Istantanea del Recorder inserita al cursore per due secondi: il resto scorre avanti.',
+  fn: () => { void import('./istantanea').then((m) => m.istantanea({ fermo: true })); },
+});
 
 // ——— annulla e appunti ———
 reg({ id: 'annulla', nome: 'Annulla', gruppo: 'Modifica', tasti: ['Ctrl+Z'], fn: () => { const l = store.doUndo(); avviso(l ? `↶ Annullato: ${l}` : 'Niente da annullare', 'info', 1200); } });
