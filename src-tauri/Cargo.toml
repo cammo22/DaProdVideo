@@ -1,0 +1,32 @@
+[package]
+name = "daprod-video"
+version = "1.0.0"
+description = "DaProd Video: il montaggio vecchio stile, moderno dentro"
+authors = ["DaProd"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "daprod_video_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
+tauri-plugin-dialog = "2.7"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# decodifica audio di riserva per WebKit senza AudioDecoder (Mac con Safari vecchio)
+symphonia = { version = "0.6.1", default-features = false, features = ["aac", "mp3", "flac", "vorbis"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

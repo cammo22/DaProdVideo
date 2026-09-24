@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DaProd Video",
+  "mainBinaryName": "DaProd Video",
+  "version": "../package.json",
+  "identifier": "it.daprod.video",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173/app/",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "DaProd Video",
+        "url": "app/index.html",
+        "width": 1600,
+        "height": 960,
+        "minWidth": 1000,
+        "minHeight": 640,
+        "center": true,
+        "maximized": true,
+        "backgroundColor": "#09080d",
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "dmg",
+      "app"
+    ],
+    "publisher": "DaProd",
+    "copyright": "© DaProd",
+    "category": "Video",
+    "shortDescription": "Montaggio video vecchio stile, moderno dentro",
+    "longDescription": "DaProd Video: due monitor Player e Recorder, timeline, pulsantiera (1 taglia, 2 elimina), VU a lancetta, tendine SMPTE, titolatrice ed EDL CMX3600.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Italian",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.3",
+      "signingIdentity": "-"
+    },
+    "android": {
+      "minSdkVersion": 26
+    }
+  }
+}

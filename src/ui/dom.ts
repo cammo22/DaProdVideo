@@ -1,0 +1,206 @@
+// Attrezzi per costruire l'interfaccia senza framework: elementi, icone, avvisi, dialoghi, menu.
+
+type Attr = Record<string, unknown> & { class?: string; style?: string; on?: Record<string, (e: any) => void> };
+type Figlio = Node | string | number | null | undefined | false | Figlio[];
+
+export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attr: Attr | null = null, ...figli: Figlio[]): HTMLElementTagNameMap[K] {
+  const el = document.createElement(tag);
+  if (attr) {
+    for (const [k, v] of Object.entries(attr)) {
+      if (v === undefined || v === null || v === false) continue;
+      if (k === 'on') for (const [ev, fn] of Object.entries(v as Record<string, (e: Event) => void>)) el.addEventListener(ev, fn);
+      else if (k === 'class') el.className = String(v);
+      else if (k === 'style') el.setAttribute('style', String(v));
+      else if (k === 'html') el.innerHTML = String(v);
+      else if (k in el && typeof v !== 'string') (el as any)[k] = v;
+      else el.setAttribute(k, v === true ? '' : String(v));
+    }
+  }
+  appendi(el, figli);
+  return el;
+}
+
+function appendi(el: Node, figli: Figlio[]) {
+  for (const f of figli) {
+    if (f === null || f === undefined || f === false) continue;
+    if (Array.isArray(f)) appendi(el, f);
+    else el.appendChild(typeof f === 'object' ? f : document.createTextNode(String(f)));
+  }
+}
+
+export const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector(sel) as T;
+
+/** icone disegnate a mano, stile tasti di regia */
+const P: Record<string, string> = {
+  play: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/>',
+  pausa: '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>',
+  indietro: '<path d="M11 6l-8 6 8 6zM21 6l-8 6 8 6z" fill="currentColor"/>',
+  avanti: '<path d="M3 6l8 6-8 6zM13 6l8 6-8 6z" fill="currentColor"/>',
+  fotoPrec: '<path d="M16 6l-8 6 8 6z" fill="currentColor"/><rect x="5" y="6" width="2.4" height="12" fill="currentColor"/>',
+  fotoSucc: '<path d="M8 6l8 6-8 6z" fill="currentColor"/><rect x="16.6" y="6" width="2.4" height="12" fill="currentColor"/>',
+  inizio: '<path d="M18 6l-9 6 9 6z" fill="currentColor"/><rect x="5" y="5" width="2.4" height="14" fill="currentColor"/>',
+  fine: '<path d="M6 6l9 6-9 6z" fill="currentColor"/><rect x="16.6" y="5" width="2.4" height="14" fill="currentColor"/>',
+  loop: '<path d="M4 12a6 6 0 016-6h7l-2.5-2.5M20 12a6 6 0 01-6 6H7l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  segnaIn: '<path d="M8 4v16M8 4h8M8 20h8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  segnaOut: '<path d="M16 4v16M16 4H8M16 20H8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  forbici: '<circle cx="6" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="6" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 8.5L20 18M8.5 15.5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  cestino: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  chiudi: '<path d="M4 12h6M14 12h6M10 8l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 6v12M21 6v12" stroke="currentColor" stroke-width="2"/>',
+  catena: '<path d="M10 14l4-4M8 11l-2 2a3 3 0 004 4l2-2M16 13l2-2a3 3 0 00-4-4l-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  dissolvenza: '<path d="M3 19L21 5" stroke="currentColor" stroke-width="2"/><rect x="3" y="5" width="18" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 19V5h9z" fill="currentColor" opacity=".45"/>',
+  apri: '<path d="M3 7h6l2 2h10v10H3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  salva: '<path d="M5 3h11l3 3v15H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><rect x="8" y="3" width="7" height="5" fill="currentColor"/><rect x="8" y="13" width="8" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="2"/>',
+  importa: '<path d="M12 3v12M7 10l5 5 5-5M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  esporta: '<path d="M12 15V3M7 8l5-5 5 5M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  annulla: '<path d="M9 5L4 10l5 5M4 10h10a6 6 0 010 12h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  ripeti: '<path d="M15 5l5 5-5 5M20 10H10a6 6 0 000 12h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  occhio: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="currentColor"/>',
+  lucchetto: '<rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/>',
+  altoparlante: '<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 9a4 4 0 010 6M18.5 6.5a8 8 0 010 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  calamita: '<path d="M6 4v8a6 6 0 0012 0V4h-4v8a2 2 0 01-4 0V4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  onda: '<path d="M2 12h3l2-6 3 12 3-15 3 18 2-9h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  zoomPiu: '<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5M7 10h6M10 7v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  zoomMeno: '<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5M7 10h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  adatta: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  piu: '<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  marcatore: '<path d="M6 3h12v12l-6 6-6-6z" fill="currentColor"/>',
+  titolo: '<path d="M5 5h14M12 5v14M8 19h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  barre: '<rect x="3" y="4" width="3" height="16" fill="#c0c0c0"/><rect x="6" y="4" width="3" height="16" fill="#c0c000"/><rect x="9" y="4" width="3" height="16" fill="#00c0c0"/><rect x="12" y="4" width="3" height="16" fill="#00c000"/><rect x="15" y="4" width="3" height="16" fill="#c000c0"/><rect x="18" y="4" width="3" height="16" fill="#c00000"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
+  ingranaggio: '<circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  schermo: '<rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2"/>',
+  elastico: '<path d="M3 17l5-6 5 3 8-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="11" r="2" fill="currentColor"/><circle cx="13" cy="14" r="2" fill="currentColor"/>',
+  ripple: '<path d="M3 12h7M14 12h7M10 8v8M14 8v8M17 9l3 3-3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  cerchio: '<circle cx="12" cy="12" r="8" fill="currentColor"/>',
+  info: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+};
+
+export function icona(nome: keyof typeof P | string, size = 18): SVGElement {
+  const w = document.createElement('span');
+  w.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${P[nome] ?? P.cerchio}</svg>`;
+  return w.firstChild as SVGElement;
+}
+
+// ——— avvisi (toast) ———
+let zonaAvvisi: HTMLElement | null = null;
+export function avviso(testo: string, tipo: 'info' | 'ok' | 'errore' | 'tasto' = 'info', ms = 2200) {
+  if (!zonaAvvisi) {
+    zonaAvvisi = h('div', { class: 'avvisi', 'aria-live': 'polite' });
+    document.body.appendChild(zonaAvvisi);
+  }
+  const el = h('div', { class: 'avviso ' + tipo }, testo);
+  zonaAvvisi.appendChild(el);
+  while (zonaAvvisi.children.length > 4) zonaAvvisi.firstChild?.remove();
+  setTimeout(() => { el.classList.add('via'); setTimeout(() => el.remove(), 300); }, ms);
+}
+
+// ——— dialoghi ———
+export interface Dialogo { el: HTMLElement; chiudi: () => void; corpo: HTMLElement; piede: HTMLElement }
+
+export function dialogo(titolo: string, opzioni: { largo?: boolean; onChiudi?: () => void; chiudibile?: boolean } = {}): Dialogo {
+  const corpo = h('div', { class: 'dlg-corpo' });
+  const piede = h('div', { class: 'dlg-piede' });
+  const chiudi = () => { velo.classList.add('via'); setTimeout(() => velo.remove(), 180); document.removeEventListener('keydown', esc, true); opzioni.onChiudi?.(); };
+  const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && opzioni.chiudibile !== false) { e.stopPropagation(); chiudi(); } };
+  const el = h('div', { class: 'dialogo' + (opzioni.largo ? ' largo' : ''), role: 'dialog', 'aria-label': titolo },
+    h('div', { class: 'dlg-testa' }, h('span', { class: 'led acceso' }), h('b', null, titolo),
+      opzioni.chiudibile === false ? null : h('button', { class: 'btn-icona', title: 'Chiudi (Esc)', on: { click: chiudi } }, icona('x', 16))),
+    corpo, piede);
+  const velo = h('div', { class: 'velo', on: { pointerdown: (e: PointerEvent) => { if (e.target === velo && opzioni.chiudibile !== false) chiudi(); } } }, el);
+  document.body.appendChild(velo);
+  document.addEventListener('keydown', esc, true);
+  return { el, chiudi, corpo, piede };
+}
+
+export function conferma(titolo: string, testo: string, si = 'Sì', no = 'Annulla'): Promise<boolean> {
+  return new Promise((ok) => {
+    let fatto = false;
+    const d = dialogo(titolo, { onChiudi: () => { if (!fatto) ok(false); } });
+    d.corpo.appendChild(h('p', null, testo));
+    d.piede.append(
+      h('button', { class: 'btn', on: { click: () => { fatto = true; ok(false); d.chiudi(); } } }, no),
+      h('button', { class: 'btn primario', on: { click: () => { fatto = true; ok(true); d.chiudi(); } } }, si));
+    (d.piede.lastChild as HTMLElement).focus();
+  });
+}
+
+export function chiedi(titolo: string, etichetta: string, valore = '', multilinea = false): Promise<string | null> {
+  return new Promise((ok) => {
+    let fatto = false;
+    const d = dialogo(titolo, { onChiudi: () => { if (!fatto) ok(null); } });
+    const inp = multilinea
+      ? h('textarea', { class: 'campo-testo', rows: 5 }) as HTMLTextAreaElement
+      : h('input', { class: 'campo-testo', type: 'text' }) as HTMLInputElement;
+    inp.value = valore;
+    const vai = () => { fatto = true; ok(inp.value); d.chiudi(); };
+    inp.addEventListener('keydown', (e: Event) => { const k = e as KeyboardEvent; if (k.key === 'Enter' && (!multilinea || k.ctrlKey)) { k.preventDefault(); vai(); } });
+    d.corpo.append(h('label', { class: 'etichetta' }, etichetta), inp);
+    d.piede.append(h('button', { class: 'btn', on: { click: () => d.chiudi() } }, 'Annulla'), h('button', { class: 'btn primario', on: { click: vai } }, 'OK'));
+    setTimeout(() => { inp.focus(); inp.select(); }, 30);
+  });
+}
+
+// ——— menu contestuale ———
+export interface VoceMenu { nome?: string; tasto?: string; fn?: () => void; disattiva?: boolean; sep?: boolean; sotto?: VoceMenu[]; spunta?: boolean }
+
+let menuAperto: HTMLElement | null = null;
+export function chiudiMenu() { menuAperto?.remove(); menuAperto = null; }
+
+export function menuContesto(x: number, y: number, voci: VoceMenu[]) {
+  chiudiMenu();
+  const m = costruisciMenu(voci);
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px';
+  m.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + 'px';
+  menuAperto = m;
+  setTimeout(() => {
+    const via = (e: Event) => { if (!m.contains(e.target as Node)) { chiudiMenu(); document.removeEventListener('pointerdown', via, true); } };
+    document.addEventListener('pointerdown', via, true);
+  });
+}
+
+export function costruisciMenu(voci: VoceMenu[]): HTMLElement {
+  const m = h('div', { class: 'menu-contesto', role: 'menu' });
+  for (const v of voci) {
+    if (v.sep) { m.appendChild(h('div', { class: 'sep' })); continue; }
+    const riga = h('button', {
+      class: 'voce' + (v.disattiva ? ' spenta' : '') + (v.sotto ? ' ha-sotto' : ''), role: 'menuitem', disabled: !!v.disattiva,
+      on: { click: (e: Event) => { if (v.sotto) { e.stopPropagation(); return; } chiudiMenu(); v.fn?.(); } },
+    }, h('span', { class: 'spunta' }, v.spunta ? '●' : ''), h('span', { class: 'nome' }, v.nome ?? ''), h('span', { class: 'tasto' }, v.tasto ?? (v.sotto ? '▸' : '')));
+    if (v.sotto) {
+      const sub = costruisciMenu(v.sotto);
+      sub.classList.add('sotto');
+      riga.appendChild(sub);
+    }
+    m.appendChild(riga);
+  }
+  return m;
+}
+
+/** trascinamento con il puntatore: gestisce cattura, movimento e rilascio */
+export function trascina(e: PointerEvent, muovi: (ev: PointerEvent, dx: number, dy: number) => void, fine?: (ev: PointerEvent, mosso: boolean) => void) {
+  const x0 = e.clientX, y0 = e.clientY;
+  const el = e.currentTarget as HTMLElement;
+  let mosso = false;
+  try { el.setPointerCapture(e.pointerId); } catch { /* ok */ }
+  const mv = (ev: PointerEvent) => {
+    const dx = ev.clientX - x0, dy = ev.clientY - y0;
+    if (!mosso && Math.hypot(dx, dy) < 3) return;
+    mosso = true;
+    muovi(ev, dx, dy);
+  };
+  const up = (ev: PointerEvent) => {
+    el.removeEventListener('pointermove', mv);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
+    fine?.(ev, mosso);
+  };
+  el.addEventListener('pointermove', mv);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+}
+
+export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
