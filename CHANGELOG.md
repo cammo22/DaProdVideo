@@ -4,6 +4,18 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.1] — 2026-09-24 · Rifiniture: Android, Mac e la versione prova online 🔧
+
+### Correzioni
+- **Android**: se chiudi il selettore dei file senza scegliere niente non esce più un errore; il selettore mostra video, audio e foto (prima i filtri per estensione non li capiva).
+- **Foto senza estensione** (su Android arrivano come `content://…`): ora si riconoscono lo stesso e vanno nel contenitore come immagini.
+- **Tono delle barre e 2-pop del countdown** vanno sulla prima traccia audio libera da A1 in giù (prima finivano su A4).
+- **Montaggio dal Player** (`,` e `.`): un solo passo di annulla invece di due.
+- **F11 nell'app** mette a schermo intero la finestra vera (prima solo la pagina).
+
+### Pages
+- La versione prova ora si pubblica sul ramo `gh-pages` a ogni merge.
+
 ## [1.0.0] — 2026-09-24 · Si accende la sala di montaggio 🎬
 
 La prima versione: un banco di montaggio vecchio stile, moderno dentro.
@@ -45,6 +57,8 @@ La prima versione: un banco di montaggio vecchio stile, moderno dentro.
 - **App Tauri 2 (Rust)** per Windows (portatile e installabile), Mac (universale) e Android: i file si leggono e si scrivono dal lato Rust.
 - **Versione prova nel browser** su GitHub Pages, con il **montaggio dimostrativo** generato al volo (tre riprese, titoli, dissolvenze, iride).
 - Vista telefono con un monitor alla volta, pulsantiera grande e fogli a scomparsa.
+- **Mac con Safari vecchio**: se WebKit non sa decodificare l'audio AAC/MP3/FLAC dei video, ci pensa Rust (Symphonia).
+- **Trascina dal contenitore alla timeline anche col dito** (tieni premuto e trascina) e nell'app Windows.
 - Prove automatiche (`test/prove.mjs`): il banco usato da solo in Chromium, dal taglio all'export riletto.
 
 ---

@@ -85,8 +85,8 @@ il **montaggio dimostrativo** generato al volo per provarlo senza file. I limiti
 - i file restano nel browser: riaprendo, Chrome ed Edge chiedono di ridare il permesso (*File → Ricollega media*), gli altri di sceglierli di nuovo;
 - l'export senza "Salva con nome" (Firefox, Safari) passa dalla memoria: per montaggi lunghi meglio l'app.
 
-Pages pubblica `main` (`.github/workflows/pages.yml`): ogni merge aggiorna la home e il banco. La prima volta,
-se la pubblicazione chiede il permesso, in *Settings → Pages* va scelto **Source: GitHub Actions**.
+Ogni merge su `main` ricompila la home e il banco e li mette sul ramo `gh-pages` (`.github/workflows/pages.yml`).
+Se il sito non si accende da solo, una volta sola: *Settings → Pages → Deploy from a branch → `gh-pages` / (root)*.
 
 ## 🛠 Come è fatto
 

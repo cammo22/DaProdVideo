@@ -13,7 +13,7 @@ import { costruisciMenu, h, icona, avviso, chiudiMenu, type VoceMenu } from './d
 import { installaTastiera } from './tastiera';
 import { finestraEsporta, finestraInfo, finestraProgetto, finestraTasti, esportaEdl, esportaFotogramma, VERSIONE } from './dialoghi';
 import { apri, autosalva, importaDaDrop, importaDialogo, importaFile, nuovo, ricollega, riprendi, salva } from '../progetti';
-import { edizione, isAndroid, isTauri, apriLink } from '../platform';
+import { edizione, isAndroid, isTauri, apriLink, schermoIntero } from '../platform';
 import { montaggioDimostrativo } from '../demo';
 import { FORMATI } from '../core/tipi';
 import { statoDecoder } from '../media/fotogrammi';
@@ -85,7 +85,7 @@ export function avvia(radice: HTMLElement) {
       { nome: 'Monitor singolo', spunta: radice.classList.contains('singolo'), fn: () => { radice.classList.toggle('singolo'); setTimeout(() => { player.adatta(); recorder.adatta(); }, 50); } },
       { nome: 'Zone di sicurezza', spunta: modi.zoneSicure, fn: () => { modi.zoneSicure = !modi.zoneSicure; recorder.disegnaSopra(); } },
       { nome: 'Tutto il montaggio nella finestra', tasto: '\\', fn: () => tl.adattaTutto() },
-      { nome: 'Schermo intero', tasto: 'F11', fn: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()) },
+      { nome: 'Schermo intero', tasto: 'F11', fn: () => void schermoIntero() },
       { sep: true },
       { nome: 'Strumenti di misura', fn: () => mostraLato('scopi') },
       { nome: 'Mixer', fn: () => mostraLato('mixer') },
@@ -196,7 +196,7 @@ export function avvia(radice: HTMLElement) {
     'ctrl+s': () => salva(), 'ctrl+shift+s': () => salva(true), 'ctrl+o': () => apri(), 'ctrl+i': () => importaDialogo(),
     'ctrl+m': () => finestraEsporta(), 'ctrl+n': () => nuovo(), f1: () => finestraTasti(), '+': () => tl.zoom(1.5), '-': () => tl.zoom(1 / 1.5),
     '\\': () => tl.adattaTutto(), g: () => { modi.zoneSicure = !modi.zoneSicure; recorder.disegnaSopra(); },
-    f11: () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()),
+    f11: () => void schermoIntero(),
   };
   addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;

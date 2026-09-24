@@ -125,7 +125,18 @@ export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: M
     const input = new Input({ source: sorgente(r), formats: ALL_FORMATS });
     r.input = input;
     const fmt = await input.getFormat().catch(() => null);
-    if (!fmt) { rt.delete(id); input.dispose(); return { errore: 'formato non riconosciuto', nome }; }
+    if (!fmt) {
+      input.dispose();
+      // niente video né audio: forse è una foto senza estensione (su Android i file arrivano come content://)
+      try {
+        const img = await createImageBitmap(await leggiTutto(r));
+        img.close();
+        rt.delete(id);
+        return importa({ ...sel, name: /\.[a-z0-9]{2,4}$/i.test(nome) ? nome : nome + '.jpg' });
+      } catch { /* non è nemmeno un'immagine */ }
+      rt.delete(id);
+      return { errore: 'formato non riconosciuto', nome };
+    }
     base.container = fmt.name;
     const v = await input.getPrimaryVideoTrack();
     const a = await input.getPrimaryAudioTrack();
