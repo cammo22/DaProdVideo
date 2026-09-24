@@ -13,7 +13,7 @@ import { mixaggio } from '../media/audio';
 import { mediaRT } from '../media/libreria';
 import { Compositore } from '../render/compositore';
 import { pianoVideo, type Sorgente } from '../render/piano';
-import { invoke, isTauri, nomeDaPercorso, scarica } from '../platform';
+import { dialogoSalva, invoke, isTauri, nomeDaPercorso, scarica } from '../platform';
 import type { Fotogramma } from '../media/fotogrammi';
 
 export type Formato = 'mp4' | 'mov' | 'webm' | 'wav';
@@ -62,8 +62,7 @@ interface Destinazione { target: BufferTarget | StreamTarget; chiudi: () => Prom
 
 async function destinazione(nome: string, mime: string, estensione: string): Promise<Destinazione | null> {
   if (isTauri) {
-    const { save } = await import('@tauri-apps/plugin-dialog');
-    const path = await save({ title: 'Esporta il montaggio', defaultPath: nome, filters: [{ name: estensione.toUpperCase(), extensions: [estensione] }] });
+    const path = await dialogoSalva(nome, estensione, mime);
     if (!path) return null;
     const id = await invoke<number>('export_apri', { path });
     const ws = new WritableStream<StreamTargetChunk>({

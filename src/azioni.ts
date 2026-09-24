@@ -269,12 +269,18 @@ export function montaDalPlayer(mode: M.EditMode) {
     const len = s2f(srcOut - srcIn, p.rate);
     recIn = Math.max(0, p.outF - len);
   }
-  const ids = store.edit(mode === 'insert' ? 'Inserisci' : 'Sovrascrivi', (pp) => M.placeSource(pp, { mediaId: m.id, srcIn, srcOut }, recIn, recOut, bersagli(), mode));
-  if (!ids.length) { avviso('Nessuna traccia di destinazione accesa (patch V / A1 / A2)', 'errore'); return; }
+  const tg = bersagli();
+  if (!(m.hasVideo && tg.video) && !(m.hasAudio && tg.audio.length)) { avviso('Nessuna traccia di destinazione accesa (patch V / A1 / A2)', 'errore'); return; }
+  // un solo passo di annulla: il montaggio e la pulizia di attacco/stacco insieme
+  const ids = store.edit(mode === 'insert' ? 'Inserisci' : 'Sovrascrivi', (pp) => {
+    const r = M.placeSource(pp, { mediaId: m.id, srcIn, srcOut }, recIn, recOut, tg, mode);
+    if (r.length) { pp.inF = null; pp.outF = null; }
+    return r;
+  });
+  if (!ids.length) return;
   const nuove = ids.map((id) => clipById(store.doc, id)!).filter(Boolean);
   const fine = Math.max(...nuove.map((c) => end(c)));
   store.select(ids);
-  store.edit('Posizione dopo il montaggio', (pp) => { pp.inF = null; pp.outF = null; });
   ultimoMontaggio = { a: recIn, b: fine };
   motore.setMonitor('recorder');
   store.setHead(fine);
@@ -384,7 +390,11 @@ export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'titl
   const rr = r();
   const vts = p.tracks.filter((t) => t.kind === 'video' && !t.lock);
   const ats = p.tracks.filter((t) => t.kind === 'audio' && !t.lock);
-  const libera = (from: typeof vts, len: number) => [...from].reverse().find((t) => !p.clips.some((c) => c.track === t.id && c.start < f + len && end(c) > f)) ?? from[from.length - 1];
+  // la prima traccia libera: il video da V1 in su, l'audio da A1 in giù
+  const libera = (from: typeof vts, len: number) => {
+    const ordine = from === vts ? [...from].reverse() : from;
+    return ordine.find((t) => !p.clips.some((c) => c.track === t.id && c.start < f + len && end(c) > f)) ?? ordine[0];
+  };
   const ids = store.edit('Generatore', (pp) => {
     const out: string[] = [];
     if (kind === 'bars') {

@@ -6,7 +6,7 @@ import { frameToTc, durataUmana, f2s } from '../core/timecode';
 import { azioni } from '../azioni';
 import { esporta, fotogrammaPng, scegliCodec, type Formato, type Qualita } from '../export/esporta';
 import { creaEdl } from '../export/edl';
-import { edizione, invoke, isTauri, salvaTesto, scarica, apriLink } from '../platform';
+import { dialogoSalva, edizione, invoke, isTauri, salvaTesto, scarica, apriLink } from '../platform';
 import { avviso, dialogo, h } from './dom';
 import { motore } from '../motore';
 
@@ -113,8 +113,7 @@ export async function esportaFotogramma() {
   const blob = await fotogrammaPng(p, f);
   const nome = `${p.name.replace(/[\\/:*?"<>|]/g, '_')}_${frameToTc(f, p.rate, p.drop).replace(/[:;]/g, '-')}.png`;
   if (isTauri) {
-    const { save } = await import('@tauri-apps/plugin-dialog');
-    const path = await save({ defaultPath: nome, filters: [{ name: 'PNG', extensions: ['png'] }] }).catch(() => null);
+    const path = await dialogoSalva(nome, 'png', 'image/png');
     if (!path) return;
     const id = await invoke<number>('export_apri', { path });
     await invoke('export_scrivi', new Uint8Array(await blob.arrayBuffer()), { headers: { 'x-id': String(id), 'x-pos': '0' } });

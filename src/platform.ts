@@ -23,22 +23,51 @@ export interface FileScelto { name: string; path?: string; file?: File }
 
 const ESTENSIONI = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'mts', 'm2ts', 'ts', 'mpg', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'ac3', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'];
 
+/**
+ * Il dialogo "apri" di Tauri. Su Android i filtri vanno per tipo MIME (le estensioni come .mts non le
+ * conosce) e chiudere il selettore senza scegliere dà un errore: qui diventa semplicemente "niente".
+ */
+export async function dialogoApri(o: { multiple: boolean; title: string; estensioni: string[]; mime: string[] }): Promise<string[]> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  try {
+    const filters = isAndroid
+      ? (o.mime.length ? [{ name: o.title, extensions: o.mime }] : [])
+      : [{ name: o.title, extensions: o.estensioni }, { name: 'Tutti i file', extensions: ['*'] }];
+    const r = await open({ multiple: o.multiple, title: o.title, filters });
+    if (!r) return [];
+    return Array.isArray(r) ? r : [r];
+  } catch {
+    return [];
+  }
+}
+
+/** il dialogo "salva" di Tauri (su Android: crea il documento dove sceglie l'utente) */
+export async function dialogoSalva(nome: string, estensione: string, mime: string): Promise<string | null> {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  try {
+    const filters = isAndroid ? [{ name: estensione.toUpperCase(), extensions: [mime] }] : [{ name: estensione.toUpperCase(), extensions: [estensione] }];
+    return (await save({ title: 'Salva', defaultPath: nome, filters })) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** sceglie i file da importare: nell'app con il dialogo di sistema (percorsi), nel browser con <input type=file> */
 export async function scegliMedia(): Promise<FileScelto[]> {
   if (isTauri) {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const r = await open({ multiple: true, title: 'Importa nel contenitore', filters: [{ name: 'Media', extensions: ESTENSIONI }, { name: 'Tutti i file', extensions: ['*'] }] });
-    if (!r) return [];
-    const list = Array.isArray(r) ? r : [r];
+    const list = await dialogoApri({ multiple: true, title: 'Importa nel contenitore', estensioni: ESTENSIONI, mime: ['video/*', 'audio/*', 'image/*'] });
     return list.map((p) => ({ name: nomeDaPercorso(p), path: p }));
   }
   return scegliFileBrowser('video/*,audio/*,image/*,.mts,.m2ts,.mkv,.mov,.ac3,.flac', true).then((fs) => fs.map((f) => ({ name: f.name, file: f })));
 }
 
-/** il nome del file da un percorso o da un indirizzo content:// di Android */
+/** il nome del file da un percorso o da un indirizzo content:// di Android ("video:1234" → "video 1234") */
 export function nomeDaPercorso(p: string): string {
-  const pulito = decodeURIComponent(p).replace(/\?.*$/, '');
-  return pulito.split(/[\\/:]/).pop() || p;
+  let pulito = p;
+  try { pulito = decodeURIComponent(p); } catch { /* resta com'è */ }
+  pulito = pulito.replace(/\?.*$/, '');
+  const ultimo = pulito.split(/[\\/]/).pop() || p;
+  return ultimo.replace(/^(\w+):(?!\\)/, '$1 ');
 }
 
 export function scegliFileBrowser(accept: string, multiple: boolean): Promise<File[]> {
@@ -58,9 +87,8 @@ export function scegliFileBrowser(accept: string, multiple: boolean): Promise<Fi
 /** apertura di un file di progetto .dpv: ritorna testo e (nell'app) percorso */
 export async function apriProgetto(): Promise<{ text: string; path?: string; name: string } | null> {
   if (isTauri) {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const p = await open({ multiple: false, title: 'Apri progetto', filters: [{ name: 'Progetto DaProd Video', extensions: ['dpv', 'json'] }] });
-    if (!p || Array.isArray(p)) return null;
+    const [p] = await dialogoApri({ multiple: false, title: 'Progetto DaProd Video', estensioni: ['dpv', 'json'], mime: [] });
+    if (!p) return null;
     const text = await invoke<string>('progetto_leggi', { path: p });
     return { text, path: p, name: nomeDaPercorso(p) };
   }
@@ -73,10 +101,7 @@ export async function apriProgetto(): Promise<{ text: string; path?: string; nam
 export async function salvaTesto(nome: string, testo: string, estensione: string, percorso?: string): Promise<string | null> {
   if (isTauri) {
     let p = percorso;
-    if (!p) {
-      const { save } = await import('@tauri-apps/plugin-dialog');
-      p = (await save({ title: 'Salva', defaultPath: nome, filters: [{ name: estensione.toUpperCase(), extensions: [estensione] }] })) ?? undefined;
-    }
+    if (!p) p = (await dialogoSalva(nome, estensione, 'text/plain')) ?? undefined;
     if (!p) return null;
     await invoke('progetto_scrivi', { path: p, text: testo });
     return p;
@@ -99,4 +124,16 @@ export async function apriLink(url: string) {
   if (isTauri) {
     await invoke('apri_link', { url }).catch(() => window.open(url, '_blank'));
   } else window.open(url, '_blank', 'noopener');
+}
+
+/** schermo intero: nell'app la finestra vera, nel browser la pagina */
+export async function schermoIntero() {
+  if (isTauri && !isAndroid) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const w = getCurrentWindow();
+    await w.setFullscreen(!(await w.isFullscreen())).catch(() => {});
+    return;
+  }
+  if (document.fullscreenElement) await document.exitFullscreen();
+  else await document.documentElement.requestFullscreen().catch(() => {});
 }
