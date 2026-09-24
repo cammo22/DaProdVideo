@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#09080d">
+<title>DaProd Video — il montaggio vecchio stile, moderno dentro</title>
+<meta name="description" content="Editor video con due monitor Player e Recorder, timeline, pulsantiera (1 taglia, 2 elimina), VU a lancetta, tendine SMPTE, titolatrice ed EDL. Per Windows, Mac, Android e nel browser.">
+<meta property="og:title" content="DaProd Video">
+<meta property="og:description" content="Il montaggio vecchio stile, moderno dentro. Windows, Mac, Android e browser.">
+<meta property="og:image" content="risorse/schermata.png">
+<link rel="icon" href="icona.svg" type="image/svg+xml">
+</head>
+<body>
+<nav class="barra">
+  <a class="marchio" href="#"><span class="moneta">D</span><span class="scritta">Da<b>Prod</b><i> VIDEO</i></span></a>
+  <div class="link">
+    <a href="#banco">Il banco</a>
+    <a href="#tasti">I tasti</a>
+    <a href="#scarica">Scarica</a>
+    <a href="#novita">Novità</a>
+    <a class="cta" href="app/">▶ Prova nel browser</a>
+  </div>
+</nav>
+
+<header class="eroe">
+  <div class="barre" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="eroe-testo">
+    <p class="sopratitolo">sala di montaggio · edizione <span id="versione">1.0.0</span></p>
+    <h1>Il montaggio <em>vecchio stile</em>,<br>moderno dentro.</h1>
+    <p class="sotto">Due monitor come in regia, la centralina con i tasti grandi, i VU a lancetta, le tendine SMPTE e la EDL.
+      Cursore sul punto, premi <kbd>1</kbd> e tagli, premi <kbd>2</kbd> ed elimini. Sotto il cofano WebCodecs, WebGL2 e Rust.</p>
+    <div class="azioni">
+      <a class="btn oro" href="app/">▶ PROVA ADESSO NEL BROWSER</a>
+      <a class="btn" href="#scarica">⬇ Scarica l'app</a>
+    </div>
+    <div class="tc-eroe"><span id="tcEroe">00:00:00:00</span><small>REC ●</small></div>
+  </div>
+  <figure class="schermata"><img src="risorse/schermata.png" alt="Il banco di montaggio DaProd Video: Player, Recorder, pulsantiera e timeline" loading="eager"></figure>
+</header>
+
+<section id="banco" class="sezione">
+  <h2>Il banco di montaggio</h2>
+  <p class="intro">Ispirato alle centraline a nastro e a EDIUS: poche cose, quelle giuste, sempre a portata di dito.</p>
+  <div class="griglia">
+    <article><b>🎞 Player e Recorder</b><p>A sinistra la sorgente, a destra il programma. Attacco e stacco su tutti e due, montaggio a tre punti con <kbd>,</kbd> inserisci e <kbd>.</kbd> sovrascrivi.</p></article>
+    <article><b>✂ Timeline che non inciampa</b><p>Disegnata su tela: miniature, forme d'onda, calamita, trim, roll, slip, ripple. Sposti le clip, separi l'audio, cambi traccia al volo.</p></article>
+    <article><b>🎚 Livelli al volo</b><p>Trasparenza per clip e per traccia, linee elastiche nel tempo, <kbd>Alt</kbd>+<kbd>↑↓</kbd> per il 10% in più o in meno. Chiave di luminanza e green screen.</p></article>
+    <article><b>🌀 Tendine SMPTE</b><p>Dissolvenza, passaggio al nero e le tendine del mixer video: orizzontale, porta, scatola, rombo, iride, orologio. Con bordo morbido e colorato.</p></article>
+    <article><b>📟 Timecode vero</b><p>Contatori a sette segmenti, drop-frame a 29,97, il tastierino numerico che scrive il timecode come in regia, shuttle <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> e manopola jog.</p></article>
+    <article><b>🔊 VU a lancetta</b><p>Due strumenti con l'inerzia vera (0 VU = −18 dBFS), il led di picco e il mixer con fader, panorama, muto e solo.</p></article>
+    <article><b>📺 Le macchine della sala</b><p>Barre colore SMPTE con tono a 1 kHz, countdown da pellicola col 2-pop, nero, colore, titolatrice con sottopancia, rullo e crawl.</p></article>
+    <article><b>🩻 Strumenti di misura</b><p>Forma d'onda in IRE e vettorscopio col fosforo verde. Proc amp da TBC: nero, guadagno, croma, fase. Look VHS, pellicola, tubo catodico.</p></article>
+    <article><b>📋 EDL CMX3600</b><p>La lista di montaggio che aprono Resolve, Avid, Premiere ed EDIUS. Più l'export MP4, MOV, WebM e WAV, e il fotogramma in PNG.</p></article>
+  </div>
+  <div class="foto-doppia">
+    <figure><img src="risorse/iride.png" alt="Tendina a iride fra due riprese" loading="lazy"><figcaption>La tendina 119 · iride, dal vivo nel Recorder</figcaption></figure>
+    <figure><img src="risorse/strumenti.png" alt="VU a lancetta, forma d'onda e vettorscopio" loading="lazy"><figcaption>VU a lancetta, forma d'onda e vettorscopio</figcaption></figure>
+  </div>
+</section>
+
+<section id="tasti" class="sezione scura">
+  <h2>La pulsantiera</h2>
+  <p class="intro">I numeri in alto sono i tasti di montaggio. Il tastierino numerico scrive il timecode.</p>
+  <div class="tastiera">
+    <div class="tasto"><span>1</span><b>TAGLIA</b><small>al cursore</small></div>
+    <div class="tasto rosso"><span>2</span><b>ELIMINA</b><small>la clip selezionata</small></div>
+    <div class="tasto"><span>3</span><b>CHIUDI</b><small>elimina e chiude il buco</small></div>
+    <div class="tasto"><span>4</span><b>SEPARA</b><small>audio e video</small></div>
+    <div class="tasto"><span>5</span><b>MIX</b><small>dissolvenza sul taglio</small></div>
+    <div class="tasto"><span>6</span><b>TENDINA</b><small>sul taglio</small></div>
+    <div class="tasto"><span>7</span><b>NERO</b><small>passaggio al nero</small></div>
+    <div class="tasto"><span>8</span><b>FADE</b><small>entra ed esce</small></div>
+  </div>
+  <table class="tabella">
+    <tr><td><kbd>Spazio</kbd></td><td>play / stop</td><td><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>shuttle indietro, fermo, avanti (ripeti per accelerare)</td></tr>
+    <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>attacco e stacco</td><td><kbd>Z</kbd> <kbd>X</kbd></td><td>solleva ed estrai fra attacco e stacco</td></tr>
+    <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>inserisci / sovrascrivi dal Player</td><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>taglio precedente / successivo</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Player ↔ Recorder</td><td><kbd>B</kbd></td><td>linee elastiche (trasparenza e volume)</td></tr>
+    <tr><td><kbd>R</kbd></td><td>ripple acceso / spento</td><td><kbd>Ins</kbd></td><td>modo inserisci / sovrascrivi</td></tr>
+    <tr><td><kbd>F</kbd></td><td>abbina fotogramma</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>annulla (fino a 200 passi)</td></tr>
+  </table>
+</section>
+
+<section id="scarica" class="sezione">
+  <h2>Scarica e monta</h2>
+  <p class="intro">Le app sono fatte con Tauri 2 (Rust): leggere e poche decine di MB. Ogni versione nuova esce da sola su GitHub.</p>
+  <div class="scarica">
+    <a class="app" data-os="win-port" href="https://github.com/cammo22/DaProdVideo/releases/latest"><span class="ico">🪟</span><b>Windows portatile</b><small>.exe · doppio clic e parte</small></a>
+    <a class="app" data-os="win-setup" href="https://github.com/cammo22/DaProdVideo/releases/latest"><span class="ico">💿</span><b>Windows installabile</b><small>.exe · con il collegamento sul desktop</small></a>
+    <a class="app" data-os="mac" href="https://github.com/cammo22/DaProdVideo/releases/latest"><span class="ico">🍎</span><b>Mac</b><small>.dmg · Intel e Apple Silicon</small></a>
+    <a class="app" data-os="android" href="https://github.com/cammo22/DaProdVideo/releases/latest"><span class="ico">🤖</span><b>Android</b><small>.apk · telefoni e tablet</small></a>
+    <a class="app web" href="app/"><span class="ico">🌐</span><b>Nel browser</b><small>versione prova · Chrome, Edge, Safari 26</small></a>
+  </div>
+  <p class="dove" id="dove">Tutte le versioni: <a href="https://github.com/cammo22/DaProdVideo/releases">release su GitHub</a></p>
+  <div class="differenze">
+    <b>App o browser?</b>
+    <p>Nel browser il banco è completo, ma i file restano nel browser: per riaprire un progetto bisogna ridare il permesso sui file (Chrome ed Edge) o ricollegarli. Nell'app i file si leggono dal disco con Rust, l'export si scrive mentre esce anche per ore di girato, e il montaggio riparte da dove eri rimasto.</p>
+  </div>
+</section>
+
+<section id="novita" class="sezione scura">
+  <h2>Novità</h2>
+  <div id="novitaLista" class="novita"></div>
+</section>
+
+<footer class="piede">
+  DaProd · DaProd Video <span id="versionePiede">1.0.0</span> · <a href="https://github.com/cammo22/DaProdVideo">codice su GitHub</a> · licenza MIT<br>
+  <small>Motore: Mediabunny + WebCodecs · WebGL2 · Web Audio · Tauri 2 / Rust. Font DSEG, Orbitron, Rajdhani (OFL).</small>
+</footer>
+<script type="module" src="src/home/home.ts"></script>
+</body>
+</html>
