@@ -5,6 +5,8 @@
 //! senza caricarli in memoria), scrivere l'export mentre esce, salvare i progetti e l'autosalvataggio.
 //! Su Android i file arrivano come `content://` e passano dal plugin fs, che li apre con un descrittore vero.
 
+mod audio_riserva;
+
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::str::FromStr;
@@ -205,6 +207,32 @@ async fn export_chiudi(stato: State<'_, Stato>, id: u32) -> Esito<()> {
     Ok(())
 }
 
+/// Decodifica audio di riserva (vedi audio_riserva.rs): apre un decoder per una traccia.
+#[tauri::command]
+fn audio_apri(dec: State<'_, audio_riserva::Decoder>, codec: String, sample_rate: u32, channels: u16, description: Option<Vec<u8>>) -> Esito<u32> {
+    dec.apri(&codec, sample_rate, channels, description)
+}
+
+/// Decodifica un pacchetto: il corpo sono i byte compressi, x-id il decoder. Torna PCM f32.
+#[tauri::command]
+async fn audio_decodifica(dec: State<'_, audio_riserva::Decoder>, request: Request<'_>) -> Esito<Response> {
+    let id: u32 = request
+        .headers()
+        .get("x-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .ok_or("manca x-id")?;
+    let InvokeBody::Raw(dati) = request.body() else {
+        return Err("servono byte grezzi".into());
+    };
+    Ok(Response::new(dec.decodifica(id, dati)?))
+}
+
+#[tauri::command]
+fn audio_chiudi(dec: State<'_, audio_riserva::Decoder>, id: u32) {
+    dec.chiudi(id);
+}
+
 /// Apre un link nel browser di sistema.
 #[tauri::command]
 fn apri_link(app: AppHandle, url: String) -> Esito<()> {
@@ -222,6 +250,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Stato::default())
+        .manage(audio_riserva::Decoder::default())
         .invoke_handler(tauri::generate_handler![
             media_dimensione,
             media_leggi,
@@ -234,6 +263,9 @@ pub fn run() {
             export_scrivi,
             export_chiudi,
             apri_link,
+            audio_apri,
+            audio_decodifica,
+            audio_chiudi,
         ])
         .run(tauri::generate_context!())
         .expect("errore all'avvio di DaProd Video");

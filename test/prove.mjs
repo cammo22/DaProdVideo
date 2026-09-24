@@ -67,15 +67,40 @@ try {
   prova('una dissolvenza e una tendina a iride', d.clips.some((c) => c.trIn?.type === 'mix') && d.clips.some((c) => c.trIn?.pattern === 119));
   await page.screenshot({ path: path.join(OUT, 'demo.png') });
 
+  console.log('▶ Trascina dal contenitore alla timeline');
+  {
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('dpv:adatta')));
+    await page.waitForTimeout(300);
+    const n0 = await conta();
+    const fine0 = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    const voce = await page.locator('.bin-voce').nth(1).boundingBox();
+    const tela = await page.locator('.tl-tela').boundingBox();
+    await page.mouse.move(voce.x + voce.width / 2, voce.y + voce.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(voce.x + 60, voce.y + 40, { steps: 5 });
+    await page.mouse.move(tela.x + tela.width - 12, tela.y + 30 + 58 + 58 + 29, { steps: 10 });
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const dd = await doc();
+    const aggiunte = dd.clips.filter((c) => c.start >= fine0);
+    prova('trascinata col mouse: video e audio in coda', dd.clips.length === n0 + 2 && aggiunte.length === 2, `${n0} → ${dd.clips.length}`);
+    await tasto('Control+z');
+    prova('e si annulla', (await conta()) === n0);
+  }
+
   console.log('▶ Recorder');
   await page.evaluate(() => window.__motore.vaiA(60));
-  await page.waitForTimeout(900);
-  const luce = await page.evaluate(() => {
-    const px = new Uint8Array(64 * 36 * 4);
-    window.__motore.rec.leggiPiccolo(64, 36, px);
-    let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2];
-    return s / (64 * 36 * 3);
-  });
+  let luce = 0;
+  for (let i = 0; i < 25 && luce <= 20; i++) {
+    await page.waitForTimeout(200);
+    luce = await page.evaluate(() => {
+      const px = new Uint8Array(64 * 36 * 4);
+      window.__motore.rec.leggiPiccolo(64, 36, px);
+      let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2];
+      return s / (64 * 36 * 3);
+    });
+  }
   prova('il Recorder mostra l\'immagine (non nero)', luce > 20, luce.toFixed(1));
 
   console.log('▶ Tasto 1: taglia');

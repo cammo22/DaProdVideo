@@ -11,6 +11,7 @@ import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
 import { modi, esegui, montaDalPlayer, bersagli, inserisciGeneratore } from '../azioni';
 import { avviso, chiedi, clamp, h, icona, menuContesto, type VoceMenu } from './dom';
+import { registraBersaglio } from './trascina';
 
 const RIGHELLO = 30;
 const SEP = 8;
@@ -74,7 +75,7 @@ export class Timeline {
         h('button', { class: 'btn-mini', title: 'Aggiungi traccia audio (Ctrl+Alt+A)', on: { click: () => esegui('tracciaA') } }, '+A')),
       this.testate, this.area);
     new ResizeObserver(() => this.adatta()).observe(this.area);
-    store.on('doc', () => { this.costruisciTestate(); this.sporca(); });
+    store.on('doc', () => { this.testateSeCambiate(); this.sporca(); });
     store.on('sel', () => this.sporca());
     store.on('view', () => { this.costruisciTestate(); this.sporca(); });
     store.on('status', () => this.sporca());
@@ -178,7 +179,17 @@ export class Timeline {
   }
 
   // ——— testate ———
+  private firmaTestate = '';
+  /** le testate si rifanno solo se cambiano le tracce, non a ogni spostamento di clip */
+  private testateSeCambiate() {
+    const b = bersagli();
+    const f = store.doc.tracks.map((t) => [t.id, t.name, t.height, t.mute, t.solo, t.lock, t.opacity, t.volume].join(',')).join(';') + '|' + b.video + b.audio.join(',') + '|' + this.scrollY;
+    if (f !== this.firmaTestate) this.costruisciTestate();
+  }
+
   costruisciTestate() {
+    const bb0 = bersagli();
+    this.firmaTestate = store.doc.tracks.map((t) => [t.id, t.name, t.height, t.mute, t.solo, t.lock, t.opacity, t.volume].join(',')).join(';') + '|' + bb0.video + bb0.audio.join(',') + '|' + this.scrollY;
     const p = store.doc;
     this.testate.replaceChildren();
     this.testate.style.setProperty('--righello', RIGHELLO + 'px');
@@ -744,25 +755,12 @@ export class Timeline {
       el.addEventListener('pointermove', mv);
       el.addEventListener('pointerup', up);
     });
-    // trascinamento dal contenitore
-    this.area.addEventListener('dragover', (e) => {
-      const id = e.dataTransfer?.types.includes('application/x-dpv') ;
-      if (!id) return;
-      e.preventDefault();
-      e.dataTransfer!.dropEffect = 'copy';
-      const { x, y } = pos(e);
-      this.fantasma = this.anteprimaDrop(x, y);
-      this.sporca();
-    });
-    this.area.addEventListener('dragleave', () => { this.fantasma = null; this.sporca(); });
-    this.area.addEventListener('drop', (e) => {
-      const dato = e.dataTransfer?.getData('application/x-dpv');
-      this.fantasma = null;
-      if (!dato) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const { x, y } = pos(e);
-      this.rilascia(dato, x, y);
+    // trascinamento dal contenitore (col puntatore: vedi trascina.ts)
+    registraBersaglio({
+      el: this.area,
+      sopra: (x, y, dato) => { const q = pos({ clientX: x, clientY: y }); this.fantasma = this.anteprimaDrop(q.x, q.y, dato); this.sporca(); },
+      lascia: (x, y, dato) => { const q = pos({ clientX: x, clientY: y }); this.fantasma = null; this.rilascia(dato, q.x, q.y); this.sporca(); },
+      esci: () => { this.fantasma = null; this.snapLinea = null; this.sporca(); },
     });
   }
 
@@ -931,9 +929,7 @@ export class Timeline {
     store.select(ids, q.add);
   }
 
-  private anteprimaDrop(x: number, y: number) {
-    const dato = trascinato;
-    if (!dato) return null;
+  private anteprimaDrop(x: number, y: number, dato: string) {
     const p = store.doc;
     const f = Math.max(0, Math.round(this.xF(x)));
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
@@ -1041,10 +1037,6 @@ export class Timeline {
   inserisciDaPlayer() { montaDalPlayer(modi.inserisci ? 'insert' : 'overwrite'); }
 }
 
-/** quello che si sta trascinando dal contenitore (dragover non può leggere i dati, solo i tipi) */
-export let trascinato: string | null = null;
-export function iniziaTrascinamento(dato: string) { trascinato = dato; }
-export function fineTrascinamento() { trascinato = null; }
 
 let tAvviso = 0;
 function avvisoValore(t: string) {

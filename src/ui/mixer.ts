@@ -153,8 +153,12 @@ export class Mixer {
   }
   private trascinando = false;
 
+  private firma = '';
   private costruisci() {
     const p = store.doc;
+    const firma = p.tracks.map((t) => [t.id, t.name, t.mute, t.solo, t.opacity, t.volume, t.pan].join(',')).join(';');
+    if (firma === this.firma) return;
+    this.firma = firma;
     this.misure.clear();
     const strisce: HTMLElement[] = [];
     for (const t of p.tracks) {

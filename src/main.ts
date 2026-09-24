@@ -8,6 +8,7 @@ import './stile/editor.css';
 import { avvia } from './ui/app';
 import { h } from './ui/dom';
 import { isTauri } from './platform';
+import { preparaRiserva } from './media/riserva';
 
 const radice = document.getElementById('app')!;
 
@@ -30,6 +31,8 @@ if (problema) {
   // le barre colore all'accensione, come le macchine della sala
   const avvio = h('div', { class: 'avvio' }, h('div', { class: 'avvio-targa' }, h('span', { class: 'marchio-grande' }, 'Da', h('b', null, 'Prod'), ' Video'), h('small', null, '00:00:00:00')));
   document.body.appendChild(avvio);
+  // nell'app, prima di aprire qualunque file, si accende (se serve) la decodifica audio di riserva in Rust
+  await preparaRiserva().catch(() => []);
   avvia(radice);
   setTimeout(() => { avvio.classList.add('via'); setTimeout(() => avvio.remove(), 500); }, isTauri ? 500 : 900);
 }

@@ -191,6 +191,7 @@ async function calcolaPicchi(r: MediaRT, durata: number) {
   r.peaksDone = 0;
   const sink = new AudioBufferSink(r.a);
   let ultimo = performance.now();
+  let fetta = performance.now();
   try {
     for await (const { buffer, timestamp } of sink.buffers()) {
       const sr = buffer.sampleRate;
@@ -210,7 +211,11 @@ async function calcolaPicchi(r: MediaRT, durata: number) {
       if (performance.now() - ultimo > 250) {
         ultimo = performance.now();
         for (const fn of onPicchi) fn(r.id);
+      }
+      // a fette brevi: la forma d'onda si calcola senza bloccare l'interfaccia
+      if (performance.now() - fetta > 12) {
         await new Promise((ok) => setTimeout(ok, 0));
+        fetta = performance.now();
       }
       if (rt.get(r.id) !== r) return;
     }

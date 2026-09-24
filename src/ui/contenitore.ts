@@ -7,7 +7,7 @@ import { durataUmana } from '../core/timecode';
 import { esegui, inserisciGeneratore, montaDalPlayer, modi } from '../azioni';
 import { importaDialogo, importaDaDrop, ricollega, togliMedia } from '../progetti';
 import { avviso, chiedi, h, icona, menuContesto } from './dom';
-import { fineTrascinamento, iniziaTrascinamento } from './timeline';
+import { trascinabile } from './trascina';
 import type { MediaItem } from '../core/tipi';
 import { projectEnd } from '../core/progetto';
 
@@ -62,8 +62,15 @@ export class Contenitore {
     this.lista.querySelectorAll('.bin-voce').forEach((el) => el.classList.toggle('nel-player', (el as HTMLElement).dataset.id === motore.playerMedia));
   }
 
-  disegnaMedia() {
+  private firma = '';
+  disegnaMedia(forza = false) {
     const p = store.doc;
+    // si ricostruisce solo se cambia qualcosa che si vede qui (non a ogni spostamento di clip)
+    const usi = new Map<string, number>();
+    for (const c of p.clips) if (c.media) usi.set(c.media, (usi.get(c.media) ?? 0) + 1);
+    const firma = this.filtro + '|' + p.media.map((m) => [m.id, m.name, m.markIn, m.markOut, usi.get(m.id) ?? 0, mediaRT(m.id)?.stato, !!mediaRT(m.id)?.poster].join(',')).join(';');
+    if (!forza && firma === this.firma) return;
+    this.firma = firma;
     const voci = p.media.filter((m) => !this.filtro || m.name.toLowerCase().includes(this.filtro));
     if (!p.media.length) {
       this.lista.replaceChildren(h('div', { class: 'bin-vuoto' },
@@ -97,12 +104,10 @@ export class Contenitore {
     const badge = [m.hasVideo && m.type !== 'image' ? 'V' : '', m.type === 'image' ? 'IMG' : '', m.hasAudio ? 'A' + (m.channels > 2 ? m.channels : '') : ''].filter(Boolean).join(' ');
     const info = m.type === 'audio' ? `${m.acodec.toUpperCase()} · ${m.sampleRate / 1000} kHz` : `${m.width}×${m.height}${m.fps ? ' · ' + Math.round(m.fps * 100) / 100 + ' fps' : ''}`;
     const el = h('div', {
-      class: 'bin-voce' + (ok ? '' : ' offline'), draggable: 'true', 'data-id': m.id, title: `${m.name}\n${m.container} · ${m.vcodec || ''} ${m.acodec || ''}\n${info}`,
+      class: 'bin-voce' + (ok ? '' : ' offline'), 'data-id': m.id, title: `${m.name}\n${m.container} · ${m.vcodec || ''} ${m.acodec || ''}\n${info}`,
       on: {
         dblclick: () => { motore.caricaPlayer(m.id); motore.setMonitor('player'); },
         click: () => { if (matchMedia('(pointer: coarse)').matches) { motore.caricaPlayer(m.id); motore.setMonitor('player'); } },
-        dragstart: (e: DragEvent) => { iniziaTrascinamento('m:' + m.id); e.dataTransfer!.setData('application/x-dpv', 'm:' + m.id); e.dataTransfer!.effectAllowed = 'copy'; },
-        dragend: () => fineTrascinamento(),
         contextmenu: (e: MouseEvent) => {
           e.preventDefault();
           menuContesto(e.clientX, e.clientY, [
@@ -123,18 +128,19 @@ export class Contenitore {
         h('span', null, ok ? `${m.type === 'image' ? 'immagine' : durataUmana(m.duration - (m.t0 || 0))} · ${info}` : (rt?.stato === 'caricamento' ? 'apro…' : 'OFFLINE · da ricollegare'))),
       h('div', { class: 'bin-badge' }, badge ? h('span', { class: 'badge' }, badge) : null, usi ? h('span', { class: 'badge usato', title: 'Clip nella timeline' }, '×' + usi) : null,
         m.markIn != null || m.markOut != null ? h('span', { class: 'badge segnato', title: 'Attacco/stacco segnati' }, 'I/O') : null));
+    trascinabile(el, () => 'm:' + m.id, () => '🎞 ' + m.name);
     return el;
   }
 
   private paginaGeneratori(): HTMLElement {
-    const g = (kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero', nome: string, desc: string, anteprima: string, extra?: () => void) => h('div', {
-      class: 'gen-voce', draggable: 'true', title: 'Clic: al cursore · Trascina: dove vuoi',
-      on: {
-        click: () => { if (extra) extra(); else inserisciGeneratore(kind); avviso(`${nome} al cursore`, 'ok', 1000); },
-        dragstart: (e: DragEvent) => { iniziaTrascinamento('g:' + kind); e.dataTransfer!.setData('application/x-dpv', 'g:' + kind); },
-        dragend: () => fineTrascinamento(),
-      },
-    }, h('div', { class: 'gen-anteprima ' + anteprima }), h('div', { class: 'bin-testo' }, h('b', null, nome), h('span', null, desc)));
+    const g = (kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero', nome: string, desc: string, anteprima: string, extra?: () => void) => {
+      const el = h('div', {
+        class: 'gen-voce', title: 'Clic: al cursore · Trascina: dove vuoi',
+        on: { click: () => { if (extra) extra(); else inserisciGeneratore(kind); avviso(`${nome} al cursore`, 'ok', 1000); } },
+      }, h('div', { class: 'gen-anteprima ' + anteprima }), h('div', { class: 'bin-testo' }, h('b', null, nome), h('span', null, desc)));
+      if (!extra) trascinabile(el, () => 'g:' + kind, () => '📺 ' + nome);
+      return el;
+    };
     const titolo = (stile: 'fisso' | 'sottopancia' | 'rullo' | 'crawl', testo: string) => () => {
       const ids = inserisciGeneratore('title');
       store.edit('Stile titolo', (p) => { for (const c of p.clips) if (ids.includes(c.id) && c.gen?.title) { c.gen.title.style = stile; c.gen.title.text = testo; if (stile === 'sottopancia') { c.gen.title.size = 56; c.gen.title.align = 'left'; } if (stile === 'rullo') { c.len = c.len * 3; c.gen.title.size = 64; } if (stile === 'crawl') { c.len = c.len * 2; c.gen.title.size = 50; c.gen.title.y = 0.9; c.gen.title.box = true; } } });
@@ -157,8 +163,8 @@ export class Contenitore {
     const t = (id: string, nome: string, desc: string, pat?: number) => {
       const cv = h('canvas', { class: 'tr-anteprima', width: 96, height: 54 });
       anteprimaTransizione(cv, id, pat);
-      return h('div', {
-        class: 'gen-voce', draggable: 'true', title: 'Trascina sul taglio · clic: sul taglio sotto il cursore o sulla clip selezionata',
+      const el = h('div', {
+        class: 'gen-voce', title: 'Trascina sul taglio · clic: sul taglio sotto il cursore o sulla clip selezionata',
         on: {
           click: () => {
             if (id === 'mix') esegui('dissolvenza');
@@ -168,10 +174,10 @@ export class Contenitore {
               store.edit('Tendina', (p) => { for (const c of p.clips) if (c.trIn?.type === 'wipe' && (store.sel.has(c.id) || Math.abs(c.start - store.head) < 13)) c.trIn.pattern = pat ?? 1; });
             }
           },
-          dragstart: (e: DragEvent) => { const d = 't:' + (id === 'wipe' ? 'wipe:' + pat : id); iniziaTrascinamento(d); e.dataTransfer!.setData('application/x-dpv', d); },
-          dragend: () => fineTrascinamento(),
         },
       }, cv, h('div', { class: 'bin-testo' }, h('b', null, nome), h('span', null, desc)));
+      trascinabile(el, () => 't:' + (id === 'wipe' ? 'wipe:' + pat : id), () => '✦ ' + nome);
+      return el;
     };
     return h('div', { class: 'bin-pagina gen-lista' },
       h('p', { class: 'nota' }, 'Come sul mixer video: trascina sul taglio fra due clip. Durata e bordo si cambiano nelle proprietà.'),
