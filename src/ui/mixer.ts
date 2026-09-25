@@ -164,6 +164,8 @@ export class Mixer {
     this.misure.clear();
     const strisce: HTMLElement[] = [];
     for (const t of p.tracks) {
+      // la corsia FX non ha livelli da mixare
+      if (t.kind === 'fx') continue;
       const video = t.kind === 'video';
       const fader = h('input', {
         type: 'range', class: 'fader-v', min: video ? 0 : -60, max: video ? 100 : 12, step: video ? 1 : 0.5,

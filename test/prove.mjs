@@ -29,6 +29,8 @@ page.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
 
 const doc = () => page.evaluate(() => window.__dpv.doc);
 const conta = () => page.evaluate(() => window.__dpv.doc.clips.length);
+/** il blocchetto transizione che sta sul fotogramma f */
+const bloccoSul = (d, f) => d.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= f && c.start + c.len >= f);
 const tasto = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(120); };
 
 try {
@@ -63,9 +65,11 @@ try {
   await page.waitForTimeout(1500);
   let d = await doc();
   prova('tre riprese nel contenitore', d.media.length === 3, d.media.length);
-  prova('otto clip nella timeline', d.clips.length === 8, d.clips.length);
+  prova('otto clip nella timeline', d.clips.filter((c) => c.kind !== 'fx').length === 8, d.clips.length);
   prova('video e audio legati', d.clips.filter((c) => c.link).length === 6);
-  prova('una dissolvenza e una tendina a iride', d.clips.some((c) => c.trIn?.type === 'mix') && d.clips.some((c) => c.trIn?.pattern === 119));
+  prova('la corsia FX sta in cima, alta la metà del video', d.tracks[0].kind === 'fx' && d.tracks[0].height * 2 === d.tracks.find((t) => t.kind === 'video').height);
+  prova('una dissolvenza e una tendina a iride in blocchetti sul taglio', d.clips.some((c) => c.fxb?.id === 'mix') && d.clips.some((c) => c.fxb?.id === 'wipe:119'));
+  prova('un lampo e uno zoom lento nella corsia FX', d.clips.some((c) => c.fxb?.id === 'flash') && d.clips.some((c) => c.fxb?.id === 'zoomLento'));
   await page.screenshot({ path: path.join(OUT, 'demo.png') });
 
   console.log('▶ Trascina dal contenitore alla timeline');
@@ -77,7 +81,7 @@ try {
     const voce = await page.locator('.carta[data-id]').nth(1).boundingBox();
     const tela = await page.locator('.tl-tela').boundingBox();
     // la riga di V1: righello + le tracce video sopra + metà di V1
-    const yV1 = await page.evaluate(() => { const t = window.__dpv.doc.tracks; const i = t.findIndex((x) => x.name === 'V1'); return 34 + t.slice(0, i).reduce((s, x) => s + x.height, 0) + t[i].height / 2; });
+    const yV1 = await page.evaluate(() => { const r = window.__dpvTest.ui().tl.riga(window.__dpv.doc.tracks.find((x) => x.name === 'V1').id); return r.y + r.h / 2; });
     await page.mouse.move(voce.x + voce.width / 2, voce.y + voce.height / 2);
     await page.mouse.down();
     await page.mouse.move(voce.x + 60, voce.y + 40, { steps: 5 });
@@ -173,12 +177,19 @@ try {
 
   console.log('▶ Tasto 5: dissolvenza');
   d = await doc();
-  const taglio = d.clips.filter((c) => c.track === v1 && !c.trIn).sort((a, b) => a.start - b.start).find((c) => c.start > 0 && d.clips.some((x) => x.track === v1 && x.start + x.len === c.start));
+  const taglio = d.clips.filter((c) => c.track === v1).sort((a, b) => a.start - b.start).find((c) => c.start > 0 && !bloccoSul(d, c.start) && d.clips.some((x) => x.track === v1 && x.start + x.len === c.start));
   await page.evaluate(() => window.__dpv.select([]));
   await page.evaluate((f) => window.__motore.vaiA(f), taglio.start);
   await tasto('5');
   d = await doc();
-  prova('5 mette la dissolvenza sul taglio sotto il cursore', d.clips.find((c) => c.id === taglio.id)?.trIn?.type === 'mix');
+  const b5 = bloccoSul(d, taglio.start);
+  prova('5 mette la dissolvenza sul taglio sotto il cursore (centrata)', b5?.fxb.id === 'mix' && Math.abs(b5.start + b5.len / 2 - taglio.start) <= 1, JSON.stringify(b5 && { s: b5.start, l: b5.len, t: taglio.start }));
+  prova('la dissolvenza non cambia la durata delle clip', d.clips.find((c) => c.id === taglio.id).len === taglio.len);
+  const strati5 = await page.evaluate((f) => window.__dpvTest.pianoVideo(window.__dpv.doc, f).map((s) => ({ a: s.a?.clip.id, b: s.b?.clip.id, tr: !!s.tr })), taglio.start - 2);
+  prova('prima del taglio si vedono tutte e due le clip', strati5.some((s) => s.tr && s.a && s.b === taglio.id), JSON.stringify(strati5));
+  await tasto('5');
+  d = await doc();
+  prova('5 di nuovo toglie la dissolvenza', !bloccoSul(d, taglio.start));
 
   console.log('▶ Attacco, stacco, estrai');
   const fineP = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
@@ -270,9 +281,9 @@ try {
     await page.evaluate((f) => { window.__dpv.select([]); window.__motore.vaiA(f); }, taglio2.start);
     await page.locator('.gen-voce', { hasText: 'Cubo 3D' }).click();
     let dd = await doc();
-    const cubo = dd.clips.find((c) => c.id === taglio2.id);
-    prova('clic su "Cubo 3D": effetto digitale sul taglio', cubo.trIn?.type === 'dve' && cubo.trIn?.pattern === 401, JSON.stringify(cubo.trIn));
-    await page.evaluate((f) => window.__motore.vaiA(f), taglio2.start + Math.round(cubo.trIn.len / 2));
+    const cubo = bloccoSul(dd, taglio2.start);
+    prova('clic su "Cubo 3D": la transizione sul taglio diventa il cubo', cubo?.fxb.id === 'dve:401' && cubo.fxb.tr.pattern === 401, JSON.stringify(cubo?.fxb));
+    await page.evaluate((f) => window.__motore.vaiA(f), taglio2.start);
     let lum = 0;
     for (let i = 0; i < 25 && lum <= 8; i++) {
       await page.waitForTimeout(200);
@@ -281,7 +292,7 @@ try {
     prova('a metà del cubo il Recorder mostra le due facce', lum > 8, lum.toFixed(1));
     await page.locator('.gen-voce', { hasText: '121 · Cuore' }).click();
     dd = await doc();
-    prova('clic su "Cuore": diventa una tendina 121', dd.clips.find((c) => c.id === taglio2.id).trIn?.pattern === 121 && dd.clips.find((c) => c.id === taglio2.id).trIn?.type === 'wipe');
+    prova('clic su "Cuore": diventa una tendina 121', bloccoSul(dd, taglio2.start)?.fxb.tr.pattern === 121 && bloccoSul(dd, taglio2.start)?.fxb.tr.type === 'wipe');
     await page.locator('.gen-voce', { hasText: 'Mosaico' }).click();
     const edl2 = await page.evaluate(() => window.__dpvTest.creaEdl(window.__dpv.doc));
     prova('la EDL annota l\'effetto digitale', edl2.includes('* EFFETTO: Mosaico'));
@@ -385,8 +396,8 @@ try {
     // dove sta la linea del volume della prima clip di A1 (stessa geometria della timeline)
     const punto = (k) => page.evaluate((k) => {
       const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc;
-      let y = 34 - tl.scrollY, prima = null, riga = null;
-      for (const t of d.tracks) { if (prima && prima.kind === 'video' && t.kind === 'audio') y += 10; if (t.name === 'A1') { riga = { y, h: t.height, id: t.id }; break; } y += t.height; prima = t; }
+      const a1 = d.tracks.find((t) => t.name === 'A1');
+      const riga = { ...tl.riga(a1.id), id: a1.id };
       const c = d.clips.filter((x) => x.track === riga.id).sort((a, b) => a.start - b.start)[0];
       const top = riga.y + 2, alt = riga.h - 4, testa = Math.min(17, Math.round(alt * 0.34)), cy = top + testa, ch = alt - testa;
       const ly = cy + ch - ((c.gain + 40) / 52) * ch;
@@ -412,11 +423,10 @@ try {
     const carta = await page.locator('.carta.tr', { hasText: 'Dissolvenza incrociata' }).boundingBox();
     const dove = await page.evaluate(() => {
       const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc;
-      let y = 34 - tl.scrollY;
-      for (const t of d.tracks) { if (t.name === 'V1') { y += t.height / 2; break; } y += t.height; }
       const v1 = d.tracks.find((t) => t.name === 'V1').id;
+      const r = tl.riga(v1);
       const c = d.clips.filter((x) => x.track === v1).sort((a, b) => b.start - a.start)[0];
-      return { x: (c.start + c.len * 0.9 - tl.scrollF) * tl.ppf, y, id: c.id };
+      return { x: (c.start + c.len * 0.97 - tl.scrollF) * tl.ppf, y: r.y + r.h / 2, id: c.id, fine: c.start + c.len, len: c.len };
     });
     await page.mouse.move(carta.x + carta.width / 2, carta.y + carta.height / 2);
     await page.mouse.down();
@@ -426,7 +436,9 @@ try {
     await page.mouse.up();
     await page.waitForTimeout(200);
     dd = await doc();
-    prova('transizione trascinata sulla coda di una clip: esce in dissolvenza', dd.clips.find((c) => c.id === dove.id).trOut?.type === 'mix', JSON.stringify(dd.clips.find((c) => c.id === dove.id).trOut));
+    const bc = bloccoSul(dd, dove.fine - 1);
+    prova('transizione trascinata sulla fine di una clip: un blocchetto che finisce con lei', bc?.fxb.id === 'mix' && bc.start + bc.len === dove.fine, JSON.stringify(bc && { s: bc.start, l: bc.len, fine: dove.fine }));
+    prova('la clip non cambia durata', dd.clips.find((c) => c.id === dove.id).len === dove.len);
     await tasto('Control+z');
     await page.click('.bin-cat[data-c=tutto]');
   }
@@ -437,10 +449,11 @@ try {
     const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
     const ultima = dd.clips.filter((c) => c.track === tv1).sort((x, y) => y.start - x.start)[0];
     const len0 = ultima.len;
-    await page.evaluate((id) => window.__dpvTest.Z.applicaTransizione('dve', 301, { clipId: id, lato: 'out' }), ultima.id);
+    await page.evaluate((f) => { window.__dpv.select([]); window.__dpvTest.Z.mettiBlocco('transizione', 'dve:301', f); }, ultima.start + ultima.len);
     dd = await doc();
     const u2 = dd.clips.find((c) => c.id === ultima.id);
-    prova('transizione in coda sull\'ultima clip, senza cambiarne la durata', u2.trOut?.type === 'dve' && u2.len === len0);
+    const bu = bloccoSul(dd, u2.start + u2.len - 1);
+    prova('transizione in coda sull\'ultima clip, senza cambiarne la durata', bu?.fxb.id === 'dve:301' && u2.len === len0);
     const strati = await page.evaluate(({ f }) => window.__dpvTest.pianoVideo(window.__dpv.doc, f).map((s) => ({ a: !!s.a, b: !!s.b, tr: !!s.tr })), { f: u2.start + u2.len - 3 });
     prova('in coda la clip esce su quello che c\'è sotto', strati.some((s) => s.a && !s.b && s.tr), JSON.stringify(strati));
     await tasto('Control+z');
@@ -454,6 +467,127 @@ try {
     prova('la carta dell\'effetto si accende', accesa);
     await tasto('Control+z');
     await page.click('.bin-cat[data-c=tutto]');
+  }
+
+
+  console.log('▶ Corsia FX: effetti a tempo trascinati');
+  {
+    await page.evaluate(() => { window.__dpv.select([]); document.dispatchEvent(new CustomEvent('dpv:adatta')); });
+    await page.waitForTimeout(300);
+    await page.click('.bin-cat[data-c=effetti]');
+    await page.waitForTimeout(250);
+    prova('il contenitore ha gli effetti rapidi e lunghi', (await page.locator('.carta.fxt').count()) >= 20);
+    const box = await page.locator('.tl-tela').boundingBox();
+    const xy = (f, nome) => page.evaluate(({ f, nome }) => { const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc; const r = tl.riga(d.tracks.find((t) => t.name === nome).id); return { x: (f - tl.scrollF) * tl.ppf, y: r.y + r.h / 2 }; }, { f, nome });
+    const trascina = async (sel, q) => {
+      const c = await page.locator(sel).first().boundingBox();
+      await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(c.x + 60, c.y + 40, { steps: 4 });
+      await page.mouse.move(box.x + q.x, box.y + q.y, { steps: 10 });
+      await page.waitForTimeout(150);
+      await page.mouse.up();
+      await page.waitForTimeout(250);
+    };
+    const n0 = (await doc()).clips.length;
+    // un punto lontano dai tagli (vicino a un taglio il blocco si centrerebbe lì)
+    const lontano = await page.evaluate(() => {
+      const d = window.__dpv.doc, video = new Set(d.tracks.filter((t) => t.kind === 'video').map((t) => t.id));
+      const bordi = d.clips.filter((c) => video.has(c.track)).flatMap((c) => [c.start, c.start + c.len]);
+      for (let f = 30; f < 400; f++) if (bordi.every((b) => Math.abs(b - f) > 18)) return f;
+      return 60;
+    });
+    await trascina('.carta.fxt[data-fx=scossa]', await xy(lontano, 'V1'));
+    let dd = await doc();
+    const scossa = dd.clips.find((c) => c.fxb?.id === 'scossa');
+    prova('la scossa trascinata sulla clip diventa un blocchetto nella corsia FX', !!scossa && dd.tracks.find((t) => t.id === scossa.track).kind === 'fx' && Math.abs(scossa.start - lontano) <= 3 && scossa.len === 13 && dd.clips.length === n0 + 1, JSON.stringify(scossa && { s: scossa.start, l: scossa.len, f: lontano }));
+    const st = await page.evaluate((f) => { const s = window.__dpvTest.B.statoEffetti(window.__dpv.doc, f); return s && { zoom: s.zoom, dx: s.dx }; }, scossa.start + 2);
+    prova('sotto la scossa l\'immagine trema (e zooma per non mostrare i bordi)', !!st && st.zoom > 1 && st.dx !== 0, JSON.stringify(st));
+    // un lampo vicino al taglio dove c'è già la tendina: si centra sul taglio, su una corsia nuova (niente si copre)
+    const fx0 = dd.tracks.filter((t) => t.kind === 'fx').length;
+    const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
+    const terza = dd.clips.filter((c) => c.track === tv1).sort((a, b) => a.start - b.start)[2];
+    await trascina('.carta.fxt[data-fx=flash]', await xy(terza.start + 2, 'V1'));
+    dd = await doc();
+    const lampo = dd.clips.filter((c) => c.fxb?.id === 'flash').sort((a, b) => Math.abs(a.start + a.len / 2 - terza.start) - Math.abs(b.start + b.len / 2 - terza.start))[0];
+    prova('il lampo vicino a un taglio si centra proprio lì', !!lampo && Math.abs(lampo.start + lampo.len / 2 - terza.start) <= 1, JSON.stringify(lampo && { s: lampo.start, l: lampo.len, t: terza.start }));
+    prova('dove la corsia è occupata se ne apre un\'altra', dd.tracks.filter((t) => t.kind === 'fx').length === fx0 + 1 && !dd.clips.some((x) => x.kind === 'fx' && dd.clips.some((y) => y !== x && y.track === x.track && x.start < y.start + y.len && y.start < x.start + x.len)));
+    await tasto('Control+z'); await tasto('Control+z');
+    // i chip della durata
+    await page.click('.bin-durate .chip[data-d="2"]');
+    await page.evaluate(() => { window.__dpv.select([]); window.__motore.vaiA(20); });
+    await page.locator('.carta.fxt[data-fx=zoomLento]').click();
+    dd = await doc();
+    prova('con il chip "2 s" il blocco dura due secondi', dd.clips.some((c) => c.fxb?.id === 'zoomLento' && c.start === 20 && c.len === 50));
+    await tasto('Control+z');
+    await page.click('.bin-durate .chip[data-d="0"]');
+    // il lampo della demo si vede nel monitor
+    const lumA = async (f) => { await page.evaluate((f) => window.__motore.vaiA(f), f); let v = -1, prima = -2; for (let i = 0; i < 12 && v !== prima; i++) { prima = v; await page.waitForTimeout(250); v = await page.evaluate(() => { const px = new Uint8Array(64 * 36 * 4); window.__motore.rec.leggiPiccolo(64, 36, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return Math.round(s / (64 * 36 * 3)); }); } return v; };
+    const demoLampo = dd.clips.find((c) => c.fxb?.id === 'flash');
+    const conLampo = await lumA(demoLampo.start + 1), senza = await lumA(demoLampo.start + demoLampo.len + 8);
+    prova('il lampo schiarisce il fotogramma nel monitor', conLampo > senza + 40, `${conLampo} vs ${senza}`);
+    await page.click('.bin-cat[data-c=tutto]');
+  }
+
+  console.log('▶ Testate, navigatore, dissolvenze');
+  {
+    prova('le testate sono strette: niente manopole né decibel', (await page.locator('.tl-testata .manopola').count()) === 0 && (await page.locator('.tl-testata.audio .tt-misura').count()) >= 1 && (await page.evaluate(() => getComputedStyle(document.querySelector('.timeline')).gridTemplateColumns)).startsWith('124px'));
+    // il navigatore: si trascina la finestra e la timeline scorre
+    await page.evaluate(() => { const tl = window.__dpvTest.ui().tl; tl.adattaTutto(); tl.zoom(4, 0); });
+    await page.waitForTimeout(200);
+    const nav = await page.locator('.tl-nav').boundingBox();
+    prova('il navigatore in fondo è alto e comodo', nav.height >= 22);
+    const s0 = await page.evaluate(() => window.__dpvTest.ui().tl.scrollF);
+    const fin = await page.evaluate(() => { const tl = window.__dpvTest.ui().tl; const k = (tl.W - 4) / tl.totaleNav(); return 2 + tl.scrollF * k + 20; });
+    await page.mouse.move(nav.x + fin, nav.y + nav.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(nav.x + fin + 150, nav.y + nav.height / 2, { steps: 6 });
+    await page.mouse.up();
+    const s1 = await page.evaluate(() => window.__dpvTest.ui().tl.scrollF);
+    prova('trascinando la finestra del navigatore la timeline scorre', s1 > s0 + 20, `${s0.toFixed(0)} → ${s1.toFixed(0)}`);
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('dpv:adatta')));
+    await page.waitForTimeout(200);
+    // la maniglia della dissolvenza sulla prima clip audio
+    const box = await page.locator('.tl-tela').boundingBox();
+    const q = await page.evaluate(() => { const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc; const a1 = d.tracks.find((t) => t.name === 'A1'); const r = tl.riga(a1.id); const c = d.clips.filter((x) => x.track === a1.id).sort((a, b) => a.start - b.start)[1]; return { x: (c.start + c.fadeIn - tl.scrollF) * tl.ppf + (c.fadeIn ? 0 : 5), y: r.y + 2 + 5, id: c.id, f0: c.fadeIn }; });
+    await page.mouse.move(box.x + q.x, box.y + q.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + q.x + 40, box.y + q.y, { steps: 5 });
+    await page.mouse.up();
+    let dd = await doc();
+    prova('tirando il quadratino in alto la clip entra in dissolvenza', dd.clips.find((c) => c.id === q.id).fadeIn > q.f0 + 5, `${q.f0} → ${dd.clips.find((c) => c.id === q.id).fadeIn}`);
+    await tasto('Control+z');
+    // il fade out trascinato dal contenitore su una clip audio
+    await page.click('.bin-cat[data-c=effetti]');
+    await page.waitForTimeout(200);
+    const c2 = await page.evaluate(() => { const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc; const a1 = d.tracks.find((t) => t.name === 'A1'); const r = tl.riga(a1.id); const c = d.clips.filter((x) => x.track === a1.id).sort((a, b) => a.start - b.start)[1]; return { x: (c.start + c.len * 0.8 - tl.scrollF) * tl.ppf, y: r.y + r.h * 0.6, id: c.id }; });
+    await page.locator('.carta.fx', { hasText: 'Fade out' }).first().scrollIntoViewIfNeeded();
+    const carta = await page.locator('.carta.fx', { hasText: 'Fade out' }).first().boundingBox();
+    await page.mouse.move(carta.x + carta.width / 2, carta.y + carta.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(carta.x + 60, carta.y + 40, { steps: 4 });
+    await page.mouse.move(box.x + c2.x, box.y + c2.y, { steps: 10 });
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    dd = await doc();
+    prova('"Fade out" trascinato sulla clip audio: esce piano (1 s)', dd.clips.find((c) => c.id === c2.id).fadeOut === 25, dd.clips.find((c) => c.id === c2.id).fadeOut);
+    await tasto('Control+z');
+    await page.click('.bin-cat[data-c=tutto]');
+    // i progetti di prima: le transizioni delle clip diventano blocchetti
+    const mig = await page.evaluate(() => {
+      const { P, B } = window.__dpvTest;
+      const p = P.newProject({ w: 1920, h: 1080, rate: { num: 25, den: 1 }, drop: false });
+      p.tracks = p.tracks.filter((t) => t.kind !== 'fx');
+      const v1 = p.tracks.find((t) => t.name === 'V1');
+      const a = P.newClip('color', v1.id, 0, 50), b = P.newClip('color', v1.id, 50, 50);
+      b.trIn = P.newTransition('mix', 20);
+      p.clips.push(a, b);
+      B.migraBlocchi(p);
+      const bl = p.clips.find((c) => c.kind === 'fx');
+      return { fx: p.tracks[0].kind, bl: bl && [bl.start, bl.len, bl.fxb.id], trIn: !!b.trIn };
+    });
+    prova('i progetti di prima: la transizione della clip diventa un blocchetto', mig.fx === 'fx' && mig.bl?.[0] === 50 && mig.bl[1] === 20 && mig.bl[2] === 'mix' && !mig.trIn, JSON.stringify(mig));
   }
 
   console.log('▶ Pagina Finale');
@@ -475,6 +609,49 @@ try {
     await tasto('Control+z');
     dd = await doc();
     prova('Ctrl+Z toglie anche il look', dd.master?.look === 'nessuno');
+    // il menu a destra: sottotitoli
+    prova('il Finale ha il menu a destra con sette pagine', (await page.locator('.fin-menu .fin-voce').count()) === 7);
+    await page.click('.fin-voce[data-s=sottotitoli]');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => window.__motore.vaiA(40));
+    await page.click('text=+ Riga al cursore');
+    await page.waitForTimeout(200);
+    await page.locator('.sott-testo').first().fill('Ciao da Napoli');
+    await page.waitForTimeout(600);
+    dd = await doc();
+    prova('una riga di sottotitolo al cursore, col testo scritto', dd.sottotitoli?.righe.length === 1 && dd.sottotitoli.righe[0].da === 40 && dd.sottotitoli.righe[0].testo === 'Ciao da Napoli');
+    const srt = await page.evaluate(() => { const { S } = window.__dpvTest; const t = S.creaSrt(window.__dpv.doc); return { t, n: S.leggiSrt(t, window.__dpv.doc).length }; });
+    prova('il .srt si scrive e si rilegge', srt.t.includes('00:00:01,600 --> ') && srt.t.includes('Ciao da Napoli') && srt.n === 1, srt.t.split('\n').slice(0, 3).join(' / '));
+    await page.click('text=Prepara i tempi dai dialoghi');
+    await page.waitForTimeout(300);
+    dd = await doc();
+    prova('i tempi dai dialoghi preparano le righe dove si sente l\'audio', dd.sottotitoli.righe.length > 1, dd.sottotitoli.righe.length);
+    await page.screenshot({ path: path.join(OUT, 'finale-sottotitoli.png') });
+    await tasto('Control+z');
+    // il logo: un'immagine del contenitore nell'angolo
+    await page.click('.fin-voce[data-s=logo]');
+    await page.evaluate(async () => {
+      const c = new OffscreenCanvas(200, 80); const x = c.getContext('2d'); x.fillStyle = '#ffd54a'; x.fillRect(0, 0, 200, 80);
+      const b = await c.convertToBlob({ type: 'image/png' });
+      await window.__dpvTest.importaFile([{ name: 'logo.png', file: new File([b], 'logo.png', { type: 'image/png' }) }], { chiediFormato: false });
+    });
+    await page.waitForTimeout(300);
+    const idLogo = await page.evaluate(() => window.__dpv.doc.media.find((m) => m.name === 'logo.png').id);
+    await page.selectOption('.fin-pagina[data-s=logo] select', idLogo);
+    dd = await doc();
+    prova('il logo scelto sta in un angolo', dd.master?.logo?.media === idLogo && dd.master.logo.pos === 'alto-dx');
+    await tasto('Control+z');
+    // apertura: il titolo d'apertura sposta avanti tutto di tre secondi
+    await page.click('.fin-voce[data-s=apertura]');
+    const fine0 = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    await page.click('text=Titolo d\'apertura');
+    const fine1 = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    dd = await doc();
+    prova('il titolo d\'apertura entra all\'inizio e sposta avanti il resto', fine1 === fine0 + 75 && dd.clips.some((c) => c.kind === 'title' && c.start === 0 && c.name.includes('apertura')), `${fine0} → ${fine1}`);
+    await tasto('Control+z');
+    await page.click('.fin-voce[data-s=lingue]');
+    prova('Lingue e AI: predisposto, coi tasti "presto"', (await page.locator('.fin-presto[disabled]').count()) === 3);
+    await page.click('.fin-voce[data-s=colore]');
     await page.click('.pagina-btn[data-p=montaggio]');
     await page.waitForTimeout(300);
   }
@@ -487,6 +664,46 @@ try {
   await tasto('Space');
   prova('Spazio suona: il cursore avanza col tempo', h > 25 && h < 80, h.toFixed(1));
   await page.screenshot({ path: path.join(OUT, 'suona.png') });
+
+
+  console.log('▶ Riproduzione: ripresa coi fotogrammi chiave radi (e il suo proxy)');
+  {
+    const pg = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    pg.on('pageerror', (e) => errori.push(e.message));
+    await pg.goto(srv.url + '/app/');
+    await pg.waitForSelector('.pulsantiera');
+    await pg.waitForTimeout(800);
+    await pg.evaluate(async () => {
+      const T = window.__dpvTest;
+      const f = await T.ripresaDiProva(16, 16);
+      const [m] = await T.importaFile([{ name: f.name, file: f }], { chiediFormato: false });
+      window.__dpv.edit('prova', (p) => { const v1 = p.tracks.filter((t) => t.kind === 'video').slice(-1)[0]; p.clips.push(T.P.newClip('media', v1.id, 0, 400, { media: m.id, name: m.name })); });
+    });
+    const suona = (da) => pg.evaluate(async (da) => {
+      const m = window.__dpvTest.motore;
+      m.vaiA(da);
+      await new Promise((ok) => setTimeout(ok, 1200));
+      const n0 = window.__dpvTest.statoDecoder().nati;
+      const buf = new Uint8Array(32 * 18 * 4);
+      const hash = () => { m.rec.leggiPiccolo(32, 18, buf); let h = 0; for (let i = 0; i < buf.length; i++) h = (h * 31 + buf[i]) | 0; return h; };
+      m.play(1);
+      const hs = [];
+      for (let i = 0; i < 8; i++) { await new Promise((ok) => setTimeout(ok, 250)); hs.push(hash()); }
+      m.stop();
+      return { nati: window.__dpvTest.statoDecoder().nati - n0, diversi: new Set(hs).size };
+    }, da);
+    const a = await suona(250);
+    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
+    const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
+    const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
+    prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
+    const b = await suona(300);
+    // col proxy (un fotogramma chiave ogni mezzo secondo), su una macchina lenta il flusso rimasto indietro riparte dal
+    // fotogramma chiave dopo per restare a tempo con l'audio: qualche ripartenza va bene, a raffica no (il vecchio
+    // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
+    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.diversi >= 4 && b.nati <= 6, JSON.stringify(b));
+    await pg.close();
+  }
 
   console.log('▶ EDL');
   const edl = await page.evaluate(() => window.__dpvTest.creaEdl(window.__dpv.doc));

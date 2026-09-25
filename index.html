@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#09080d">
 <title>DaProd Video — il montaggio vecchio stile, moderno dentro</title>
-<meta name="description" content="Editor video con monitor unico, contenitore che fa scorrere i video al passaggio del mouse, timeline che non copre niente, pulsantiera (1 taglia, 2 elimina), VU a lancetta, transizioni, pagina Finale con colore automatico ed EDL. Per Windows, Mac, Android e nel browser.">
+<meta name="description" content="Editor video con monitor unico, contenitore che fa scorrere i video al passaggio del mouse, timeline che non copre niente, corsia FX con effetti e transizioni a blocchetti, proxy automatici, pulsantiera (1 taglia, 2 elimina), VU a lancetta, pagina Finale con colore automatico, sottotitoli e logo, ed EDL. Per Windows, Mac, Android e nel browser.">
 <meta property="og:title" content="DaProd Video">
 <meta property="og:description" content="Il montaggio vecchio stile, moderno dentro. Windows, Mac, Android e browser.">
 <meta property="og:image" content="risorse/schermata.png">
@@ -46,8 +46,10 @@
   <div class="griglia">
     <article><b>🗂 Il contenitore</b><p>Video, musica, immagini, transizioni, titoli ed effetti: tutto in un posto, in ordine. Passa il mouse su un video e scorre avanti e indietro; <b>+</b> lo mette al cursore.</p></article>
     <article><b>✂ Timeline che non copre niente</b><p>Sposti una clip e si ferma contro la vicina; la lasci dove è occupato e va su una traccia libera. La <b>rotella</b> va di un fotogramma col suono, <kbd>1</kbd> taglia le tracce accese e sceglie lo scarto.</p></article>
-    <article><b>🎚 Volume e livelli al volo</b><p>La linea gialla del volume sempre in vista: trascinala, doppio clic per un punto, "Abbassa qui". Trasparenza per clip e per traccia con la manopola, chiave e green screen.</p></article>
-    <article><b>🎬 Pagina Finale</b><p><b>Colore automatico</b> su tutte le riprese, look (cinema, caldo, vintage, notte…), prima e dopo fianco a fianco, audio finale col limitatore. Poi un tasto: esporta.</p></article>
+    <article><b>🎚 Volume e dissolvenze al volo</b><p>La linea gialla del volume sempre in vista: trascinala, doppio clic per un punto, "Abbassa qui". I quadratini in alto sulle clip sono le dissolvenze: tirali. Fade in, fade out, incrocio ed eco si trascinano sulle clip audio.</p></article>
+    <article><b>⚡ Corsia FX a blocchetti</b><p>Effetti a tempo da trascinare sopra le clip o su un taglio: <b>lampo</b>, scossa, zoom colpo, glitch, dal nero, zoom lento, camera a mano, bande cinema. Le <b>transizioni</b> si centrano da sole sul taglio: più lunghe, più lente.</p></article>
+    <article><b>🚀 Proxy automatici</b><p>I file pesanti dei telefoni e dei generatori (4K, HEVC, fotogrammi chiave radi) diventano da soli una copia leggera per il monitor: il play parte subito, da qualunque punto. L'export usa gli originali.</p></article>
+    <article><b>🎬 Pagina Finale</b><p>Un menu a destra con tutto al suo posto: <b>colore automatico</b> e look, audio finale, <b>sottotitoli</b> coi tempi presi dai dialoghi (e .srt), <b>logo</b> sempre in vista, apertura e chiusura, lingue e AI in arrivo. Poi un tasto: esporta.</p></article>
     <article><b>✨ Effetti al volo</b><p>Il tasto <b>fx</b> in fondo a ogni clip: vivace, più luce, caldo, bianco e nero, pellicola, VHS, zoom lento, specchia. Per l'audio: voce chiara, livella il volume, radio.</p></article>
     <article><b>🌀 Tendine e DVE</b><p>Le tendine SMPTE del mixer video (porta, scatola, rombo, iride, orologio, stella, cuore) e gli effetti digitali: spinta, zoom, mosaico, <b>cubo 3D</b>, girata, onda, lampo, luce di pellicola, glitch.</p></article>
     <article><b>📸 Istantanea</b><p>Premi <kbd>P</kbd>: il fotogramma sotto il cursore diventa un'immagine nel contenitore, da allungare quanto vuoi. <kbd>Shift</kbd>+<kbd>P</kbd> fa il fermo immagine al volo.</p></article>
@@ -59,7 +61,7 @@
   </div>
   <div class="foto-doppia">
     <figure><img src="risorse/cubo.png" alt="Il cubo 3D fra due riprese" loading="lazy"><figcaption>Il cubo 3D, dal vivo nel monitor</figcaption></figure>
-    <figure><img src="risorse/finale.png" alt="La pagina Finale con il look Cinema, prima e dopo" loading="lazy"><figcaption>La pagina Finale: colore automatico, look e prima/dopo</figcaption></figure>
+    <figure><img src="risorse/finale.png" alt="La pagina Finale col menu a destra" loading="lazy"><figcaption>La pagina Finale: colore, sottotitoli, logo, esporta</figcaption></figure>
   </div>
 </section>
 
@@ -83,7 +85,7 @@
     <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>attacco e stacco</td><td><kbd>Z</kbd> <kbd>X</kbd></td><td>solleva ed estrai fra attacco e stacco</td></tr>
     <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>inserisci / sovrascrivi dalla sorgente</td><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>taglio precedente / successivo</td></tr>
     <tr><td>rotella</td><td>un fotogramma per scatto, col suono</td><td><kbd>Ctrl</kbd>+rotella</td><td>zoom della timeline</td></tr>
-    <tr><td><kbd>Tab</kbd></td><td>monitor: sorgente ↔ montaggio</td><td><kbd>F9</kbd></td><td>pagina Finale (colore, audio, esporta)</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>monitor: sorgente ↔ montaggio</td><td><kbd>F9</kbd></td><td>pagina Finale (colore, audio, sottotitoli, logo, esporta)</td></tr>
     <tr><td><kbd>R</kbd></td><td>ripple acceso / spento</td><td><kbd>Ins</kbd></td><td>modo libero / inserisci</td></tr>
     <tr><td><kbd>F</kbd></td><td>abbina fotogramma</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>annulla (fino a 200 passi)</td></tr>
   </table>

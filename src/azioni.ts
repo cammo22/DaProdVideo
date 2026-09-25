@@ -3,11 +3,11 @@
 import { store } from './core/store';
 import { motore } from './motore';
 import * as M from './core/montaggio';
-import { clipById, end, isVideoClip, newClip, newTransition, newTrack, nextTrackName, projectEnd, TITLE0, trackOf, uid } from './core/progetto';
+import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEnd, TITLE0, trackOf, uid } from './core/progetto';
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
-import { nomeModello } from './render/transizioni';
 import type { Clip, Transition } from './core/tipi';
+import { durataBlocco, inizioBlocco, nomeBlocco, nuovoBlocco, posaBlocco, taglioVicino, transizioneDa } from './core/blocchi';
 
 export interface Azione {
   id: string;
@@ -32,6 +32,8 @@ export const modi = {
   zoneSicure: false,
   /** tracce accese (clic sul nome nella timeline): il taglio tocca solo queste e il montaggio va qui */
   attive: new Set<string>(),
+  /** durata dei blocchetti FX nuovi in secondi (0 = quella giusta per ogni effetto): i chip del contenitore */
+  durataFx: 0,
 };
 
 /** le tracce accese che esistono ancora (null = nessuna accesa: vale tutto) */
@@ -51,7 +53,7 @@ function sottoCursore(f: number, kind: 'video' | 'audio' | 'any' = 'any'): Clip 
     const t = trackOf(p, x.track);
     return x.start <= f && end(x) > f && !t.lock && (!tr || tr.has(t.id)) && (kind === 'any' || t.kind === kind);
   });
-  const peso = (c: Clip) => (isVideoClip(c) ? (c.kind === 'media' ? 0 : 1000) : 2000) + p.tracks.findIndex((t) => t.id === c.track);
+  const peso = (c: Clip) => (isVideoClip(c) ? (c.kind === 'media' ? 0 : 1000) : c.kind === 'fx' ? 3000 : 2000) + p.tracks.findIndex((t) => t.id === c.track);
   return sotto.sort((a, b) => peso(a) - peso(b))[0];
 }
 
@@ -150,16 +152,16 @@ reg({ id: 'eliminaSinistra', nome: 'Elimina lo scarto a sinistra del cursore', g
 reg({ id: 'eliminaDestra', nome: 'Elimina lo scarto a destra del cursore', gruppo: 'Montaggio', tasti: ['W'], info: 'La clip sotto il cursore (o quella selezionata) perde la parte dopo il cursore.', fn: () => eliminaLato('destra') });
 reg({
   id: 'dissolvenza', nome: 'Dissolvenza sul taglio', gruppo: 'Montaggio', tasti: ['5', 'Ctrl+P'],
-  info: 'Mette una dissolvenza incrociata in testa alla clip selezionata (o sul taglio più vicino al cursore).',
-  fn: () => transizione(newTransition('mix', Math.round(r()))),
+  info: 'Un blocchetto di dissolvenza nella corsia FX, sul taglio più vicino al cursore. Premi di nuovo per toglierla.',
+  fn: () => applicaTransizione('mix'),
 });
 reg({
   id: 'tendina', nome: 'Tendina sul taglio', gruppo: 'Montaggio', tasti: ['6'],
-  fn: () => transizione(newTransition('wipe', Math.round(r()), 1)),
+  fn: () => applicaTransizione('wipe', 1),
 });
 reg({
   id: 'passaggioNero', nome: 'Passaggio al nero sul taglio', gruppo: 'Montaggio', tasti: ['7'],
-  fn: () => transizione(newTransition('dip', Math.round(r()))),
+  fn: () => applicaTransizione('dip'),
 });
 reg({
   id: 'dissolviInOut', nome: 'Dissolvenza in apertura e chiusura', gruppo: 'Montaggio', tasti: ['8'],
@@ -172,69 +174,48 @@ reg({
   },
 });
 
-/** dove va una transizione: la clip che la porta e il lato (testa = 'in', coda = 'out') */
-export interface Dove { clipId: string; lato: 'in' | 'out' }
+const secondi = (len: number) => (len / r()).toFixed(1).replace('.', ',').replace(',0', '') + ' s';
 
 /**
- * Il posto giusto per una transizione vicino al fotogramma f: il taglio o il bordo di clip più vicino.
- * Un taglio fra due clip attaccate vale come testa della clip dopo; un bordo libero come ingresso o uscita.
+ * Mette un blocchetto nella corsia FX. Le transizioni vanno sul taglio più vicino al cursore (o sul bordo della
+ * clip scelta); gli effetti al cursore, o sul taglio se il cursore ci sta sopra. La stessa transizione già su
+ * quel taglio si toglie, una diversa si cambia. Ritorna l'id del blocco.
  */
-export function doveTransizione(p: import('./core/tipi').Project, f: number, candidate: Clip[]): Dove | null {
-  let best: (Dove & { d: number; peso: number }) | null = null;
-  const ordine = (c: Clip) => p.tracks.findIndex((t) => t.id === c.track);
-  for (const c of candidate) {
-    if (trackOf(p, c.track).lock) continue;
-    const prev = M.prevAdjacent(p, c);
-    const next = p.clips.find((x) => x.track === c.track && x.id !== c.id && x.start === end(c));
-    const bordi: [number, Dove, number][] = [[c.start, { clipId: c.id, lato: 'in' }, prev ? 0 : 1]];
-    if (!next) bordi.push([end(c), { clipId: c.id, lato: 'out' }, 1]);
-    else bordi.push([end(c), { clipId: next.id, lato: 'in' }, 0]);
-    // il cursore dentro una transizione già messa: si cambia quella
-    if (c.trIn && f >= c.start && f < c.start + c.trIn.len) bordi.push([f, { clipId: c.id, lato: 'in' }, -1]);
-    if (c.trOut && f >= end(c) - c.trOut.len && f < end(c)) bordi.push([f, { clipId: c.id, lato: 'out' }, -1]);
-    for (const [x, dove, peso] of bordi) {
-      // a parità di distanza vince la ripresa video (non il titolo sopra, non l'audio sotto)
-      const d = Math.abs(x - f) + peso * 0.5 + ordine(c) * 0.01 + (c.kind === 'media' ? 0 : 0.3) + (isVideoClip(c) ? 0 : 1000);
-      if (!best || d < best.d) best = { ...dove, d, peso };
+export function mettiBlocco(tipo: 'effetto' | 'transizione', id: string, f = head()): string | null {
+  const p = store.doc;
+  const len = durataBlocco(p, tipo, id, modi.durataFx);
+  let rif = f;
+  if (tipo === 'transizione') {
+    const c = p.clips.find((x) => store.sel.has(x.id) && isVideoClip(x));
+    if (c) rif = Math.abs(f - c.start) <= Math.abs(f - end(c)) ? c.start : end(c);
+  }
+  const soglia = tipo === 'transizione' ? Math.round(r() * 5) : Math.max(2, Math.round(r() * 0.2));
+  const tg = taglioVicino(p, rif, soglia);
+  if (tipo === 'transizione') {
+    if (!tg) { avviso('Non c\'è un taglio vicino al cursore: portalo su un taglio (↑ ↓) o trascina la transizione sopra', 'info', 2600); return null; }
+    const gia = p.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= tg.f && end(c) >= tg.f);
+    if (gia) {
+      if (gia.fxb!.id === id) {
+        store.edit('Togli transizione', (pp) => { pp.clips = pp.clips.filter((c) => c.id !== gia.id); });
+        avviso(`${nomeBlocco(gia.fxb!)} tolta`, 'tasto', 1200);
+        return null;
+      }
+      store.edit('Cambia transizione', (pp) => { const c = clipById(pp, gia.id)!; c.fxb = { ...c.fxb!, id, tr: transizioneDa(id, c.len) }; c.name = nomeBlocco(c.fxb); });
+      store.select([gia.id]);
+      avviso(`✦ ${nomeBlocco(clipById(store.doc, gia.id)!.fxb!)} al posto di prima`, 'tasto', 1400);
+      return gia.id;
     }
   }
-  return best ? { clipId: best.clipId, lato: best.lato } : null;
+  const { start } = inizioBlocco(p, tipo, rif, len, soglia);
+  const c = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), start, len));
+  store.select([c.id]);
+  avviso(`${tipo === 'effetto' ? '⚡' : '✦'} ${nomeBlocco(c.fxb!)} · ${secondi(len)}${tg ? ' sul taglio' : ''}`, 'tasto', 1400);
+  return c.id;
 }
 
-/** transizione: dove dice chi chiama, sennò sulla clip selezionata, sennò sul taglio più vicino al cursore */
-function transizione(t: Transition, dove?: Dove) {
-  const p = store.doc;
-  const f = head();
-  if (!dove) {
-    const sel = p.clips.filter((c) => store.sel.has(c.id));
-    const tr = tracceAttive();
-    const candidate = sel.length ? sel : p.clips.filter((c) => !tr || tr.has(c.track));
-    dove = doveTransizione(p, f, candidate) ?? undefined;
-  }
-  if (!dove) { avviso('Nella timeline non c\'è ancora una clip per la transizione', 'info'); return; }
-  const c0 = clipById(p, dove.clipId);
-  if (!c0) return;
-  // la clip e le sue legate che hanno lo stesso bordo (il video e il suo audio)
-  const lato = dove.lato;
-  const bordo = lato === 'in' ? c0.start : end(c0);
-  const gruppo = [...M.withLinked(p, [c0.id])].map((id) => clipById(p, id)!).filter((c) => (lato === 'in' ? c.start : end(c)) === bordo);
-  const ids = new Set(gruppo.map((c) => c.id));
-  // stessa transizione già messa (stesso tipo e modello) = la si toglie; altrimenti si mette o si cambia
-  const di = (c: Clip) => (lato === 'in' ? c.trIn : c.trOut);
-  const uguale = (c: Clip) => di(c)?.type === t.type && (t.type === 'mix' || t.type === 'dip' || di(c)?.pattern === t.pattern);
-  const video = gruppo.filter((c) => isVideoClip(c));
-  const tutte = (video.length ? video : gruppo).every(uguale);
-  store.edit(tutte ? 'Togli transizione' : 'Transizione', (pp) => M.setTransition(pp, ids, tutte ? null : t, lato));
-  const nome = nomeModello(t.type, t.pattern);
-  const dov = lato === 'out' ? 'in uscita' : M.prevAdjacent(p, c0) ? 'sul taglio' : 'in entrata';
-  avviso(tutte ? `${nome} tolta` : `${nome} ${dov} · ${(t.len / r()).toFixed(1).replace('.', ',')} s`, 'tasto', 1400);
-}
-
-/** mette la transizione scelta nel contenitore (tipo e modello): dove dici tu, o sul taglio più vicino */
-export function applicaTransizione(tipo: Transition['type'], pattern = 1, dove?: Dove) {
-  const t = newTransition(tipo, Math.round(r()), pattern);
-  if (tipo === 'dve' && (pattern === 401 || pattern === 411)) t.len = Math.round(r() * 1.2);
-  transizione(t, dove);
+/** la transizione scelta (tipo e modello) sul taglio più vicino al cursore */
+export function applicaTransizione(tipo: Transition['type'], pattern = 1) {
+  return mettiBlocco('transizione', tipo === 'mix' || tipo === 'dip' ? tipo : `${tipo}:${pattern}`);
 }
 
 // ——— istantanea: il fotogramma diventa un'immagine del contenitore ———
@@ -275,7 +256,7 @@ reg({
         n.id = uid('c');
         n.start = c.start - min + f;
         if (c.link) { if (!links.has(c.link)) links.set(c.link, uid('l')); n.link = links.get(c.link); }
-        if (!p.tracks.some((t) => t.id === n.track)) n.track = p.tracks.find((t) => t.kind === (isVideoClip(c) ? 'video' : 'audio'))!.id;
+        if (!p.tracks.some((t) => t.id === n.track)) n.track = p.tracks.find((t) => t.kind === (c.kind === 'fx' ? 'fx' : isVideoClip(c) ? 'video' : 'audio'))!.id;
         return n;
       });
       const set = new Set(nuove.map((c) => c.id));
@@ -511,7 +492,7 @@ reg({ id: 'opacitaMeno', nome: 'Trasparenza: meno opaca (−10%)', gruppo: 'Live
 reg({ id: 'opacitaPiu', nome: 'Trasparenza: più opaca (+10%)', gruppo: 'Livelli', tasti: ['Alt+ArrowUp'], fn: () => opacitaSel(0.1) });
 reg({
   id: 'tracciaV', nome: 'Aggiungi traccia video', gruppo: 'Livelli', tasti: ['Ctrl+Alt+V'],
-  fn: () => store.edit('Traccia video', (p) => { p.tracks.unshift(newTrack('video', nextTrackName(p, 'video'))); }),
+  fn: () => store.edit('Traccia video', (p) => { p.tracks.splice(p.tracks.findIndex((t) => t.kind !== 'fx'), 0, newTrack('video', nextTrackName(p, 'video'))); }),
 });
 reg({
   id: 'tracciaA', nome: 'Aggiungi traccia audio', gruppo: 'Livelli', tasti: ['Ctrl+Alt+A'],

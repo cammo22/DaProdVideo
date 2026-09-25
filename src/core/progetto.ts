@@ -11,8 +11,9 @@ export const FX0: VideoFx = {
 };
 export const TF0: Transform = { x: 0, y: 0, scale: 1, rot: 0, cropL: 0, cropR: 0, cropT: 0, cropB: 0 };
 
-/** altezze di partenza: l'audio più alto (si vede la forma d'onda e il volume), il video più basso */
-export const ALTEZZA = { video: 54, audio: 76 } as const;
+/** altezze di partenza: l'audio più alto (si vede la forma d'onda e il volume), il video più basso,
+ *  la corsia FX metà del video (i blocchetti si mettono in fila facilmente) */
+export const ALTEZZA = { video: 54, audio: 76, fx: 27 } as const;
 
 export function newTrack(kind: TrackKind, name: string): Track {
   return {
@@ -26,8 +27,8 @@ export function newProject(fmt: { w: number; h: number; rate: Rate; drop: boolea
   return {
     format: 'daprod-video', v: 1, name,
     w: fmt.w, h: fmt.h, rate: { ...fmt.rate }, drop: fmt.drop, sampleRate: 48000,
-    // in alto le tracce video (V3 sopra a tutto), poi le audio
-    tracks: [newTrack('video', 'V3'), newTrack('video', 'V2'), newTrack('video', 'V1'),
+    // in alto la corsia FX, poi le tracce video (V3 sopra a tutto), poi le audio
+    tracks: [newTrack('fx', 'FX'), newTrack('video', 'V3'), newTrack('video', 'V2'), newTrack('video', 'V1'),
       newTrack('audio', 'A1'), newTrack('audio', 'A2'), newTrack('audio', 'A3'), newTrack('audio', 'A4')],
     clips: [], media: [], markers: [], inF: null, outF: null, preroll: 3, master: { ...MASTER0 },
     created: now, saved: 0,
@@ -69,6 +70,7 @@ export const mediaOf = (p: Project, c: Clip): MediaItem | undefined => (c.media 
 export const clipById = (p: Project, id: string) => p.clips.find((c) => c.id === id);
 export const clipsOn = (p: Project, trackId: string) => p.clips.filter((c) => c.track === trackId).sort((a, b) => a.start - b.start);
 export const videoTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'video');
+export const fxTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'fx');
 export const audioTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'audio');
 /** il progetto aperto, per sapere su che traccia sta una clip (lo tiene aggiornato lo Store) */
 let aperto: Project | null = null;
@@ -129,7 +131,7 @@ export const gainToDb = (g: number) => (g <= 0.001 ? -60 : 20 * Math.log10(g));
 
 /** nome della prossima traccia libera: V4, A5… */
 export function nextTrackName(p: Project, kind: TrackKind): string {
-  const pre = kind === 'video' ? 'V' : 'A';
+  const pre = kind === 'video' ? 'V' : kind === 'fx' ? 'FX' : 'A';
   let n = 1;
   while (p.tracks.some((t) => t.name === pre + n)) n++;
   return pre + n;

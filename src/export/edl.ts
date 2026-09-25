@@ -4,6 +4,7 @@ import type { Clip, Project } from '../core/tipi';
 import { end, mediaOf } from '../core/progetto';
 import { frameToTc, s2f } from '../core/timecode';
 import { nomeModello } from '../render/transizioni';
+import { nomeBlocco, transizioniAttive } from '../core/blocchi';
 
 function bobina(nome: string): string {
   return (nome.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_]/g, '').toUpperCase() || 'AX').slice(0, 8).padEnd(8, ' ');
@@ -24,8 +25,13 @@ export function creaEdl(p: Project): string {
   vt.forEach((t, i) => { for (const c of p.clips) if (c.track === t.id) ev.push({ c, canale: i === 0 ? 'V' : `V${i + 1}`.slice(0, 2) }); });
   at.forEach((t, i) => { for (const c of p.clips) if (c.track === t.id && i < 4) ev.push({ c, canale: i === 0 ? 'A' : i === 1 ? 'A2' : i === 2 ? 'A3' : 'A4' }); });
   ev.sort((a, b) => a.c.start - b.c.start || a.canale.localeCompare(b.canale));
+  // le transizioni dei blocchetti FX valgono per la clip che entra
+  const trDi = new Map<string, NonNullable<Clip['trIn']>>();
+  for (const x of transizioniAttive(p)) if (x.b) trDi.set(x.b.id, x.tr);
   let n = 1;
-  for (const { c, canale } of ev) {
+  for (const { c: c0, canale } of ev) {
+    const t = c0.trIn ?? trDi.get(c0.id);
+    const c = t ? { ...c0, trIn: t } : c0;
     const m = mediaOf(p, c);
     const reel = c.kind === 'media' && m ? bobina(m.name) : c.kind === 'bars' || c.kind === 'tone' ? 'BARS    ' : c.kind === 'title' ? 'AX      ' : 'BL      ';
     const srcRate = r;
@@ -47,5 +53,7 @@ export function creaEdl(p: Project): string {
     if (c.opacity < 1 && canale.startsWith('V')) righe.push(`* OPACITY: ${Math.round(c.opacity * 100)}%`);
     righe.push('');
   }
+  // gli effetti a tempo non hanno un evento CMX: restano come note, con dove stanno
+  for (const b of p.clips) if (b.kind === 'fx' && b.fxb?.tipo === 'effetto') righe.push(`* FX: ${nomeBlocco(b.fxb)} ${tc(b.start)} ${tc(end(b))}`);
   return righe.join('\r\n');
 }

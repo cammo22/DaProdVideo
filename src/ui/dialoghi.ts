@@ -153,6 +153,7 @@ export function finestraProgetto() {
             if (Math.abs(k - 1) > 1e-6) {
               for (const c of pp.clips) { const e = Math.round((c.start + c.len) * k); c.start = Math.round(c.start * k); c.len = Math.max(1, e - c.start); c.fadeIn = Math.round(c.fadeIn * k); c.fadeOut = Math.round(c.fadeOut * k); if (c.trIn) c.trIn.len = Math.max(1, Math.round(c.trIn.len * k)); c.opKeys.forEach((x) => { x.f = Math.round(x.f * k); }); c.gainKeys.forEach((x) => { x.f = Math.round(x.f * k); }); }
               for (const m of pp.markers) m.f = Math.round(m.f * k);
+              for (const r of pp.sottotitoli?.righe ?? []) { r.da = Math.round(r.da * k); r.a = Math.max(r.da + 1, Math.round(r.a * k)); }
               if (pp.inF !== null) pp.inF = Math.round(pp.inF * k);
               if (pp.outF !== null) pp.outF = Math.round(pp.outF * k);
             }

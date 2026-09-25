@@ -20,6 +20,8 @@ import { edizione, isAndroid, isTauri, apriLink, schermoIntero } from '../platfo
 import { montaggioDimostrativo } from '../demo';
 import { FORMATI } from '../core/tipi';
 import { statoDecoder } from '../media/fotogrammi';
+import { statoProxy } from '../media/proxy';
+import { mediaRT } from '../media/libreria';
 import { banco } from '../media/audio';
 
 export function avvia(radice: HTMLElement) {
@@ -180,7 +182,9 @@ export function avvia(radice: HTMLElement) {
   motore.ogniGiro(() => {
     if (Math.random() > 0.05) return;
     const s = statoDecoder();
-    dec.textContent = `${motore.fpsMisurati} fps · decoder ${s.flussi + s.ricerche}`;
+    const px = statoProxy(store.doc.media.map((m) => mediaRT(m.id)).filter((r): r is NonNullable<typeof r> => !!r));
+    const proxy = px.lavoro ? ` · proxy ${px.pronti}/${px.pronti + px.lavoro} (${Math.round(px.prog * 100)}%)` : px.pronti ? ` · proxy ${px.pronti} pronti` : '';
+    dec.textContent = `${motore.fpsMisurati} fps · decoder ${s.flussi + s.ricerche}${proxy}`;
   });
 
   // ——— fogli per il telefono ———
@@ -238,7 +242,7 @@ export function avvia(radice: HTMLElement) {
   };
   trascinaBordo(bordoBin, (dx, _dy, r0) => ['--bin', Math.max(180, Math.min(innerWidth * 0.5, r0.width + dx))], () => bin.el.getBoundingClientRect(), 'senza-bin');
   trascinaBordo(bordoLato, (dx, _dy, r0) => radice.dataset.pagina === 'finale'
-    ? ['--fin', Math.max(280, Math.min(innerWidth * 0.55, r0.width - dx))]
+    ? ['--fin', Math.max(300, Math.min(innerWidth * 0.72, r0.width - dx))]
     : ['--lato', Math.max(230, Math.min(innerWidth * 0.45, r0.width - dx))], () => (radice.dataset.pagina === 'finale' ? finale.el : pannelloLato).getBoundingClientRect(), 'senza-lato');
   trascinaBordo(divisore, (_dx, dy, r0) => radice.dataset.pagina === 'finale'
     ? ['--tlfin', Math.max(90, Math.min(innerHeight - 220, r0.height - dy))]

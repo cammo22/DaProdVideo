@@ -5,7 +5,8 @@
 
 export type Rate = { num: number; den: number };
 
-export type TrackKind = 'video' | 'audio';
+/** fx = la corsia sottile degli effetti a tempo e delle transizioni a blocchetti (sta in cima, vale per tutto sotto) */
+export type TrackKind = 'video' | 'audio' | 'fx';
 
 export interface Track {
   id: string;
@@ -24,7 +25,7 @@ export interface Track {
   pan: number;
 }
 
-export type ClipKind = 'media' | 'color' | 'bars' | 'tone' | 'countdown' | 'title' | 'beep';
+export type ClipKind = 'media' | 'color' | 'bars' | 'tone' | 'countdown' | 'title' | 'beep' | 'fx';
 
 /** Un punto della linea elastica (rubber band): f = fotogrammi dall'inizio della clip. */
 export interface Key { f: number; v: number }
@@ -49,6 +50,23 @@ export interface Transition {
 }
 
 export type Look = 'none' | 'vhs' | 'film' | 'bn' | 'seppia' | 'crt';
+
+/**
+ * Un blocchetto della corsia FX. Effetto: cambia l'immagine di tutto quello che sta sotto per la sua durata
+ * (lampo, scossa, zoom…). Transizione: passa da una clip all'altra sul taglio che sta sotto il blocco; più il
+ * blocco è lungo, più è lenta. Le clip non cambiano mai durata.
+ */
+export interface BloccoFx {
+  tipo: 'effetto' | 'transizione';
+  /** effetto: il suo nome nel catalogo (src/core/blocchi.ts) · transizione: 'mix', 'dip', 'wipe:119', 'dve:301'… */
+  id: string;
+  /** forza 0..1 */
+  forza: number;
+  /** colore del lampo, del passaggio, della dissolvenza */
+  colore: string;
+  /** transizione: tipo, modello, bordo… (la durata è quella del blocco) */
+  tr?: Transition;
+}
 
 export interface VideoFx {
   /** livello del nero / luminosità -1..1 */
@@ -86,6 +104,10 @@ export interface AudioFx {
   bassi?: boolean;
   /** effetto radio / telefono */
   radio?: boolean;
+  /** eco: la voce che rimbalza */
+  eco?: boolean;
+  /** ovattato: come da sott'acqua o dalla stanza accanto */
+  ovattato?: boolean;
   /** volume livellato in automatico (ricorda il guadagno di prima per tornare indietro) */
   norm?: number;
 }
@@ -162,6 +184,8 @@ export interface Clip {
   pan: number;
   afx?: AudioFx;
   gen?: GenSpec;
+  /** i blocchetti della corsia FX */
+  fxb?: BloccoFx;
 }
 
 export type MediaType = 'video' | 'audio' | 'image';
@@ -196,6 +220,31 @@ export interface MediaItem {
 
 export interface Marker { id: string; f: number; name: string; color: string }
 
+/** il logo sempre in vista (la "filigrana" del canale): un'immagine del contenitore in un angolo */
+export interface Logo {
+  media: string;
+  pos: 'alto-dx' | 'alto-sx' | 'basso-dx' | 'basso-sx';
+  /** larghezza in frazione del quadro */
+  scala: number;
+  opacita: number;
+}
+
+/** una riga dei sottotitoli: da e a in fotogrammi della timeline */
+export interface Sottotitolo { id: string; da: number; a: number; testo: string }
+
+export interface Sottotitoli {
+  righe: Sottotitolo[];
+  /** scritti nel video (monitor ed export); altrimenti escono solo come file .srt */
+  nelVideo: boolean;
+  /** grandezza del carattere a 1080p */
+  dimensione: number;
+  fascia: boolean;
+  /** in alto invece che in basso */
+  alto: boolean;
+  /** la lingua in cui sono scritti (per il file .srt e, domani, per la traduzione) */
+  lingua: string;
+}
+
 export type LookFinale = 'nessuno' | 'cinema' | 'caldo' | 'freddo' | 'vivace' | 'vintage' | 'bn' | 'pellicola' | 'notte';
 
 /** i ritocchi finali: valgono per tutto il montaggio, nei monitor e nell'export */
@@ -223,6 +272,8 @@ export interface Master {
   volume: number;
   /** limitatore sull'uscita: niente distorsione */
   limiter: boolean;
+  /** il logo sempre in vista */
+  logo?: Logo | null;
 }
 
 export interface Project {
@@ -245,6 +296,8 @@ export interface Project {
   preroll: number;
   /** ritocchi finali (colore globale, look, audio finale) */
   master?: Master;
+  /** i sottotitoli (pagina Finale) */
+  sottotitoli?: Sottotitoli;
   created: number;
   saved: number;
 }
