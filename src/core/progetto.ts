@@ -1,5 +1,5 @@
 // Fabbrica del progetto, delle tracce e delle clip, più le piccole utilità sul modello.
-import type { Clip, ClipKind, MediaItem, Project, Rate, Track, TrackKind, Transition, VideoFx, Transform, TitleSpec } from './tipi';
+import type { Clip, ClipKind, Master, MediaItem, Project, Rate, Track, TrackKind, Transition, VideoFx, Transform, TitleSpec } from './tipi';
 import { f2s } from './timecode';
 
 let seq = 0;
@@ -11,9 +11,12 @@ export const FX0: VideoFx = {
 };
 export const TF0: Transform = { x: 0, y: 0, scale: 1, rot: 0, cropL: 0, cropR: 0, cropT: 0, cropB: 0 };
 
+/** altezze di partenza: l'audio più alto (si vede la forma d'onda e il volume), il video più basso */
+export const ALTEZZA = { video: 54, audio: 76 } as const;
+
 export function newTrack(kind: TrackKind, name: string): Track {
   return {
-    id: uid('t'), kind, name, height: kind === 'video' ? 58 : 46,
+    id: uid('t'), kind, name, height: ALTEZZA[kind],
     mute: false, solo: false, lock: false, opacity: 1, volume: 0, pan: 0,
   };
 }
@@ -26,7 +29,7 @@ export function newProject(fmt: { w: number; h: number; rate: Rate; drop: boolea
     // in alto le tracce video (V3 sopra a tutto), poi le audio
     tracks: [newTrack('video', 'V3'), newTrack('video', 'V2'), newTrack('video', 'V1'),
       newTrack('audio', 'A1'), newTrack('audio', 'A2'), newTrack('audio', 'A3'), newTrack('audio', 'A4')],
-    clips: [], media: [], markers: [], inF: null, outF: null, preroll: 3,
+    clips: [], media: [], markers: [], inF: null, outF: null, preroll: 3, master: { ...MASTER0 },
     created: now, saved: 0,
   };
 }
@@ -43,6 +46,18 @@ export function newTransition(type: Transition['type'], len: number, pattern = 1
   return { type, len, pattern, soft: 0.03, border: 0, borderColor: '#ffd54a', reverse: false, color: '#000000' };
 }
 
+/** i ritocchi finali di partenza: colore automatico acceso, niente look, limitatore acceso */
+export const MASTER0: Master = {
+  auto: true, autoK: 0.6, look: 'nessuno', intensita: 1, bright: 0, contrast: 1, sat: 1, temp: 0, tint: 0,
+  vignette: 0, grain: 0, volume: 0, limiter: true,
+};
+
+/** i ritocchi finali del progetto (i progetti vecchi non li hanno: si usano quelli di partenza) */
+export const masterDi = (p: Project): Master => p.master ?? MASTER0;
+
+/** il colore automatico vale per questa clip? (la clip può dire sì o no da sola, altrimenti decide il Finale) */
+export const autoColore = (p: Project, c: Clip) => c.kind === 'media' && (c.fx.auto ?? masterDi(p).auto);
+
 export const TITLE0: TitleSpec = {
   text: 'DaProd Video', style: 'fisso', font: 'Rajdhani', size: 90, color: '#ffffff', outline: '#000000',
   shadow: true, box: false, boxColor: '#000000aa', align: 'center', y: 0.5,
@@ -55,7 +70,20 @@ export const clipById = (p: Project, id: string) => p.clips.find((c) => c.id ===
 export const clipsOn = (p: Project, trackId: string) => p.clips.filter((c) => c.track === trackId).sort((a, b) => a.start - b.start);
 export const videoTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'video');
 export const audioTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'audio');
-export const isVideoClip = (c: Clip) => c.kind === 'media' || c.kind === 'color' || c.kind === 'bars' || c.kind === 'countdown' || c.kind === 'title';
+/** il progetto aperto, per sapere su che traccia sta una clip (lo tiene aggiornato lo Store) */
+let aperto: Project | null = null;
+export const progettoAperto = (p: Project) => { aperto = p; };
+
+/**
+ * La clip è video? Conta la traccia: una ripresa sulla traccia audio è audio, anche se il file ha il video.
+ * (Si può passare il progetto; se no si usa quello aperto. Va bene anche dentro filter/some.)
+ */
+export const isVideoClip = (c: Clip, p?: unknown) => {
+  if (!(c.kind === 'media' || c.kind === 'color' || c.kind === 'bars' || c.kind === 'countdown' || c.kind === 'title')) return false;
+  const pp = p && typeof p === 'object' && 'tracks' in p ? (p as Project) : aperto;
+  const t = pp?.tracks.find((x) => x.id === c.track);
+  return t ? t.kind === 'video' : c.kind !== 'media';
+};
 
 /** fine del montaggio: l'ultimo fotogramma occupato */
 export const projectEnd = (p: Project) => p.clips.reduce((m, c) => Math.max(m, end(c)), 0);

@@ -1,13 +1,15 @@
-// Le proprietà della clip selezionata: trasparenza, posizione, proc amp (il TBC), look, chiave,
-// transizione, dissolvenze, volume e — per i generatori — colore, barre, tono e la titolatrice.
+// Le proprietà della clip scelta, semplici: un riassunto in alto, gli effetti al volo come interruttori,
+// poche regolazioni che servono davvero (opacità, zoom, colore, volume, durata, transizioni) e il resto
+// chiuso in "Avanzate". Il colore di tutto il montaggio sta nella pagina Finale.
 import { store } from '../core/store';
-import type { Clip, Look, TitleSpec } from '../core/tipi';
-import { isVideoClip, mediaOf, trackOf, newTransition, TF0, FX0 } from '../core/progetto';
+import type { Clip, TitleSpec } from '../core/tipi';
+import { isVideoClip, mediaOf, trackOf, TF0, FX0 } from '../core/progetto';
 import { frameToTc, fps } from '../core/timecode';
 import { h } from './dom';
 import * as M from '../core/montaggio';
-import { modi } from '../azioni';
+import { modi, applicaTransizione } from '../azioni';
 import { EFFETTI, TENDINE, tipoDi } from '../render/transizioni';
+import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto } from '../effetti';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
 
@@ -16,7 +18,7 @@ export class Ispettore {
   private corpo: HTMLElement;
   private campi: Campo[] = [];
   private firma = '';
-  private aperti = new Set<string>(['trasparenza', 'trasforma', 'titolo', 'audio', 'generatore', 'transizione']);
+  private aperti = new Set<string>(['fxv', 'fxa', 'immagine', 'titolo', 'audio', 'generatore', 'trin', 'durata']);
 
   constructor() {
     this.corpo = h('div', { class: 'isp-corpo' });
@@ -32,119 +34,89 @@ export class Ispettore {
 
   private costruisci() {
     const cs = this.sel();
-    const firma = cs.map((c) => c.id + c.kind + c.trIn?.type + (c.trIn ? 1 : 0)).join(',');
+    const firma = cs.map((c) => c.id + c.kind + (c.trIn ? c.trIn.type : '-') + (c.trOut ? c.trOut.type : '-')).join(',');
     if (firma === this.firma && this.campi.length) { for (const c of this.campi) c.aggiorna(); return; }
     this.firma = firma;
     this.campi = [];
     if (!cs.length) {
       this.corpo.replaceChildren(h('div', { class: 'isp-vuoto' },
-        h('b', null, 'Nessuna clip selezionata'),
-        h('p', null, 'Clicca una clip nella timeline per vederne e cambiarne le proprietà: trasparenza, posizione, colore, volume, titoli.'),
+        h('b', null, 'Nessuna clip scelta'),
+        h('p', null, 'Clicca una clip nella timeline: qui trovi il riassunto, gli effetti al volo e le poche regolazioni che servono. Il colore di tutto il montaggio si fa nella pagina Finale.'),
         h('ul', { class: 'isp-tasti' },
-          h('li', null, h('kbd', null, '1'), ' taglia al cursore'),
-          h('li', null, h('kbd', null, '2'), ' elimina la clip selezionata'),
-          h('li', null, h('kbd', null, '3'), ' elimina e chiudi il buco'),
-          h('li', null, h('kbd', null, '4'), ' separa audio e video'),
-          h('li', null, h('kbd', null, '5'), ' dissolvenza sul taglio'),
-          h('li', null, h('kbd', null, 'Alt ↑↓'), ' trasparenza al volo'),
-          h('li', null, h('kbd', null, 'B'), ' linee elastiche'))));
+          h('li', null, h('kbd', null, '1'), ' taglia (le tracce accese) e sceglie il pezzo più corto'),
+          h('li', null, h('kbd', null, '2'), ' elimina e passa alla clip dopo'),
+          h('li', null, h('kbd', null, 'S'), ' separa o unisce i gruppi di clip'),
+          h('li', null, h('kbd', null, 'Q'), ' / ', h('kbd', null, 'W'), ' via lo scarto a sinistra / a destra'),
+          h('li', null, h('kbd', null, 'rotella'), ' un fotogramma alla volta, col suono'),
+          h('li', null, h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'rotella'), ' zoom della timeline'))));
       return;
     }
     const video = cs.filter(isVideoClip);
     const audio = cs.filter((c) => !isVideoClip(c));
     const primo = video[0] ?? audio[0];
     const p = store.doc;
+    const r = fps(p.rate);
     const m = mediaOf(p, primo);
     const out: HTMLElement[] = [];
+    // ——— il riassunto: cos'è, dove sta, da dove viene
+    const tipo = primo.kind === 'title' ? 'Titolo' : primo.kind === 'media' ? (m?.type === 'image' ? 'Immagine' : isVideoClip(primo) ? 'Video' : 'Audio') : 'Generatore';
+    const legate = primo.link ? p.clips.filter((c) => c.link === primo.link).length - 1 : 0;
     out.push(h('div', { class: 'isp-testa' },
       h('input', {
-        class: 'isp-nome', value: cs.length > 1 ? `${cs.length} clip` : primo.name, disabled: cs.length > 1,
+        class: 'isp-nome', value: cs.length > 1 ? `${cs.length} clip scelte` : primo.name, disabled: cs.length > 1,
         on: { change: (e: Event) => store.edit('Rinomina clip', () => { for (const c of this.sel()) c.name = (e.target as HTMLInputElement).value; }) },
       }),
-      h('div', { class: 'isp-info' },
-        h('span', null, 'Inizio ', h('b', { class: 'tc-testo' }, frameToTc(primo.start, p.rate, p.drop))),
-        h('span', null, 'Durata ', h('b', { class: 'tc-testo' }, frameToTc(primo.len, p.rate, p.drop))),
-        m ? h('span', { class: 'isp-sorgente' }, `${m.name} · ${m.vcodec || m.acodec}`) : h('span', null, trackOf(p, primo.track).name))));
+      h('div', { class: 'isp-riassunto' },
+        h('span', { class: 'chip-tipo' }, tipo),
+        h('span', null, 'da ', h('b', { class: 'tc-testo' }, frameToTc(primo.start, p.rate, p.drop))),
+        h('span', null, 'dura ', h('b', null, (primo.len / r).toFixed(2).replace('.', ',') + ' s')),
+        legate ? h('span', { class: 'chip-link' }, `⛓ +${legate}`) : null,
+        m && m.type !== 'audio' && m.width ? h('span', null, `${m.width}×${m.height}${m.fps ? ' · ' + Math.round(m.fps * 100) / 100 + ' fps' : ''}`) : null,
+        m ? h('span', { class: 'isp-sorgente' }, m.name) : h('span', null, trackOf(p, primo.track).name))));
+
+    // ——— gli effetti al volo: interruttori, niente cursori
+    const chips = (lista: typeof EFFETTI_VIDEO, quali: Clip[]) => h('div', { class: 'isp-chips' }, lista.filter((e) => adatte(e, quali).length).map((e) => {
+      const b = h('button', { class: 'chip', title: e.info, on: { click: () => alternaEffetto(e.id, adatte(e, this.sel()).map((c) => c.id)) } }, e.nome);
+      const agg = () => { const q = adatte(e, this.sel()); b.classList.toggle('acceso', q.length > 0 && q.every((c) => e.acceso(c, store.doc))); };
+      agg();
+      this.campi.push({ el: b, aggiorna: agg });
+      return b;
+    }));
+    if (video.length) out.push(this.gruppo('fxv', 'Effetti al volo', [chips(EFFETTI_VIDEO, video)]));
+    if (audio.length) out.push(this.gruppo('fxa', video.length ? 'Effetti audio' : 'Effetti al volo', [chips(EFFETTI_AUDIO, audio)]));
 
     if (video.length) {
-      out.push(this.gruppo('trasparenza', 'Trasparenza', [
+      out.push(this.gruppo('immagine', 'Immagine', [
         this.cursore('Opacità', 0, 100, 1, (c) => Math.round(c.opacity * 100), (c, v) => { c.opacity = v / 100; c.opKeys = []; }, '%', video),
-        this.pulsanti([['100%', 1], ['75%', 0.75], ['50%', 0.5], ['25%', 0.25], ['0', 0]].map(([n, v]) => [n as string, () => store.edit('Opacità', () => { for (const c of video) { c.opacity = v as number; c.opKeys = []; } })])),
-        video.some((c) => c.opKeys.length) ? h('p', { class: 'nota' }, 'Questa clip ha una linea elastica: la trasparenza cambia nel tempo. Muovere il cursore la toglie.') : null,
-      ]));
-      out.push(this.gruppo('trasforma', 'Posizione e dimensione', [
-        this.cursore('Scala', 5, 400, 1, (c) => Math.round(c.tf.scale * 100), (c, v) => { c.tf.scale = v / 100; }, '%', video),
-        this.cursore('Orizzontale', -p.w, p.w, 1, (c) => Math.round(c.tf.x), (c, v) => { c.tf.x = v; }, 'px', video),
-        this.cursore('Verticale', -p.h, p.h, 1, (c) => Math.round(c.tf.y), (c, v) => { c.tf.y = v; }, 'px', video),
-        this.cursore('Rotazione', -180, 180, 0.5, (c) => c.tf.rot, (c, v) => { c.tf.rot = v; }, '°', video),
-        this.cursore('Ritaglio sinistra', 0, 50, 0.5, (c) => c.tf.cropL * 100, (c, v) => { c.tf.cropL = v / 100; }, '%', video),
-        this.cursore('Ritaglio destra', 0, 50, 0.5, (c) => c.tf.cropR * 100, (c, v) => { c.tf.cropR = v / 100; }, '%', video),
-        this.cursore('Ritaglio sopra', 0, 50, 0.5, (c) => c.tf.cropT * 100, (c, v) => { c.tf.cropT = v / 100; }, '%', video),
-        this.cursore('Ritaglio sotto', 0, 50, 0.5, (c) => c.tf.cropB * 100, (c, v) => { c.tf.cropB = v / 100; }, '%', video),
+        this.cursore('Zoom', 20, 300, 1, (c) => Math.round(c.tf.scale * 100), (c, v) => { c.tf.scale = v / 100; }, '%', video),
         this.pulsanti([
           ['Adatta', () => store.edit('Adatta', () => { for (const c of video) c.tf = { ...TF0 }; })],
           ['Riempi', () => store.edit('Riempi', () => { for (const c of video) { const mm = mediaOf(p, c); if (mm?.width) { const w = mm.rotation % 180 ? mm.height : mm.width, hh = mm.rotation % 180 ? mm.width : mm.height; const kf = Math.min(p.w / w, p.h / hh), kc = Math.max(p.w / w, p.h / hh); c.tf.scale = kc / kf; } } })],
-          ['PiP ↘', () => store.edit('Riquadro', () => { for (const c of video) c.tf = { ...TF0, scale: 0.33, x: p.w * 0.3, y: p.h * 0.28 }; })],
-          ['PiP ↖', () => store.edit('Riquadro', () => { for (const c of video) c.tf = { ...TF0, scale: 0.33, x: -p.w * 0.3, y: -p.h * 0.28 }; })],
+          ['Riquadro ↘', () => store.edit('Riquadro', () => { for (const c of video) c.tf = { ...TF0, scale: 0.33, x: p.w * 0.3, y: p.h * 0.28 }; })],
+          ['Riquadro ↖', () => store.edit('Riquadro', () => { for (const c of video) c.tf = { ...TF0, scale: 0.33, x: -p.w * 0.3, y: -p.h * 0.28 }; })],
         ]),
+        video.some((c) => c.opKeys.length) ? h('p', { class: 'nota' }, 'Questa clip ha una linea elastica: la trasparenza cambia nel tempo. Muovere l\'opacità la toglie.') : null,
       ]));
-      out.push(this.gruppo('procamp', 'Proc amp (TBC)', [
-        this.cursore('Nero / luminosità', -50, 50, 1, (c) => Math.round(c.fx.bright * 100), (c, v) => { c.fx.bright = v / 100; }, '', video),
-        this.cursore('Guadagno / contrasto', 0, 200, 1, (c) => Math.round(c.fx.contrast * 100), (c, v) => { c.fx.contrast = v / 100; }, '%', video),
-        this.cursore('Croma / saturazione', 0, 200, 1, (c) => Math.round(c.fx.sat * 100), (c, v) => { c.fx.sat = v / 100; }, '%', video),
-        this.cursore('Fase / tinta', -180, 180, 1, (c) => c.fx.hue, (c, v) => { c.fx.hue = v; }, '°', video),
-        this.pulsanti([['Azzera', () => store.edit('Azzera proc amp', () => { for (const c of video) { c.fx.bright = 0; c.fx.contrast = 1; c.fx.sat = 1; c.fx.hue = 0; } })]]),
-      ]));
-      out.push(this.gruppo('look', 'Look', [
-        this.scelta('Aspetto', [['none', 'Nessuno'], ['vhs', 'VHS'], ['film', 'Pellicola'], ['crt', 'Tubo catodico'], ['bn', 'Bianco e nero'], ['seppia', 'Seppia']], (c) => c.fx.look, (c, v) => { c.fx.look = v as Look; }, video),
-      ]));
-      out.push(this.gruppo('chiave', 'Chiave (key)', [
-        this.scelta('Tipo', [['none', 'Nessuna'], ['luma', 'Luminanza (toglie il nero)'], ['chroma', 'Croma (green / blue screen)']], (c) => c.fx.key, (c, v) => { c.fx.key = v as Clip['fx']['key']; }, video),
-        this.colore('Colore della chiave', (c) => c.fx.keyColor, (c, v) => { c.fx.keyColor = v; }, video),
-        this.pulsanti([['Verde', () => store.edit('Chiave verde', () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = '#00b140'; } })], ['Blu', () => store.edit('Chiave blu', () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = '#0047bb'; } })]]),
-        this.cursore('Soglia', 0, 100, 1, (c) => Math.round(c.fx.keyLevel * 100), (c, v) => { c.fx.keyLevel = v / 100; }, '', video),
-        this.cursore('Morbidezza', 0, 50, 1, (c) => Math.round(c.fx.keySoft * 100), (c, v) => { c.fx.keySoft = v / 100; }, '', video),
-        this.spunta('Inverti', (c) => c.fx.keyInvert, (c, v) => { c.fx.keyInvert = v; }, video),
+      out.push(this.gruppo('colore', 'Colore della clip', [
+        this.cursore('Luce', -50, 50, 1, (c) => Math.round(c.fx.bright * 100), (c, v) => { c.fx.bright = v / 100; }, '', video),
+        this.cursore('Contrasto', 50, 150, 1, (c) => Math.round(c.fx.contrast * 100), (c, v) => { c.fx.contrast = v / 100; }, '%', video),
+        this.cursore('Saturazione', 0, 200, 1, (c) => Math.round(c.fx.sat * 100), (c, v) => { c.fx.sat = v / 100; }, '%', video),
+        this.cursore('Temperatura', -100, 100, 1, (c) => Math.round((c.fx.temp ?? 0) * 100), (c, v) => { c.fx.temp = v / 100; }, '', video),
+        this.pulsanti([['Azzera', () => store.edit('Azzera colore', () => { for (const c of video) { c.fx.bright = 0; c.fx.contrast = 1; c.fx.sat = 1; c.fx.hue = 0; c.fx.temp = 0; c.fx.look = 'none'; } })]]),
+        h('p', { class: 'nota' }, 'Il colore automatico e il look di tutto il montaggio sono nella pagina Finale.'),
       ], true));
     }
-    out.push(this.gruppo('durata', 'Durata', [this.durata(cs)]));
-    const conTr = cs.filter((c) => c.trIn);
-    out.push(this.gruppo('transizione', 'Transizione in testa', conTr.length ? [
-      this.scelta('Tipo', [['mix', 'Dissolvenza incrociata'], ['wipe', 'Tendina SMPTE'], ['dve', 'Effetto digitale (DVE)'], ['dip', 'Passaggio a colore']], (c) => c.trIn?.type ?? 'mix', (c, v) => {
-        if (!c.trIn) return;
-        c.trIn.type = v as 'mix';
-        // il modello deve essere della famiglia giusta
-        if (v === 'dve' && c.trIn.pattern < 300) c.trIn.pattern = 301;
-        if (v === 'wipe' && c.trIn.pattern >= 300) c.trIn.pattern = 1;
-      }, conTr),
-      this.cursore('Durata', 1, Math.round(fps(p.rate) * 5), 1, (c) => c.trIn?.len ?? 0, (c, v) => { if (c.trIn) c.trIn.len = Math.min(v, c.len); }, 'fot', conTr),
-      this.scelta('Modello', [...EFFETTI, ...TENDINE].map((m) => [String(m.p), (m.p >= 300 ? 'DVE · ' : 'Tendina ') + m.nome] as [string, string]), (c) => String(c.trIn?.pattern ?? 1), (c, v) => {
-        if (!c.trIn) return;
-        c.trIn.pattern = Number(v);
-        if (c.trIn.type === 'wipe' || c.trIn.type === 'dve') c.trIn.type = tipoDi(Number(v));
-        if (!isVideoClip(c)) c.trIn.type = 'mix';
-      }, conTr),
-      this.cursore('Bordo morbido', 0, 40, 1, (c) => Math.round((c.trIn?.soft ?? 0) * 100), (c, v) => { if (c.trIn) c.trIn.soft = v / 100; }, '', conTr),
-      this.cursore('Bordo colorato', 0, 20, 0.5, (c) => (c.trIn?.border ?? 0) * 100, (c, v) => { if (c.trIn) c.trIn.border = v / 100; }, '', conTr),
-      this.colore('Colore del bordo', (c) => c.trIn?.borderColor ?? '#ffd54a', (c, v) => { if (c.trIn) c.trIn.borderColor = v; }, conTr),
-      this.colore('Colore del passaggio', (c) => c.trIn?.color ?? '#000000', (c, v) => { if (c.trIn) c.trIn.color = v; }, conTr),
-      this.spunta('Al contrario', (c) => !!c.trIn?.reverse, (c, v) => { if (c.trIn) c.trIn.reverse = v; }, conTr),
-      this.pulsanti([['Togli', () => store.edit('Togli transizione', () => { for (const c of this.sel()) c.trIn = undefined; })]]),
-    ] : [
-      h('p', { class: 'nota' }, 'Nessuna transizione. Mettila con 5 (dissolvenza), 6 (tendina), 7 (passaggio al nero) o trascinandola dal pannello Transizioni: ci sono anche spinta, zoom, mosaico, cubo 3D, girata, onda, lampo, luce di pellicola, glitch, vortice, stella e cuore.'),
-      this.pulsanti([['Dissolvenza', () => store.edit('Transizione', () => { for (const c of this.sel()) c.trIn = newTransition('mix', Math.min(c.len, Math.round(fps(p.rate)))); })]]),
-    ]));
-    out.push(this.gruppo('dissolvenze', 'Dissolvenze (fade)', [
-      this.cursore('In apertura', 0, Math.round(fps(p.rate) * 5), 1, (c) => c.fadeIn, (c, v) => { c.fadeIn = Math.min(v, c.len); }, 'fot', cs),
-      this.cursore('In chiusura', 0, Math.round(fps(p.rate) * 5), 1, (c) => c.fadeOut, (c, v) => { c.fadeOut = Math.min(v, c.len); }, 'fot', cs),
-    ]));
     if (audio.length) {
-      out.push(this.gruppo('audio', 'Audio', [
+      out.push(this.gruppo('audio', 'Volume', [
         this.cursore('Volume', -40, 12, 0.5, (c) => c.gain, (c, v) => { c.gain = v; c.gainKeys = []; }, 'dB', audio),
+        this.pulsanti([['−6', () => store.edit('Volume', () => { for (const c of audio) { c.gain = -6; c.gainKeys = []; } })], ['0 dB', () => store.edit('Volume', () => { for (const c of audio) { c.gain = 0; c.gainKeys = []; } })], ['+6', () => store.edit('Volume', () => { for (const c of audio) { c.gain = 6; c.gainKeys = []; } })], ['Muto', () => store.edit('Volume', () => { for (const c of audio) { c.gain = -60; c.gainKeys = []; } })]]),
         this.cursore('Panorama', -100, 100, 1, (c) => Math.round(c.pan * 100), (c, v) => { c.pan = v / 100; }, '', audio),
-        this.pulsanti([['0 dB', () => store.edit('Volume', () => { for (const c of audio) { c.gain = 0; c.gainKeys = []; } })], ['−6', () => store.edit('Volume', () => { for (const c of audio) { c.gain = -6; c.gainKeys = []; } })], ['−12', () => store.edit('Volume', () => { for (const c of audio) { c.gain = -12; c.gainKeys = []; } })], ['Muto', () => store.edit('Volume', () => { for (const c of audio) { c.gain = -60; c.gainKeys = []; } })]]),
+        h('p', { class: 'nota' }, 'Nella timeline la linea gialla è il volume: trascinala, doppio clic per un punto, tasto destro → "Abbassa qui".'),
       ]));
     }
+    out.push(this.gruppo('durata', 'Durata', [this.durata(cs)]));
+    out.push(this.transizioni(cs, 'in'));
+    out.push(this.transizioni(cs, 'out'));
     const gen = cs.filter((c) => c.kind === 'color' || c.kind === 'bars' || c.kind === 'tone' || c.kind === 'beep');
     if (gen.length) {
       const g0 = gen[0];
@@ -159,7 +131,72 @@ export class Ispettore {
     }
     const titoli = cs.filter((c) => c.kind === 'title');
     if (titoli.length) out.push(this.titolatrice(titoli));
+    if (video.length) {
+      out.push(this.gruppo('avanzate', 'Avanzate (posizione, ritaglio, chiave)', [
+        this.cursore('Orizzontale', -p.w, p.w, 1, (c) => Math.round(c.tf.x), (c, v) => { c.tf.x = v; }, 'px', video),
+        this.cursore('Verticale', -p.h, p.h, 1, (c) => Math.round(c.tf.y), (c, v) => { c.tf.y = v; }, 'px', video),
+        this.cursore('Rotazione', -180, 180, 0.5, (c) => c.tf.rot, (c, v) => { c.tf.rot = v; }, '°', video),
+        this.cursore('Ritaglio sinistra', 0, 50, 0.5, (c) => c.tf.cropL * 100, (c, v) => { c.tf.cropL = v / 100; }, '%', video),
+        this.cursore('Ritaglio destra', 0, 50, 0.5, (c) => c.tf.cropR * 100, (c, v) => { c.tf.cropR = v / 100; }, '%', video),
+        this.cursore('Ritaglio sopra', 0, 50, 0.5, (c) => c.tf.cropT * 100, (c, v) => { c.tf.cropT = v / 100; }, '%', video),
+        this.cursore('Ritaglio sotto', 0, 50, 0.5, (c) => c.tf.cropB * 100, (c, v) => { c.tf.cropB = v / 100; }, '%', video),
+        this.cursore('Tinta', -180, 180, 1, (c) => c.fx.hue, (c, v) => { c.fx.hue = v; }, '°', video),
+        this.scelta('Chiave', [['none', 'Nessuna'], ['luma', 'Luminanza (toglie il nero)'], ['chroma', 'Croma (green / blue screen)']], (c) => c.fx.key, (c, v) => { c.fx.key = v as Clip['fx']['key']; }, video),
+        this.colore('Colore della chiave', (c) => c.fx.keyColor, (c, v) => { c.fx.keyColor = v; }, video),
+        this.pulsanti([['Green screen', () => store.edit('Chiave verde', () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = '#00b140'; } })], ['Blue screen', () => store.edit('Chiave blu', () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = '#0047bb'; } })]]),
+        this.cursore('Soglia', 0, 100, 1, (c) => Math.round(c.fx.keyLevel * 100), (c, v) => { c.fx.keyLevel = v / 100; }, '', video),
+        this.cursore('Morbidezza', 0, 50, 1, (c) => Math.round(c.fx.keySoft * 100), (c, v) => { c.fx.keySoft = v / 100; }, '', video),
+        this.spunta('Inverti la chiave', (c) => c.fx.keyInvert, (c, v) => { c.fx.keyInvert = v; }, video),
+      ], true));
+    }
     this.corpo.replaceChildren(...out);
+  }
+
+  /** la transizione in testa ('in') o in coda ('out') delle clip scelte */
+  private transizioni(cs: Clip[], lato: 'in' | 'out'): HTMLElement {
+    const p = store.doc;
+    const r = fps(p.rate);
+    const di = (c: Clip) => (lato === 'in' ? c.trIn : c.trOut);
+    const con = cs.filter((c) => di(c));
+    const titolo = lato === 'in' ? 'Transizione in testa' : 'Transizione in coda';
+    if (!con.length) {
+      return this.gruppo('tr' + lato, titolo, [
+        h('p', { class: 'nota' }, lato === 'in' ? 'Nessuna. Trascinane una dal contenitore (Transizioni) sul taglio, o:' : 'Nessuna. Una transizione in coda fa uscire la clip su quello che sta sotto:'),
+        this.pulsanti([
+          ['Dissolvenza', () => applicaTransizione('mix', 0, { clipId: this.bersaglioLato(cs[0], lato).clipId, lato: this.bersaglioLato(cs[0], lato).lato })],
+          ['Nero', () => applicaTransizione('dip', 0, this.bersaglioLato(cs[0], lato))],
+          ['Spinta', () => applicaTransizione('dve', 301, this.bersaglioLato(cs[0], lato))],
+          ['Cubo 3D', () => applicaTransizione('dve', 401, this.bersaglioLato(cs[0], lato))],
+        ]),
+      ], lato === 'out');
+    }
+    const set = (c: Clip, fn: (t: NonNullable<Clip['trIn']>) => void) => { const t = di(c); if (t) fn(t); };
+    return this.gruppo('tr' + lato, titolo, [
+      this.scelta('Modello', [['mix', 'Dissolvenza incrociata'], ['dip', 'Passaggio a colore'], ...[...EFFETTI, ...TENDINE].map((m) => [String(m.p), (m.p >= 300 ? 'Effetto · ' : 'Tendina ') + m.nome] as [string, string])],
+        (c) => { const t = di(c); return !t ? 'mix' : t.type === 'mix' || t.type === 'dip' ? t.type : String(t.pattern); },
+        (c, v) => set(c, (t) => {
+          if (v === 'mix' || v === 'dip') { t.type = v; return; }
+          t.pattern = Number(v);
+          t.type = isVideoClip(c) ? tipoDi(Number(v)) : 'mix';
+        }), con),
+      this.cursore('Durata', 1, Math.round(r * 4), 1, (c) => di(c)?.len ?? 0, (c, v) => set(c, (t) => { t.len = Math.min(v, c.len); }), 'fot', con),
+      this.pulsanti([
+        ['½ s', () => store.edit('Durata transizione', () => { for (const c of con) set(c, (t) => { t.len = Math.min(Math.round(r / 2), c.len); }); })],
+        ['1 s', () => store.edit('Durata transizione', () => { for (const c of con) set(c, (t) => { t.len = Math.min(Math.round(r), c.len); }); })],
+        ['2 s', () => store.edit('Durata transizione', () => { for (const c of con) set(c, (t) => { t.len = Math.min(Math.round(r * 2), c.len); }); })],
+        ['Togli', () => store.edit('Togli transizione', () => { for (const c of this.sel()) { if (lato === 'in') c.trIn = undefined; else c.trOut = undefined; } })],
+      ]),
+      this.spunta('Al contrario', (c) => !!di(c)?.reverse, (c, v) => set(c, (t) => { t.reverse = v; }), con),
+      this.colore('Colore (bordo o passaggio)', (c) => { const t = di(c); return t?.type === 'dip' ? t.color : t?.borderColor ?? '#ffd54a'; }, (c, v) => set(c, (t) => { if (t.type === 'dip') t.color = v; else t.borderColor = v; }), con),
+      this.cursore('Bordo', 0, 20, 0.5, (c) => (di(c)?.border ?? 0) * 100, (c, v) => set(c, (t) => { t.border = v / 100; }), '', con),
+    ]);
+  }
+
+  /** la testa della clip, o la coda: se dopo c'è una clip attaccata, la testa di quella */
+  private bersaglioLato(c: Clip, lato: 'in' | 'out'): { clipId: string; lato: 'in' | 'out' } {
+    if (lato === 'in') return { clipId: c.id, lato: 'in' };
+    const n = store.doc.clips.find((x) => x.track === c.track && x.start === c.start + c.len);
+    return n ? { clipId: n.id, lato: 'in' } : { clipId: c.id, lato: 'out' };
   }
 
   private titolatrice(tt: Clip[]): HTMLElement {
@@ -232,7 +269,7 @@ export class Ispettore {
 
   // ——— mattoncini ———
   private gruppo(id: string, titolo: string, righe: (HTMLElement | null)[], chiuso = false): HTMLElement {
-    const aperto = this.aperti.has(id) || (!chiuso && !this.aperti.has('!' + id) && id !== 'chiave' && id !== 'look' && id !== 'procamp');
+    const aperto = this.aperti.has(id) || (!chiuso && !this.aperti.has('!' + id));
     const el = h('details', { class: 'isp-gruppo', open: aperto }, h('summary', null, titolo), ...righe.filter(Boolean) as HTMLElement[]);
     el.addEventListener('toggle', () => { if ((el as HTMLDetailsElement).open) { this.aperti.add(id); this.aperti.delete('!' + id); } else { this.aperti.delete(id); this.aperti.add('!' + id); } });
     return el;
@@ -256,7 +293,7 @@ export class Ispettore {
     n.addEventListener('change', () => { const v = Math.max(min, Math.min(max, Number(n.value) || 0)); applica(v); store.commit(true); vivo = false; r.value = String(v); });
     r.addEventListener('dblclick', () => {
       // doppio clic = valore di partenza
-      const def: Record<string, number> = { Opacità: 100, Scala: 100, Orizzontale: 0, Verticale: 0, Rotazione: 0, 'Nero / luminosità': 0, 'Guadagno / contrasto': 100, 'Croma / saturazione': 100, 'Fase / tinta': 0, Volume: 0, Panorama: 0 };
+      const def: Record<string, number> = { Opacità: 100, Zoom: 100, Orizzontale: 0, Verticale: 0, Rotazione: 0, Luce: 0, Contrasto: 100, Saturazione: 100, Temperatura: 0, Tinta: 0, Volume: 0, Panorama: 0 };
       if (nome in def) { applica(def[nome]); store.commit(true); vivo = false; agg(); }
     });
     const el = h('div', { class: 'isp-riga' }, h('label', null, nome), r, h('span', { class: 'isp-num' }, n, h('small', null, unita)));

@@ -66,6 +66,28 @@ export interface VideoFx {
   keyLevel: number;
   keySoft: number;
   keyInvert: boolean;
+  /** colore automatico della clip: undefined = come dice il Finale, true/false = scelto a mano */
+  auto?: boolean;
+  /** temperatura -1 (freddo) .. 1 (caldo) */
+  temp?: number;
+  /** vignetta 0..1 */
+  vignette?: number;
+  /** specchia in orizzontale */
+  mirror?: boolean;
+  /** zoom lento lungo la clip (Ken Burns): 0.15 = arriva al 115% */
+  zoom?: number;
+}
+
+/** effetti audio della clip: filtri che valgono sia in riproduzione sia nell'export */
+export interface AudioFx {
+  /** voce più chiara: taglia i bassi e alza la presenza */
+  voce?: boolean;
+  /** taglia bassi (rimbombo, vento) */
+  bassi?: boolean;
+  /** effetto radio / telefono */
+  radio?: boolean;
+  /** volume livellato in automatico (ricorda il guadagno di prima per tornare indietro) */
+  norm?: number;
 }
 
 export interface Transform {
@@ -129,6 +151,8 @@ export interface Clip {
   tf: Transform;
   fx: VideoFx;
   trIn?: Transition;
+  /** transizione in coda, quando dopo la clip non c'è niente di attaccato (esce su quello che sta sotto) */
+  trOut?: Transition;
   /** dissolvenze in fotogrammi (video: dal trasparente · audio: dal silenzio) */
   fadeIn: number;
   fadeOut: number;
@@ -136,6 +160,7 @@ export interface Clip {
   gain: number;
   gainKeys: Key[];
   pan: number;
+  afx?: AudioFx;
   gen?: GenSpec;
 }
 
@@ -171,6 +196,35 @@ export interface MediaItem {
 
 export interface Marker { id: string; f: number; name: string; color: string }
 
+export type LookFinale = 'nessuno' | 'cinema' | 'caldo' | 'freddo' | 'vivace' | 'vintage' | 'bn' | 'pellicola' | 'notte';
+
+/** i ritocchi finali: valgono per tutto il montaggio, nei monitor e nell'export */
+export interface Master {
+  /** colore automatico su tutte le riprese (livelli e bilanciamento del bianco) */
+  auto: boolean;
+  /** forza del colore automatico 0..1 */
+  autoK: number;
+  look: LookFinale;
+  /** quanto pesa il look 0..1 */
+  intensita: number;
+  /** -1..1 */
+  bright: number;
+  /** 0.5..1.5 */
+  contrast: number;
+  /** 0..2 */
+  sat: number;
+  /** -1 freddo .. 1 caldo */
+  temp: number;
+  /** -1 verde .. 1 magenta */
+  tint: number;
+  vignette: number;
+  grain: number;
+  /** volume finale in dB */
+  volume: number;
+  /** limitatore sull'uscita: niente distorsione */
+  limiter: boolean;
+}
+
 export interface Project {
   format: 'daprod-video';
   v: 1;
@@ -189,6 +243,8 @@ export interface Project {
   outF: number | null;
   /** preroll/postroll in secondi, come i registratori a nastro */
   preroll: number;
+  /** ritocchi finali (colore globale, look, audio finale) */
+  master?: Master;
   created: number;
   saved: number;
 }

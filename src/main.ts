@@ -11,6 +11,7 @@ import { isTauri } from './platform';
 import { preparaRiserva } from './media/riserva';
 
 const radice = document.getElementById('app')!;
+let banco: ReturnType<typeof avvia> | null = null;
 
 function nonSupportato(): string | null {
   if (typeof VideoDecoder === 'undefined' || typeof VideoEncoder === 'undefined') return 'Questo browser non ha WebCodecs, il motore video di DaProd Video.';
@@ -33,7 +34,7 @@ if (problema) {
   document.body.appendChild(avvio);
   // nell'app, prima di aprire qualunque file, si accende (se serve) la decodifica audio di riserva in Rust
   await preparaRiserva().catch(() => []);
-  avvia(radice);
+  banco = avvia(radice);
   setTimeout(() => { avvio.classList.add('via'); setTimeout(() => avvio.remove(), 500); }, isTauri ? 500 : 900);
 }
 
@@ -44,4 +45,7 @@ import * as P from './core/progetto';
 import { esporta } from './export/esporta';
 import { creaEdl } from './export/edl';
 import { motore } from './motore';
-(window as unknown as Record<string, unknown>).__dpvTest = { M, TC, P, esporta, creaEdl, motore };
+import { guadagnoClip } from './media/audio';
+import { pianoVideo } from './render/piano';
+import * as Z from './azioni';
+(window as unknown as Record<string, unknown>).__dpvTest = { M, TC, P, esporta, creaEdl, motore, guadagnoClip, pianoVideo, Z, ui: () => banco };

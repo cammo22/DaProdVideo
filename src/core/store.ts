@@ -1,10 +1,10 @@
 // Lo stato dell'editor: il progetto, la selezione, il cursore e l'annulla/ripeti.
 // Ogni modifica passa da edit(): prima si fa la fotografia, poi si cambia, poi si avvisa chi disegna.
 import type { Project } from './tipi';
-import { newProject } from './progetto';
+import { newProject, progettoAperto } from './progetto';
 import { FORMATI } from './tipi';
 
-type Snap = Pick<Project, 'tracks' | 'clips' | 'markers' | 'inF' | 'outF' | 'media' | 'w' | 'h' | 'rate' | 'drop' | 'name'> & { label: string };
+type Snap = Pick<Project, 'tracks' | 'clips' | 'markers' | 'inF' | 'outF' | 'media' | 'w' | 'h' | 'rate' | 'drop' | 'name' | 'master'> & { label: string };
 
 export type StoreEvent = 'doc' | 'sel' | 'head' | 'view' | 'status';
 
@@ -12,6 +12,7 @@ const LIMITE_ANNULLA = 200;
 
 class Store {
   doc: Project = newProject(FORMATI[0]);
+  constructor() { progettoAperto(this.doc); }
   sel = new Set<string>();
   /** cursore della timeline in fotogrammi (durante la riproduzione può avere la virgola) */
   head = 0;
@@ -50,7 +51,7 @@ class Store {
 
   private snap(label: string): Snap {
     const d = this.doc;
-    return structuredClone({ tracks: d.tracks, clips: d.clips, markers: d.markers, inF: d.inF, outF: d.outF, media: d.media, w: d.w, h: d.h, rate: d.rate, drop: d.drop, name: d.name, label });
+    return structuredClone({ tracks: d.tracks, clips: d.clips, markers: d.markers, inF: d.inF, outF: d.outF, media: d.media, w: d.w, h: d.h, rate: d.rate, drop: d.drop, name: d.name, master: d.master, label });
   }
 
   private restore(s: Snap) {
@@ -126,6 +127,7 @@ class Store {
 
   load(p: Project) {
     this.doc = p;
+    progettoAperto(p);
     this.sel.clear();
     this.undo = [];
     this.redo = [];

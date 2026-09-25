@@ -38,6 +38,7 @@ try {
   await page.waitForTimeout(1200);
   prova('il banco si apre senza errori', errori.length === 0, errori.join(' | '));
   prova('il contenitore vuoto invita a importare', await page.isVisible('text=Trascina qui i tuoi video'));
+  prova('un monitor solo, sul programma', (await page.locator('.monitor').count()) === 1 && (await page.textContent('.monitor .mon-testa b')) === 'PROGRAMMA');
   prova('la pulsantiera ha i tasti 1 e 2', (await page.textContent('.pulsantiera')).includes('TAGLIA') && (await page.textContent('.pulsantiera')).includes('ELIMINA'));
 
   console.log('▶ Timecode');
@@ -73,12 +74,14 @@ try {
     await page.waitForTimeout(300);
     const n0 = await conta();
     const fine0 = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
-    const voce = await page.locator('.bin-voce').nth(1).boundingBox();
+    const voce = await page.locator('.carta[data-id]').nth(1).boundingBox();
     const tela = await page.locator('.tl-tela').boundingBox();
+    // la riga di V1: righello + le tracce video sopra + metà di V1
+    const yV1 = await page.evaluate(() => { const t = window.__dpv.doc.tracks; const i = t.findIndex((x) => x.name === 'V1'); return 34 + t.slice(0, i).reduce((s, x) => s + x.height, 0) + t[i].height / 2; });
     await page.mouse.move(voce.x + voce.width / 2, voce.y + voce.height / 2);
     await page.mouse.down();
     await page.mouse.move(voce.x + 60, voce.y + 40, { steps: 5 });
-    await page.mouse.move(tela.x + tela.width - 12, tela.y + 30 + 58 + 58 + 29, { steps: 10 });
+    await page.mouse.move(tela.x + tela.width - 12, tela.y + yV1, { steps: 10 });
     await page.waitForTimeout(150);
     await page.mouse.up();
     await page.waitForTimeout(300);
@@ -115,12 +118,22 @@ try {
   prova('il pezzo di destra riparte dal punto giusto della sorgente', Math.abs(sx.srcIn - 60 / 25) < 1e-6, sx.srcIn);
   const pezzoA = d.clips.find((c) => c.start === 60 && d.tracks.find((t) => t.id === c.track).kind === 'audio');
   prova('audio e video tagliati restano legati fra loro', sx.link && sx.link === pezzoA.link);
+  {
+    const sel = await page.evaluate(() => [...window.__dpv.sel]);
+    const sxV = d.clips.find((c) => c.start === 0 && c.len === 60 && d.tracks.find((t) => t.id === c.track).name === 'V1');
+    prova('dopo il taglio è scelto il pezzo più corto (pronto per il 2)', !!sxV && sel.includes(sxV.id) && !sel.includes(sx.id), sel.join(','));
+  }
 
   console.log('▶ Tasto 2: elimina');
   await page.evaluate((id) => window.__dpv.select([id]), sx.id);
   await tasto('2');
   d = await doc();
   prova('2 elimina la clip selezionata e la sua audio', d.clips.length === prima + 1 && !d.clips.some((c) => c.id === sx.id), d.clips.length);
+  {
+    const sel = await page.evaluate(() => [...window.__dpv.sel]);
+    const dopoV = d.clips.filter((c) => d.tracks.find((t) => t.id === c.track).name === 'V1' && c.start >= 60).sort((a, b) => a.start - b.start)[0];
+    prova('dopo il 2 è scelta la clip che viene dopo', !!dopoV && sel.includes(dopoV.id), sel.join(','));
+  }
   prova('senza ripple resta il buco', !d.clips.some((c) => c.start === 60 && d.tracks.find((t) => t.id === c.track).name === 'V1'));
   await tasto('Control+z');
   prova('Ctrl+Z riporta le clip', (await conta()) === prima + 3);
@@ -249,7 +262,7 @@ try {
 
   console.log('▶ Transizioni nuove');
   {
-    await page.click('.contenitore .scheda[data-s=transizioni]');
+    await page.click('.bin-cat[data-c=transizioni]');
     await page.waitForTimeout(300);
     prova('il pannello ha gli effetti digitali e le tendine a sagoma', (await page.locator('.gen-lista .gen-voce').count()) >= 30);
     const v1b = (await doc()).tracks.find((t) => t.name === 'V1').id;
@@ -273,7 +286,197 @@ try {
     const edl2 = await page.evaluate(() => window.__dpvTest.creaEdl(window.__dpv.doc));
     prova('la EDL annota l\'effetto digitale', edl2.includes('* EFFETTO: Mosaico'));
     await tasto('Control+z'); await tasto('Control+z'); await tasto('Control+z');
-    await page.click('.contenitore .scheda[data-s=media]');
+    await page.click('.bin-cat[data-c=tutto]');
+  }
+
+  console.log('▶ Tasti nuovi: S, Q e W, tracce accese, rotella');
+  {
+    await page.evaluate(() => { window.__dpv.select([]); window.__motore.setMonitor('recorder'); });
+    let dd = await doc();
+    const tv1 = dd.tracks.find((t) => t.name === 'V1').id, ta1 = dd.tracks.find((t) => t.name === 'A1').id;
+    // S separa un gruppo, poi con due clip scelte le riunisce
+    const v = dd.clips.find((c) => c.track === tv1 && c.link);
+    const a = dd.clips.find((c) => c.link === v.link && c.id !== v.id);
+    await page.evaluate((ids) => window.__dpv.select(ids), [v.id, a.id]);
+    await page.locator('.tl-tela').focus();
+    await tasto('s');
+    dd = await doc();
+    prova('S separa il gruppo (audio e video vanno per conto loro)', !dd.clips.find((c) => c.id === v.id).link && !dd.clips.find((c) => c.id === a.id).link);
+    await tasto('s');
+    dd = await doc();
+    const lv = dd.clips.find((c) => c.id === v.id).link;
+    prova('S con due clip scelte le riunisce in un gruppo', !!lv && lv === dd.clips.find((c) => c.id === a.id).link);
+    // Q: via lo scarto a sinistra del cursore (senza ripple resta il buco)
+    const c0 = dd.clips.filter((c) => c.track === tv1).sort((x, y) => x.start - y.start)[0];
+    await page.evaluate((f) => { window.__dpv.select([]); window.__motore.vaiA(f); }, c0.start + 20);
+    await tasto('q');
+    dd = await doc();
+    const c0b = dd.clips.find((c) => c.id === c0.id);
+    prova('Q toglie lo scarto a sinistra del cursore', c0b.start === c0.start + 20 && c0b.len === c0.len - 20, `${c0b.start}+${c0b.len}`);
+    await tasto('Control+z');
+    // W: via lo scarto a destra
+    await page.evaluate((f) => window.__motore.vaiA(f), c0.start + 30);
+    await tasto('w');
+    dd = await doc();
+    prova('W toglie lo scarto a destra del cursore', dd.clips.find((c) => c.id === c0.id).len === 30);
+    await tasto('Control+z');
+    // tracce accese: il taglio tocca solo V1
+    const yV1 = await page.evaluate(() => { const t = window.__dpv.doc.tracks; const i = t.findIndex((x) => x.name === 'V1'); return i; });
+    await page.locator('.tl-testata .tt-nome').nth(yV1).click();
+    const n0 = (await doc()).clips.length;
+    await page.evaluate((f) => window.__motore.vaiA(f), c0.start + 40);
+    await page.locator('.tl-tela').focus();
+    await tasto('1');
+    dd = await doc();
+    prova('con V1 accesa il taglio tocca solo V1 (l\'audio resta intero)', dd.clips.length === n0 + 1 && dd.clips.some((c) => c.track === tv1 && c.start === c0.start + 40) && !dd.clips.some((c) => c.track === ta1 && c.start === c0.start + 40), `${n0} → ${dd.clips.length}`);
+    await tasto('Control+z');
+    await page.locator('.tl-testata .tt-nome').nth(yV1).click();
+    prova('la traccia si spegne con un altro clic', await page.evaluate(() => window.__dpvTest.Z.modi.attive.size === 0));
+    // la rotella: un fotogramma per scatto
+    await page.evaluate(() => window.__motore.vaiA(100));
+    const box = await page.locator('.tl-tela').boundingBox();
+    await page.mouse.move(box.x + 300, box.y + 120);
+    await page.mouse.wheel(0, 100);
+    await page.waitForTimeout(150);
+    await page.mouse.wheel(0, 100);
+    await page.waitForTimeout(150);
+    prova('la rotella va avanti di un fotogramma per scatto', (await page.evaluate(() => window.__dpv.head)) === 102, await page.evaluate(() => window.__dpv.head));
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(150);
+    prova('e torna indietro', (await page.evaluate(() => window.__dpv.head)) === 101);
+  }
+
+  console.log('▶ Niente viene coperto');
+  {
+    let dd = await doc();
+    const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
+    const [c1, c2] = dd.clips.filter((c) => c.track === tv1).sort((x, y) => x.start - y.start);
+    const n0 = dd.clips.length;
+    // c2 spostata di 40 fotogrammi indietro, dentro c1: si ferma attaccata a c1
+    await page.evaluate(({ id }) => window.__dpv.edit('prova libero', (p) => window.__dpvTest.M.moveClips(p, window.__dpvTest.M.withLinked(p, [id]), -40, 0, 'video', 'libero')), { id: c2.id });
+    dd = await doc();
+    const c2b = dd.clips.find((c) => c.id === c2.id);
+    const sovrapposte = dd.clips.some((x) => dd.clips.some((y) => x !== y && x.track === y.track && x.start < y.start + y.len && y.start < x.start + x.len));
+    prova('spostando una clip sopra un\'altra non si mangia niente', dd.clips.length === n0 && !sovrapposte && c2b.start === c1.start + c1.len, `start ${c2b.start}`);
+    await tasto('Control+z');
+    // una ripresa lasciata dove è occupato va su una traccia libera
+    const m = dd.media[0];
+    const nt = dd.tracks.length;
+    await page.evaluate(({ id, f }) => { window.__dpv.edit('prova posa', (p) => window.__dpvTest.M.placeSource(p, { mediaId: id, srcIn: 0, srcOut: 2 }, f, null, { video: p.tracks.find((t) => t.name === 'V1').id, audio: [p.tracks.find((t) => t.name === 'A1').id] }, 'libero')); }, { id: m.id, f: 10 });
+    dd = await doc();
+    const nuoveV = dd.clips.filter((c) => c.start === 10 && c.media === m.id);
+    const sovr2 = dd.clips.some((x) => dd.clips.some((y) => x !== y && x.track === y.track && x.start < y.start + y.len && y.start < x.start + x.len));
+    prova('una ripresa lasciata su una traccia occupata va su una libera', nuoveV.length === 2 && !sovr2 && nuoveV.every((c) => c.track !== tv1), `${nuoveV.length} clip, tracce ${dd.tracks.length - nt} nuove`);
+    await tasto('Control+z');
+    // l'audio non si abbassa da solo verso la fine (il vecchio "fade out automatico")
+    const g = await page.evaluate(() => {
+      const c0 = window.__dpv.doc.clips.find((x) => x.kind === 'media' && window.__dpv.doc.tracks.find((t) => t.id === x.track).kind === 'audio');
+      const c = { ...c0, fadeIn: 0, fadeOut: 0, trIn: undefined, trOut: undefined, gainKeys: [], gain: 0 };
+      const G = window.__dpvTest.guadagnoClip;
+      return [G(c, 0, 0), G(c, c.len / 2, 0), G(c, c.len - 1, 0), G(c, c.len, 0)];
+    });
+    prova('niente fade out automatico: il volume resta pieno fino alla fine', !!g && g.every((x) => Math.abs(x - 1) < 1e-6), JSON.stringify(g));
+  }
+
+  console.log('▶ Volume sulla clip audio e transizione trascinata');
+  {
+    await page.evaluate(() => { window.__dpv.select([]); document.dispatchEvent(new CustomEvent('dpv:adatta')); });
+    await page.waitForTimeout(300);
+    // dove sta la linea del volume della prima clip di A1 (stessa geometria della timeline)
+    const punto = (k) => page.evaluate((k) => {
+      const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc;
+      let y = 34 - tl.scrollY, prima = null, riga = null;
+      for (const t of d.tracks) { if (prima && prima.kind === 'video' && t.kind === 'audio') y += 10; if (t.name === 'A1') { riga = { y, h: t.height, id: t.id }; break; } y += t.height; prima = t; }
+      const c = d.clips.filter((x) => x.track === riga.id).sort((a, b) => a.start - b.start)[0];
+      const top = riga.y + 2, alt = riga.h - 4, testa = Math.min(17, Math.round(alt * 0.34)), cy = top + testa, ch = alt - testa;
+      const ly = cy + ch - ((c.gain + 40) / 52) * ch;
+      return { x: (c.start + c.len * k - tl.scrollF) * tl.ppf, y: ly, id: c.id };
+    }, k);
+    const box = await page.locator('.tl-tela').boundingBox();
+    const q = await punto(0.5);
+    await page.mouse.move(box.x + q.x, box.y + q.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + q.x, box.y + q.y - 12, { steps: 4 });
+    await page.mouse.up();
+    let dd = await doc();
+    const g1 = dd.clips.find((c) => c.id === q.id).gain;
+    prova('trascinando la linea gialla il volume della clip sale', g1 > 0, g1);
+    const q2 = await punto(0.3);
+    await page.mouse.dblclick(box.x + q2.x, box.y + q2.y);
+    dd = await doc();
+    prova('doppio clic sulla linea mette un punto del volume', dd.clips.find((c) => c.id === q.id).gainKeys.length >= 3, dd.clips.find((c) => c.id === q.id).gainKeys.length);
+    await tasto('Control+z'); await tasto('Control+z');
+    // una dissolvenza trascinata sulla coda dell'ultima clip di V1: esce in dissolvenza
+    await page.click('.bin-cat[data-c=transizioni]');
+    await page.waitForTimeout(200);
+    const carta = await page.locator('.carta.tr', { hasText: 'Dissolvenza incrociata' }).boundingBox();
+    const dove = await page.evaluate(() => {
+      const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc;
+      let y = 34 - tl.scrollY;
+      for (const t of d.tracks) { if (t.name === 'V1') { y += t.height / 2; break; } y += t.height; }
+      const v1 = d.tracks.find((t) => t.name === 'V1').id;
+      const c = d.clips.filter((x) => x.track === v1).sort((a, b) => b.start - a.start)[0];
+      return { x: (c.start + c.len * 0.9 - tl.scrollF) * tl.ppf, y, id: c.id };
+    });
+    await page.mouse.move(carta.x + carta.width / 2, carta.y + carta.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(carta.x + 60, carta.y + 30, { steps: 4 });
+    await page.mouse.move(box.x + dove.x, box.y + dove.y, { steps: 10 });
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    dd = await doc();
+    prova('transizione trascinata sulla coda di una clip: esce in dissolvenza', dd.clips.find((c) => c.id === dove.id).trOut?.type === 'mix', JSON.stringify(dd.clips.find((c) => c.id === dove.id).trOut));
+    await tasto('Control+z');
+    await page.click('.bin-cat[data-c=tutto]');
+  }
+
+  console.log('▶ Transizione in coda ed effetti');
+  {
+    let dd = await doc();
+    const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
+    const ultima = dd.clips.filter((c) => c.track === tv1).sort((x, y) => y.start - x.start)[0];
+    const len0 = ultima.len;
+    await page.evaluate((id) => window.__dpvTest.Z.applicaTransizione('dve', 301, { clipId: id, lato: 'out' }), ultima.id);
+    dd = await doc();
+    const u2 = dd.clips.find((c) => c.id === ultima.id);
+    prova('transizione in coda sull\'ultima clip, senza cambiarne la durata', u2.trOut?.type === 'dve' && u2.len === len0);
+    const strati = await page.evaluate(({ f }) => window.__dpvTest.pianoVideo(window.__dpv.doc, f).map((s) => ({ a: !!s.a, b: !!s.b, tr: !!s.tr })), { f: u2.start + u2.len - 3 });
+    prova('in coda la clip esce su quello che c\'è sotto', strati.some((s) => s.a && !s.b && s.tr), JSON.stringify(strati));
+    await tasto('Control+z');
+    // effetto dal contenitore sulla clip scelta
+    await page.evaluate((id) => window.__dpv.select([id]), ultima.id);
+    await page.click('.bin-cat[data-c=effetti]');
+    await page.locator('.carta.fx', { hasText: 'Bianco e nero' }).click();
+    dd = await doc();
+    prova('effetto dal contenitore: Bianco e nero sulla clip scelta', dd.clips.find((c) => c.id === ultima.id).fx.look === 'bn');
+    const accesa = await page.waitForSelector('.carta.fx.acceso:has-text("Bianco e nero")', { timeout: 3000 }).then(() => true, () => false);
+    prova('la carta dell\'effetto si accende', accesa);
+    await tasto('Control+z');
+    await page.click('.bin-cat[data-c=tutto]');
+  }
+
+  console.log('▶ Pagina Finale');
+  {
+    await page.click('.pagina-btn[data-p=finale]');
+    await page.waitForTimeout(500);
+    prova('la pagina Finale si apre col riepilogo', await page.isVisible('.finale .fin-riepilogo') && (await page.textContent('.fin-riepilogo')).includes('durata'));
+    await page.locator('.fin-look', { hasText: 'Cinema' }).click();
+    let dd = await doc();
+    prova('il look Cinema vale per tutto il montaggio', dd.master?.look === 'cinema');
+    let lum = 0;
+    await page.evaluate(() => window.__motore.vaiA(60));
+    for (let i = 0; i < 20 && lum <= 15; i++) {
+      await page.waitForTimeout(200);
+      lum = await page.evaluate(() => { const px = new Uint8Array(64 * 36 * 4); window.__motore.rec.leggiPiccolo(64, 36, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return s / (64 * 36 * 3); });
+    }
+    prova('col colore finale il monitor mostra l\'immagine', lum > 15, lum.toFixed(1));
+    await page.screenshot({ path: path.join(OUT, 'finale.png') });
+    await tasto('Control+z');
+    dd = await doc();
+    prova('Ctrl+Z toglie anche il look', dd.master?.look === 'nessuno');
+    await page.click('.pagina-btn[data-p=montaggio]');
+    await page.waitForTimeout(300);
   }
 
   console.log('▶ Riproduzione');

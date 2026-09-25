@@ -8,8 +8,13 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   compila EXE portatile e setup, DMG, APK e pubblica la release da sola. Il numero sale di 0.0.1 (1.0.9 → 1.1.0).
 - **Le prove si fanno girare**: `npm run build` e poi `node test/prove.mjs` (Chromium: WebM/VP9, niente H.264).
   `node test/foto.mjs` fa le foto in `test/.out/`: si guardano prima di pubblicare.
-- I tasti numerici sono sacri: **1 taglia, 2 elimina** (li ha chiesti Cammo). Tutti i comandi stanno in `src/azioni.ts`.
-- Una cosa sola, uguale ovunque: il piano del fotogramma (`src/render/piano.ts`) e il compositore servono sia i
-  monitor sia l'export; il grafo audio (`src/media/audio.ts`) sia la riproduzione sia il mixaggio.
+- I tasti numerici sono sacri: **1 taglia, 2 elimina** (li ha chiesti Cammo). **S** separa/unisce, **Q/W** tolgono lo scarto,
+  la **rotella** va di un fotogramma col suono (Ctrl+rotella = zoom). Tutti i comandi stanno in `src/azioni.ts`.
+- **Il montaggio non copre mai niente** da solo: spostare, lasciare, incollare e i generatori usano il modo `libero`
+  (`src/core/montaggio.ts`: si fermano contro le vicine o vanno su una traccia libera). Copre solo SOVR dal monitor.
+  Le transizioni non cambiano la durata delle clip. Il taglio tocca solo le tracce accese (se ce ne sono).
+- Una cosa sola, uguale ovunque: il piano del fotogramma (`src/render/piano.ts`) e il compositore (con il colore finale
+  della pagina Finale, `src/render/colore.ts`) servono sia il monitor sia l'export; il grafo audio (`src/media/audio.ts`,
+  con filtri e limitatore) sia la riproduzione sia il mixaggio.
 - Il lato Rust (`src-tauri/src/lib.rs`) fa solo I/O: media a pezzi, export in streaming, progetti, autosalvataggio.
   Su Android i percorsi sono `content://` e passano da `tauri-plugin-fs`.

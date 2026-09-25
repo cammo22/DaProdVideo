@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#09080d">
 <title>DaProd Video — il montaggio vecchio stile, moderno dentro</title>
-<meta name="description" content="Editor video con due monitor Player e Recorder, timeline, pulsantiera (1 taglia, 2 elimina), VU a lancetta, tendine SMPTE, titolatrice ed EDL. Per Windows, Mac, Android e nel browser.">
+<meta name="description" content="Editor video con monitor unico, contenitore che fa scorrere i video al passaggio del mouse, timeline che non copre niente, pulsantiera (1 taglia, 2 elimina), VU a lancetta, transizioni, pagina Finale con colore automatico ed EDL. Per Windows, Mac, Android e nel browser.">
 <meta property="og:title" content="DaProd Video">
 <meta property="og:description" content="Il montaggio vecchio stile, moderno dentro. Windows, Mac, Android e browser.">
 <meta property="og:image" content="risorse/schermata.png">
@@ -28,8 +28,9 @@
   <div class="eroe-testo">
     <p class="sopratitolo">sala di montaggio · edizione <span id="versione">1.0.0</span></p>
     <h1>Il montaggio <em>vecchio stile</em>,<br>moderno dentro.</h1>
-    <p class="sotto">Due monitor come in regia, la centralina con i tasti grandi, i VU a lancetta, le tendine SMPTE e la EDL.
-      Cursore sul punto, premi <kbd>1</kbd> e tagli, premi <kbd>2</kbd> ed elimini. Sotto il cofano WebCodecs, WebGL2 e Rust.</p>
+    <p class="sotto">Un monitor grande, il contenitore dove i video scorrono al passaggio del mouse, la centralina con i tasti grandi,
+      i VU a lancetta e la pagina Finale per il colore di tutto il montaggio. Cursore sul punto, premi <kbd>1</kbd> e tagli,
+      premi <kbd>2</kbd> ed elimini. Sotto il cofano WebCodecs, WebGL2 e Rust.</p>
     <div class="azioni">
       <a class="btn oro" href="app/">▶ PROVA ADESSO NEL BROWSER</a>
       <a class="btn" href="#scarica">⬇ Scarica l'app</a>
@@ -43,9 +44,11 @@
   <h2>Il banco di montaggio</h2>
   <p class="intro">Ispirato alle centraline a nastro e a EDIUS: poche cose, quelle giuste, sempre a portata di dito.</p>
   <div class="griglia">
-    <article><b>🎞 Player e Recorder</b><p>A sinistra la sorgente, a destra il programma. Attacco e stacco su tutti e due, montaggio a tre punti con <kbd>,</kbd> inserisci e <kbd>.</kbd> sovrascrivi.</p></article>
-    <article><b>✂ Timeline che non inciampa</b><p>Disegnata su tela: miniature, forme d'onda, calamita, trim, roll, slip, ripple. Sposti le clip, separi l'audio, cambi traccia al volo.</p></article>
-    <article><b>🎚 Livelli al volo</b><p>Trasparenza per clip e per traccia, linee elastiche nel tempo, <kbd>Alt</kbd>+<kbd>↑↓</kbd> per il 10% in più o in meno. Chiave di luminanza e green screen.</p></article>
+    <article><b>🗂 Il contenitore</b><p>Video, musica, immagini, transizioni, titoli ed effetti: tutto in un posto, in ordine. Passa il mouse su un video e scorre avanti e indietro; <b>+</b> lo mette al cursore.</p></article>
+    <article><b>✂ Timeline che non copre niente</b><p>Sposti una clip e si ferma contro la vicina; la lasci dove è occupato e va su una traccia libera. La <b>rotella</b> va di un fotogramma col suono, <kbd>1</kbd> taglia le tracce accese e sceglie lo scarto.</p></article>
+    <article><b>🎚 Volume e livelli al volo</b><p>La linea gialla del volume sempre in vista: trascinala, doppio clic per un punto, "Abbassa qui". Trasparenza per clip e per traccia con la manopola, chiave e green screen.</p></article>
+    <article><b>🎬 Pagina Finale</b><p><b>Colore automatico</b> su tutte le riprese, look (cinema, caldo, vintage, notte…), prima e dopo fianco a fianco, audio finale col limitatore. Poi un tasto: esporta.</p></article>
+    <article><b>✨ Effetti al volo</b><p>Il tasto <b>fx</b> in fondo a ogni clip: vivace, più luce, caldo, bianco e nero, pellicola, VHS, zoom lento, specchia. Per l'audio: voce chiara, livella il volume, radio.</p></article>
     <article><b>🌀 Tendine e DVE</b><p>Le tendine SMPTE del mixer video (porta, scatola, rombo, iride, orologio, stella, cuore) e gli effetti digitali: spinta, zoom, mosaico, <b>cubo 3D</b>, girata, onda, lampo, luce di pellicola, glitch.</p></article>
     <article><b>📸 Istantanea</b><p>Premi <kbd>P</kbd>: il fotogramma sotto il cursore diventa un'immagine nel contenitore, da allungare quanto vuoi. <kbd>Shift</kbd>+<kbd>P</kbd> fa il fermo immagine al volo.</p></article>
     <article><b>📟 Timecode vero</b><p>Contatori a sette segmenti, drop-frame a 29,97, il tastierino numerico che scrive il timecode come in regia, shuttle <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> e manopola jog.</p></article>
@@ -55,8 +58,8 @@
     <article><b>📋 EDL CMX3600</b><p>La lista di montaggio che aprono Resolve, Avid, Premiere ed EDIUS. Più l'export MP4, MOV, WebM e WAV, e il fotogramma in PNG.</p></article>
   </div>
   <div class="foto-doppia">
-    <figure><img src="risorse/cubo.png" alt="Il cubo 3D fra due riprese" loading="lazy"><figcaption>Il cubo 3D, dal vivo nel Recorder</figcaption></figure>
-    <figure><img src="risorse/strumenti.png" alt="VU a lancetta, forma d'onda e vettorscopio" loading="lazy"><figcaption>VU a lancetta, forma d'onda e vettorscopio</figcaption></figure>
+    <figure><img src="risorse/cubo.png" alt="Il cubo 3D fra due riprese" loading="lazy"><figcaption>Il cubo 3D, dal vivo nel monitor</figcaption></figure>
+    <figure><img src="risorse/finale.png" alt="La pagina Finale con il look Cinema, prima e dopo" loading="lazy"><figcaption>La pagina Finale: colore automatico, look e prima/dopo</figcaption></figure>
   </div>
 </section>
 
@@ -67,19 +70,21 @@
     <div class="tasto"><span>1</span><b>TAGLIA</b><small>al cursore</small></div>
     <div class="tasto rosso"><span>2</span><b>ELIMINA</b><small>la clip selezionata</small></div>
     <div class="tasto"><span>3</span><b>CHIUDI</b><small>elimina e chiude il buco</small></div>
-    <div class="tasto"><span>4</span><b>SEPARA</b><small>audio e video</small></div>
+    <div class="tasto"><span>S</span><b>SEPARA</b><small>o unisce i gruppi</small></div>
     <div class="tasto"><span>5</span><b>MIX</b><small>dissolvenza sul taglio</small></div>
     <div class="tasto"><span>6</span><b>TENDINA</b><small>sul taglio</small></div>
     <div class="tasto"><span>7</span><b>NERO</b><small>passaggio al nero</small></div>
     <div class="tasto"><span>8</span><b>FADE</b><small>entra ed esce</small></div>
+    <div class="tasto"><span>Q W</span><b>SCARTO</b><small>via a sinistra / a destra</small></div>
     <div class="tasto"><span>P</span><b>FOTO</b><small>istantanea nel contenitore</small></div>
   </div>
   <table class="tabella">
     <tr><td><kbd>Spazio</kbd></td><td>play / stop</td><td><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>shuttle indietro, fermo, avanti (ripeti per accelerare)</td></tr>
     <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>attacco e stacco</td><td><kbd>Z</kbd> <kbd>X</kbd></td><td>solleva ed estrai fra attacco e stacco</td></tr>
-    <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>inserisci / sovrascrivi dal Player</td><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>taglio precedente / successivo</td></tr>
-    <tr><td><kbd>Tab</kbd></td><td>Player ↔ Recorder</td><td><kbd>B</kbd></td><td>linee elastiche (trasparenza e volume)</td></tr>
-    <tr><td><kbd>R</kbd></td><td>ripple acceso / spento</td><td><kbd>Ins</kbd></td><td>modo inserisci / sovrascrivi</td></tr>
+    <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>inserisci / sovrascrivi dalla sorgente</td><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>taglio precedente / successivo</td></tr>
+    <tr><td>rotella</td><td>un fotogramma per scatto, col suono</td><td><kbd>Ctrl</kbd>+rotella</td><td>zoom della timeline</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>monitor: sorgente ↔ montaggio</td><td><kbd>F9</kbd></td><td>pagina Finale (colore, audio, esporta)</td></tr>
+    <tr><td><kbd>R</kbd></td><td>ripple acceso / spento</td><td><kbd>Ins</kbd></td><td>modo libero / inserisci</td></tr>
     <tr><td><kbd>F</kbd></td><td>abbina fotogramma</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>annulla (fino a 200 passi)</td></tr>
   </table>
 </section>

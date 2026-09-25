@@ -6,7 +6,9 @@ import { fotogramma, type Fotogramma } from '../media/fotogrammi';
 
 /** chi fornisce i fotogrammi esatti (l'export); senza, si usano quelli dei monitor */
 export type Fornitore = (s: Sorgente) => Fotogramma | null;
-import { mediaOf } from '../core/progetto';
+import { autoColore, masterDi, mediaOf } from '../core/progetto';
+import { mediaRT } from '../media/libreria';
+import { gradeDi, gradeNeutro } from './colore';
 import { disegnaCountdown, motoTitolo, telaTitolo } from './grafica';
 import { TITLE0 } from '../core/progetto';
 
@@ -43,6 +45,11 @@ uniform int u_key;          // 0 no, 1 luma, 2 chroma
 uniform vec3 u_keyColor;
 uniform float u_keyLevel, u_keySoft;
 uniform bool u_keyInv;
+uniform bool u_mirror;
+uniform float u_temp, u_vignette;
+uniform bool u_auto;          // colore automatico: livelli, bianco e luce misurati sulla ripresa
+uniform vec3 u_autoLo, u_autoHi, u_autoWb;
+uniform float u_autoK, u_autoGamma;
 out vec4 o;
 
 vec2 orient(vec2 uv) {
@@ -84,13 +91,19 @@ vec4 src(vec2 uv) {
 }
 
 void main() {
-  vec4 c = src(v_uv);
+  vec2 uv0 = u_mirror ? vec2(1.0 - v_uv.x, v_uv.y) : v_uv;
+  vec4 c = src(uv0);
   vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
   float a = c.a;
+  if (u_auto) {
+    vec3 lv = clamp((rgb - u_autoLo) / max(u_autoHi - u_autoLo, vec3(0.05)), 0.0, 1.0);
+    lv = pow(lv * u_autoWb, vec3(u_autoGamma));
+    rgb = mix(rgb, clamp(lv, 0.0, 1.0), u_autoK);
+  }
   if (u_look == 1) {
     // VHS: il colore scappa di lato, righe di tracking, rumore
     float wob = sin(v_uv.y * 180.0 + u_time * 3.0) * 0.0009 + (hash(vec2(floor(v_uv.y * 240.0), u_time)) - 0.5) * 0.0012;
-    vec2 uvw = v_uv + vec2(wob, 0.0);
+    vec2 uvw = uv0 + vec2(wob, 0.0);
     vec3 cr = src(uvw + vec2(u_texel.x * 3.5, 0.0)).rgb;
     vec3 cb = src(uvw - vec2(u_texel.x * 3.5, 0.0)).rgb;
     vec3 cm = src(uvw).rgb;
@@ -129,6 +142,8 @@ void main() {
   float h = radians(u_hue), ch = cos(h), sh = sin(h);
   vec2 iq = vec2(ch * I - sh * Q, sh * I + ch * Q) * u_sat;
   rgb = vec3(Y + 0.956 * iq.x + 0.621 * iq.y, Y - 0.272 * iq.x - 0.647 * iq.y, Y - 1.106 * iq.x + 1.703 * iq.y);
+  if (u_temp != 0.0) rgb *= vec3(1.0 + u_temp * 0.18, 1.0 + u_temp * 0.02, 1.0 - u_temp * 0.2);
+  if (u_vignette > 0.0) { vec2 dv = v_uv - 0.5; rgb *= 1.0 - u_vignette * smoothstep(0.15, 0.6, dot(dv, dv) * 2.2); }
   rgb = clamp(rgb, 0.0, 1.0);
   // chiave
   if (u_key == 1) {
@@ -153,6 +168,34 @@ export const VS_FULL = `#version 300 es
 in vec2 a_pos;
 out vec2 v_uv;
 void main() { v_uv = a_pos; gl_Position = vec4(a_pos * 2.0 - 1.0, 0.0, 1.0); }`;
+
+/** il colore finale su tutto il montaggio (pagina Finale): lift, gamma, gain, contrasto, saturazione,
+ *  viraggio, vignetta e grana. A sinistra di u_split resta l'originale (il "prima" del prima/dopo). */
+const FS_MASTER = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_src;
+uniform vec3 u_lift, u_gamma, u_gain, u_shadow, u_high;
+uniform float u_sat, u_contrast, u_vignette, u_grain, u_time, u_split;
+out vec4 o;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+void main() {
+  vec3 c = texture(u_src, v_uv).rgb;
+  vec3 r = c;
+  if (v_uv.x >= u_split) {
+    r = c * u_gain + u_lift * (1.0 - c);
+    r = pow(max(r, 0.0), 1.0 / max(u_gamma, vec3(0.1)));
+    r = (r - 0.5) * u_contrast + 0.5;
+    float y = dot(r, vec3(0.2126, 0.7152, 0.0722));
+    r = mix(vec3(y), r, u_sat);
+    r += u_shadow * (1.0 - smoothstep(0.0, 0.55, y)) + u_high * smoothstep(0.45, 1.0, y);
+    vec2 d = v_uv - 0.5;
+    r *= 1.0 - u_vignette * smoothstep(0.12, 0.62, dot(d, d) * 2.0);
+    if (u_grain > 0.0) r += (hash(v_uv * vec2(1280.0, 720.0) + fract(u_time * 7.13)) - 0.5) * u_grain;
+  }
+  if (u_split > 0.0 && abs(v_uv.x - u_split) < 0.0015) r = vec3(1.0, 0.84, 0.29);
+  o = vec4(clamp(r, 0.0, 1.0), 1.0);
+}`;
 
 export const FS_COMBINE = `#version 300 es
 precision highp float;
@@ -424,6 +467,10 @@ export class Compositore {
   gl: WebGL2RenderingContext;
   private pLayer: WebGLProgram;
   private pComb: WebGLProgram;
+  private pMaster: WebGLProgram;
+  private uM: Record<string, WebGLUniformLocation | null> = {};
+  /** prima/dopo: a sinistra di questa frazione si vede l'originale (0 = tutto col colore finale) */
+  prima = 0;
   private uL: Record<string, WebGLUniformLocation | null> = {};
   private uC: Record<string, WebGLUniformLocation | null> = {};
   private vao: WebGLVertexArrayObject;
@@ -434,6 +481,8 @@ export class Compositore {
   private used = new Set<string>();
   private blank: WebGLTexture;
   private fornitore: Fornitore | undefined;
+  /** il buffer con l'ultima uscita (2 = senza colore finale, 3 = con) */
+  private uscita = 2;
   perso = false;
 
   constructor(public canvas: HTMLCanvasElement | OffscreenCanvas, preserve = false) {
@@ -442,15 +491,19 @@ export class Compositore {
     this.gl = gl;
     this.pLayer = this.prog(VS_LAYER, FS_LAYER);
     this.pComb = this.prog(VS_FULL, FS_COMBINE);
-    for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv'])
+    this.pMaster = this.prog(VS_FULL, FS_MASTER);
+    for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv',
+      'u_mirror', 'u_temp', 'u_vignette', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
       this.uL[n] = gl.getUniformLocation(this.pLayer, n);
+    for (const n of ['u_src', 'u_lift', 'u_gamma', 'u_gain', 'u_shadow', 'u_high', 'u_sat', 'u_contrast', 'u_vignette', 'u_grain', 'u_time', 'u_split'])
+      this.uM[n] = gl.getUniformLocation(this.pMaster, n);
     for (const n of NOMI_COMBINA) this.uC[n] = gl.getUniformLocation(this.pComb, n);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
-    for (const p of [this.pLayer, this.pComb]) {
+    for (const p of [this.pLayer, this.pComb, this.pMaster]) {
       const loc = gl.getAttribLocation(p, 'a_pos');
       gl.enableVertexAttribArray(loc);
       gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
@@ -482,7 +535,7 @@ export class Compositore {
     if (this.fbW === w && this.fbH === h && this.fbo.length) return;
     for (const f of this.fbo) { gl.deleteFramebuffer(f.fb); gl.deleteTexture(f.tex); }
     this.fbo = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const tex = this.newTex();
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       const fb = gl.createFramebuffer()!;
@@ -533,7 +586,7 @@ export class Compositore {
     gl.clear(gl.COLOR_BUFFER_BIT);
     for (const s of strati) {
       const hasA = !!s.a && !!s.tr;
-      const okB = this.layer(p, s.b, 1, playing, frame);
+      const okB = s.b ? this.layer(p, s.b, 1, playing, frame) : false;
       const okA = hasA ? this.layer(p, s.a!, 0, playing, frame) : false;
       if (!okB && !okA) continue;
       if (!okB) { // la sorgente B non è pronta: pulisce il suo buffer
@@ -543,8 +596,33 @@ export class Compositore {
       }
       this.combine(s.tr, s.prog, s.opacity, okA);
     }
-    // l'uscita va sulla tela; resta anche nel buffer, per gli strumenti di misura
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo[2].fb);
+    // il colore finale (pagina Finale) su tutto il quadro, poi sulla tela; resta nel buffer per gli strumenti
+    const g = gradeDi(masterDi(p));
+    const uscita = gradeNeutro(g) && this.prima <= 0 ? 2 : 3;
+    if (uscita === 3) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[3].fb);
+      gl.viewport(0, 0, cw, ch);
+      gl.disable(gl.BLEND);
+      gl.useProgram(this.pMaster);
+      const u = this.uM;
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.fbo[2].tex);
+      gl.uniform1i(u.u_src, 0);
+      gl.uniform3f(u.u_lift, ...g.lift);
+      gl.uniform3f(u.u_gamma, ...g.gamma);
+      gl.uniform3f(u.u_gain, ...g.gain);
+      gl.uniform3f(u.u_shadow, ...g.shadow);
+      gl.uniform3f(u.u_high, ...g.high);
+      gl.uniform1f(u.u_sat, g.sat);
+      gl.uniform1f(u.u_contrast, g.contrast);
+      gl.uniform1f(u.u_vignette, g.vignette);
+      gl.uniform1f(u.u_grain, g.grain);
+      gl.uniform1f(u.u_time, (frame % 10000) / 25);
+      gl.uniform1f(u.u_split, this.prima);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    this.uscita = uscita;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo[uscita].fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     gl.blitFramebuffer(0, 0, cw, ch, 0, 0, cw, ch, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -625,7 +703,9 @@ export class Compositore {
     gl.uniform2f(u.u_size, dw, dh);
     gl.uniform4f(u.u_crop, tf.cropL, tf.cropT, tf.cropR, tf.cropB);
     gl.uniform2f(u.u_off, tf.x + off.dx, tf.y + off.dy);
-    gl.uniform1f(u.u_scale, tf.scale);
+    // zoom lento (Ken Burns): la clip si avvicina piano piano lungo tutta la sua durata
+    const kb = fx.zoom ? 1 + fx.zoom * Math.min(1, s.lf / Math.max(1, c.len)) : 1;
+    gl.uniform1f(u.u_scale, tf.scale * kb);
     gl.uniform1f(u.u_rot, (tf.rot * Math.PI) / 180);
     gl.uniform1i(u.u_src, srcKind);
     gl.uniform1i(u.u_orient, orient);
@@ -644,6 +724,18 @@ export class Compositore {
     gl.uniform1f(u.u_keyLevel, fx.keyLevel);
     gl.uniform1f(u.u_keySoft, fx.keySoft);
     gl.uniform1i(u.u_keyInv, fx.keyInvert ? 1 : 0);
+    gl.uniform1i(u.u_mirror, fx.mirror ? 1 : 0);
+    gl.uniform1f(u.u_temp, fx.temp ?? 0);
+    gl.uniform1f(u.u_vignette, fx.vignette ?? 0);
+    const an = c.media && autoColore(p, c) ? mediaRT(c.media)?.colore : undefined;
+    gl.uniform1i(u.u_auto, an ? 1 : 0);
+    if (an) {
+      gl.uniform3f(u.u_autoLo, ...an.lo);
+      gl.uniform3f(u.u_autoHi, ...an.hi);
+      gl.uniform3f(u.u_autoWb, ...an.wb);
+      gl.uniform1f(u.u_autoGamma, an.gamma);
+      gl.uniform1f(u.u_autoK, masterDi(p).autoK);
+    }
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return true;
   }
@@ -683,7 +775,7 @@ export class Compositore {
       this.smallH = h;
     }
     if (!this.fbo.length) { out.fill(0); return; }
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo[2].fb);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo[this.uscita].fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.small.fb);
     gl.blitFramebuffer(0, 0, this.fbW, this.fbH, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.small.fb);

@@ -1,19 +1,23 @@
-// I due monitor come in sala di montaggio: a sinistra il PLAYER (la sorgente, il lettore) e a destra il
-// RECORDER (il programma, il registratore). Timecode a sette segmenti, attacco/stacco, jog e shuttle.
+// Il monitor: uno solo, come sul banco di montaggio moderno. Mostra il montaggio (il PROGRAMMA); con doppio
+// clic su un file del contenitore mostra la SORGENTE, con attacco, stacco e i tasti INS/SOVR, e Tab torna al
+// montaggio. Doppio clic sull'immagine = schermo intero, con la timeline in piccolo e i VU sotto.
 import { store } from '../core/store';
-import { motore, type Monitor } from '../motore';
+import { motore } from '../motore';
 import { Compositore } from '../render/compositore';
 import { fps, frameToTc, parseTc, s2f, f2s } from '../core/timecode';
-import { projectEnd } from '../core/progetto';
+import { end, projectEnd, isVideoClip } from '../core/progetto';
 import { esegui, modi } from '../azioni';
 import { avviso, h, icona } from './dom';
 import { suTastierino } from './tastiera';
+import { banco } from '../media/audio';
 
 export class PannelloMonitor {
   el: HTMLElement;
   schermo: HTMLElement;
   canvas: HTMLCanvasElement;
+  canvasSorgente: HTMLCanvasElement;
   sopra: HTMLCanvasElement;
+  private titolo: HTMLElement;
   private tc: HTMLElement;
   private tcIn: HTMLElement;
   private tcOut: HTMLElement;
@@ -23,34 +27,42 @@ export class PannelloMonitor {
   private inserimento: HTMLInputElement;
   private playBtn: HTMLElement;
   private shuttleLbl: HTMLElement;
+  private mini: MiniTimeline;
+  private primaDopo: HTMLElement;
   qualita = 1;
 
-  constructor(public quale: Monitor) {
-    const rec = quale === 'recorder';
-    this.canvas = h('canvas', { class: 'schermo-tela' });
+  constructor() {
+    this.canvas = h('canvas', { class: 'schermo-tela programma' });
+    this.canvasSorgente = h('canvas', { class: 'schermo-tela sorgente' });
     this.sopra = h('canvas', { class: 'schermo-sopra' });
-    this.nome = h('span', { class: 'mon-sorgente' }, rec ? 'Programma' : 'nessuna sorgente');
-    this.schermo = h('div', { class: 'schermo' }, this.canvas, this.sopra);
+    this.mini = new MiniTimeline();
+    this.schermo = h('div', { class: 'schermo' }, this.canvas, this.canvasSorgente, this.sopra, this.mini.el);
+    this.titolo = h('b', null, 'PROGRAMMA');
+    this.nome = h('span', { class: 'mon-sorgente' }, 'Programma');
     this.tc = h('button', { class: 'tc grande', title: 'Clic per scrivere un timecode (o usa il tastierino numerico)' }, '00:00:00:00');
     this.tcIn = h('span', { class: 'tc piccolo' }, '--:--:--:--');
     this.tcOut = h('span', { class: 'tc piccolo' }, '--:--:--:--');
     this.tcDur = h('span', { class: 'tc piccolo' }, '--:--:--:--');
     this.inserimento = h('input', { class: 'tc-inserimento', inputmode: 'numeric', placeholder: 'hhmmssff o +25' }) as HTMLInputElement;
     this.barra = h('canvas', { class: 'mon-barra' });
-    this.playBtn = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { click: () => { this.attiva(); motore.toggle(); } } }, icona('play', 20));
+    this.playBtn = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { click: () => motore.toggle() } }, icona('play', 20));
     this.shuttleLbl = h('span', { class: 'shuttle-vel' }, '');
-    const t = (ic: string, title: string, fn: () => void, cls = '') => h('button', { class: 'tasto-trasporto ' + cls, title, on: { click: () => { this.attiva(); fn(); } } }, icona(ic, 17));
-    const jog = new JogShuttle(() => this.attiva());
-    this.el = h('section', { class: 'monitor ' + quale, on: { pointerdown: () => this.attiva() } },
+    this.primaDopo = h('button', { class: 'btn-mini prima-dopo', title: 'Prima e dopo il colore finale, fianco a fianco', on: { click: () => this.alternaPrimaDopo() } }, 'PRIMA | DOPO');
+    const t = (ic: string, title: string, fn: () => void, cls = '') => h('button', { class: 'tasto-trasporto ' + cls, title, on: { click: fn } }, icona(ic, 17));
+    const jog = new JogShuttle();
+    this.el = h('section', { class: 'monitor' },
       h('header', { class: 'mon-testa' },
-        h('span', { class: 'led' }), h('b', null, rec ? 'RECORDER' : 'PLAYER'), this.nome,
+        h('span', { class: 'led' }), this.titolo, this.nome,
+        h('button', { class: 'btn-mini torna', title: 'Torna a vedere il montaggio (Tab)', on: { click: () => motore.setMonitor('recorder') } }, '⟵ MONTAGGIO'),
         h('span', { class: 'mon-spazio' }),
-        h('button', { class: 'btn-mini foto', title: rec ? 'Istantanea del fotogramma nel contenitore (P) · Shift+P fermo immagine' : 'Istantanea della sorgente nel contenitore (P)', on: { click: () => { this.attiva(); esegui('istantanea'); } } }, icona('foto', 13), 'FOTO'),
-        rec ? h('button', { class: 'btn-mini', title: 'Zone di sicurezza e croce (G)', on: { click: () => { modi.zoneSicure = !modi.zoneSicure; this.disegnaSopra(); } } }, 'ZONE') : null,
+        this.primaDopo,
+        h('button', { class: 'btn-mini foto', title: 'Istantanea del fotogramma nel contenitore (P) · Shift+P fermo immagine', on: { click: () => esegui('istantanea') } }, icona('foto', 13), 'FOTO'),
+        h('button', { class: 'btn-mini', title: 'Zone di sicurezza e croce (G)', on: { click: () => { modi.zoneSicure = !modi.zoneSicure; this.disegnaSopra(); } } }, 'ZONE'),
         h('select', {
           class: 'mini-select', title: 'Qualità dell\'anteprima',
           on: { change: (e: Event) => { this.qualita = Number((e.target as HTMLSelectElement).value); this.adatta(); } },
-        }, h('option', { value: '1' }, 'Piena'), h('option', { value: '0.5' }, '½'), h('option', { value: '0.25' }, '¼'))),
+        }, h('option', { value: '1' }, 'Piena'), h('option', { value: '0.5' }, '½'), h('option', { value: '0.25' }, '¼')),
+        h('button', { class: 'btn-icona', title: 'Schermo intero, con la timeline in piccolo (doppio clic sull\'immagine)', on: { click: () => this.pieno() } }, icona('pieno', 16))),
       this.schermo,
       this.barra,
       h('div', { class: 'mon-tc' },
@@ -60,21 +72,22 @@ export class PannelloMonitor {
       h('div', { class: 'mon-trasporto' },
         t('inizio', 'All\'inizio (Home)', () => esegui('inizio')),
         t('indietro', 'Shuttle indietro (J)', () => motore.shuttle(-1)),
-        t('fotoPrec', 'Fotogramma prima (←)', () => motore.passo(-1)),
+        t('fotoPrec', 'Fotogramma prima (← o rotella)', () => motore.passo(-1)),
         this.playBtn,
-        t('fotoSucc', 'Fotogramma dopo (→)', () => motore.passo(1)),
+        t('fotoSucc', 'Fotogramma dopo (→ o rotella)', () => motore.passo(1)),
         t('avanti', 'Shuttle avanti (L)', () => motore.shuttle(1)),
         t('fine', 'Alla fine (End)', () => esegui('fine')),
         h('span', { class: 'sep-v' }),
         t('segnaIn', 'Segna attacco (I)', () => esegui('segnaIn'), 'in'),
         t('segnaOut', 'Segna stacco (O)', () => esegui('segnaOut'), 'out'),
         t('loop', 'Loop (Ctrl+L)', () => esegui('loop'), 'loop'),
-        rec ? null : h('span', { class: 'sep-v' }),
-        rec ? null : h('button', { class: 'tasto-edit', title: 'Inserisci nella timeline (, oppure [)', on: { click: () => esegui('inserisci') } }, h('small', null, ','), 'INS'),
-        rec ? null : h('button', { class: 'tasto-edit rosso', title: 'Sovrascrivi nella timeline (. oppure ])', on: { click: () => esegui('sovrascrivi') } }, h('small', null, '.'), 'SOVR'),
+        h('span', { class: 'sep-v solo-sorgente' }),
+        h('button', { class: 'tasto-edit solo-sorgente', title: 'Inserisci nella timeline al cursore (, oppure [)', on: { click: () => esegui('inserisci') } }, h('small', null, ','), 'INS'),
+        h('button', { class: 'tasto-edit rosso solo-sorgente', title: 'Sovrascrivi nella timeline al cursore (. oppure ])', on: { click: () => esegui('sovrascrivi') } }, h('small', null, '.'), 'SOVR'),
         this.shuttleLbl,
         jog.el));
 
+    this.el.addEventListener('pointerdown', () => suTastierino((c) => this.apriInserimento(c)));
     this.tc.addEventListener('click', () => this.apriInserimento(''));
     this.inserimento.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { this.vaiTc(this.inserimento.value); this.chiudiInserimento(); }
@@ -83,11 +96,10 @@ export class PannelloMonitor {
     });
     this.inserimento.addEventListener('blur', () => this.chiudiInserimento());
     this.barra.addEventListener('pointerdown', (e) => {
-      this.attiva();
       const muovi = (ev: PointerEvent) => {
         const r = this.barra.getBoundingClientRect();
         const k = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
-        if (this.quale === 'recorder') motore.vaiA(Math.round(k * Math.max(1, projectEnd(store.doc))));
+        if (motore.attivo === 'recorder') motore.vaiA(Math.round(k * Math.max(1, projectEnd(store.doc))));
         else { const m = this.media(); if (m) motore.playerVaiA((m.t0 || 0) + k * (m.duration - (m.t0 || 0))); }
       };
       motore.stop();
@@ -97,24 +109,49 @@ export class PannelloMonitor {
       this.barra.addEventListener('pointermove', muovi);
       this.barra.addEventListener('pointerup', up);
     });
-    this.schermo.addEventListener('dblclick', () => { if (document.fullscreenElement) void document.exitFullscreen(); else void this.schermo.requestFullscreen?.(); });
+    this.schermo.addEventListener('dblclick', (e) => { if ((e.target as HTMLElement).closest('.mini-tl')) return; this.pieno(); });
+    // la rotella sull'immagine va avanti e indietro di un fotogramma, col suono
+    let resto = 0;
+    this.schermo.addEventListener('wheel', (e) => {
+      if ((e.target as HTMLElement).closest('.mini-tl')) return;
+      e.preventDefault();
+      const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      let n = 0;
+      if (Math.abs(dy) >= 50) n = Math.sign(dy); else { resto += dy; n = Math.trunc(resto / 24); resto -= n * 24; }
+      if (n) motore.passo(n);
+    }, { passive: false });
+    document.addEventListener('fullscreenchange', () => {
+      const dentro = document.fullscreenElement === this.schermo;
+      this.schermo.classList.toggle('pieno', dentro);
+      this.mini.attiva(dentro);
+      setTimeout(() => this.adatta(), 60);
+    });
     new ResizeObserver(() => this.adatta()).observe(this.schermo);
-    if (rec) motore.rec = new Compositore(this.canvas);
-    else motore.playerCanvas = this.canvas;
+    motore.rec = new Compositore(this.canvas);
+    motore.playerCanvas = this.canvasSorgente;
     store.on('status', () => this.aggiorna());
-    store.on('head', () => { if (rec) this.aggiorna(); });
+    store.on('head', () => this.aggiorna());
     store.on('doc', () => { this.aggiorna(); this.adatta(); });
+    this.aggiorna();
   }
 
   private media() { return store.doc.media.find((x) => x.id === motore.playerMedia); }
 
-  attiva() {
-    motore.setMonitor(this.quale);
-    suTastierino((c) => this.apriInserimento(c));
+  /** schermo intero dell'immagine, con la timeline in piccolo e i VU */
+  pieno() {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void this.schermo.requestFullscreen?.().catch(() => avviso('Lo schermo intero qui non è permesso', 'info'));
+  }
+
+  private alternaPrimaDopo() {
+    if (!motore.rec) return;
+    motore.rec.prima = motore.rec.prima > 0 ? 0 : 0.5;
+    this.primaDopo.classList.toggle('acceso', motore.rec.prima > 0);
+    motore.ridisegna();
+    avviso(motore.rec.prima > 0 ? 'A sinistra com\'era, a destra con il colore finale' : 'Tutto con il colore finale', 'info', 1600);
   }
 
   private apriInserimento(prima: string) {
-    this.attiva();
     this.el.classList.add('inserisce');
     this.inserimento.value = prima;
     this.inserimento.focus();
@@ -124,7 +161,7 @@ export class PannelloMonitor {
 
   private vaiTc(testo: string) {
     const p = store.doc;
-    if (this.quale === 'recorder') {
+    if (motore.attivo === 'recorder') {
       const f = parseTc(testo, p.rate, p.drop, Math.round(store.head));
       if (f === null) { avviso('Timecode non valido', 'errore'); return; }
       motore.vaiA(f);
@@ -149,19 +186,19 @@ export class PannelloMonitor {
     const dpr = Math.min(2, devicePixelRatio || 1);
     const pw = Math.max(16, Math.round(Math.min(p.w, w * dpr) * this.qualita));
     const ph = Math.max(9, Math.round(pw / asp));
-    for (const c of [this.canvas, this.sopra]) {
+    for (const c of [this.canvas, this.canvasSorgente, this.sopra]) {
       c.style.width = w + 'px';
       c.style.height = hh + 'px';
     }
-    if (this.canvas.width !== pw || this.canvas.height !== ph) {
-      this.canvas.width = pw;
-      this.canvas.height = ph;
+    for (const c of [this.canvas, this.canvasSorgente]) {
+      if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
     }
     this.sopra.width = Math.round(w * dpr);
     this.sopra.height = Math.round(hh * dpr);
     const bw = this.barra.getBoundingClientRect().width;
     this.barra.width = Math.round(bw * dpr);
     this.barra.height = Math.round(14 * dpr);
+    this.mini.adatta();
     motore.ridisegna();
     this.disegnaSopra();
     this.aggiorna();
@@ -169,14 +206,15 @@ export class PannelloMonitor {
 
   aggiorna() {
     const p = store.doc;
-    const attivo = motore.attivo === this.quale;
-    this.el.classList.toggle('attivo', attivo);
-    const suona = attivo && motore.playing;
+    const sorgente = motore.attivo === 'player';
+    this.el.classList.toggle('sorgente', sorgente);
+    this.titolo.textContent = sorgente ? 'SORGENTE' : 'PROGRAMMA';
+    const suona = motore.playing;
     this.playBtn.replaceChildren(icona(suona ? 'stop' : 'play', 20));
     this.playBtn.classList.toggle('acceso', suona);
-    this.shuttleLbl.textContent = attivo && motore.speed !== 0 && motore.speed !== 1 ? `${motore.speed > 0 ? '▶' : '◀'} ×${Math.abs(motore.speed)}` : '';
+    this.shuttleLbl.textContent = motore.speed !== 0 && motore.speed !== 1 ? `${motore.speed > 0 ? '▶' : '◀'} ×${Math.abs(motore.speed)}` : '';
     this.el.querySelector('.loop')?.classList.toggle('acceso', motore.loop);
-    if (this.quale === 'recorder') {
+    if (!sorgente) {
       this.tc.textContent = frameToTc(Math.floor(store.head + 1e-6), p.rate, p.drop);
       this.tcIn.textContent = p.inF !== null ? frameToTc(p.inF, p.rate, p.drop) : '--:--:--:--';
       this.tcOut.textContent = p.outF !== null ? frameToTc(p.outF, p.rate, p.drop) : '--:--:--:--';
@@ -185,7 +223,7 @@ export class PannelloMonitor {
       this.nome.textContent = p.name;
     } else {
       const m = this.media();
-      this.nome.textContent = m ? m.name : 'doppio clic su un file del contenitore';
+      this.nome.textContent = m ? m.name : '';
       const r = { num: Math.round((m?.fps || fps(p.rate)) * 1000), den: 1000 };
       const tcS = (s: number) => frameToTc(s2f(s, r), r);
       this.tc.textContent = m ? tcS(motore.playerT) : '--:--:--:--';
@@ -205,7 +243,7 @@ export class PannelloMonitor {
     ctx.fillStyle = '#23212b';
     ctx.fillRect(0, H * 0.35, W, H * 0.3);
     let pos = 0, a: number | null = null, b: number | null = null;
-    if (this.quale === 'recorder') {
+    if (motore.attivo === 'recorder') {
       const e = Math.max(1, projectEnd(store.doc));
       pos = store.head / e;
       if (store.doc.inF !== null) a = store.doc.inF / e;
@@ -231,7 +269,7 @@ export class PannelloMonitor {
   disegnaSopra() {
     const c = this.sopra, ctx = c.getContext('2d')!;
     ctx.clearRect(0, 0, c.width, c.height);
-    if (this.quale !== 'recorder' || !modi.zoneSicure) return;
+    if (motore.attivo !== 'recorder' || !modi.zoneSicure) return;
     const W = c.width, H = c.height;
     ctx.lineWidth = Math.max(1, W / 900);
     const box = (k: number, col: string) => { ctx.strokeStyle = col; ctx.strokeRect(W * (1 - k) / 2, H * (1 - k) / 2, W * k, H * k); };
@@ -253,16 +291,134 @@ export class PannelloMonitor {
   }
 }
 
+/**
+ * La timeline in piccolo per lo schermo intero: tutte le tracce schiacciate, il cursore, i VU a barre e il
+ * timecode. Clic o trascina per andare in un punto; la rotella va di fotogramma in fotogramma.
+ */
+class MiniTimeline {
+  el: HTMLElement;
+  private cv: HTMLCanvasElement;
+  private vu: HTMLCanvasElement;
+  private tc: HTMLElement;
+  private play: HTMLElement;
+  private acceso = false;
+  private picchi = [0, 0];
+  private tieni = [0, 0];
+
+  constructor() {
+    this.cv = h('canvas', { class: 'mini-tela' });
+    this.vu = h('canvas', { class: 'mini-vu', width: 36, height: 120 });
+    this.tc = h('span', { class: 'tc mini-tc' }, '00:00:00:00');
+    this.play = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { click: () => motore.toggle() } }, icona('play', 18));
+    this.el = h('div', { class: 'mini-tl' },
+      h('div', { class: 'mini-sx' }, this.play, this.tc),
+      this.cv, this.vu);
+    const vai = (e: PointerEvent) => {
+      const r = this.cv.getBoundingClientRect();
+      const k = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      motore.setMonitor('recorder');
+      motore.vaiA(Math.round(k * this.fine()));
+    };
+    this.cv.addEventListener('pointerdown', (e) => {
+      vai(e);
+      this.cv.setPointerCapture(e.pointerId);
+      const mv = (ev: PointerEvent) => vai(ev);
+      const up = () => { this.cv.removeEventListener('pointermove', mv); this.cv.removeEventListener('pointerup', up); };
+      this.cv.addEventListener('pointermove', mv);
+      this.cv.addEventListener('pointerup', up);
+    });
+    this.el.addEventListener('wheel', (e) => { e.preventDefault(); motore.passo(e.deltaY > 0 ? 1 : -1); }, { passive: false });
+    this.el.addEventListener('dblclick', (e) => e.stopPropagation());
+    motore.ogniGiro(() => { if (this.acceso) this.disegna(); });
+  }
+
+  private fine() { return Math.max(1, projectEnd(store.doc) + 1); }
+
+  attiva(on: boolean) { this.acceso = on; if (on) { this.adatta(); this.disegna(); } }
+
+  adatta() {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const r = this.cv.getBoundingClientRect();
+    if (r.width < 4) return;
+    this.cv.width = Math.round(r.width * dpr);
+    this.cv.height = Math.round(r.height * dpr);
+    const v = this.vu.getBoundingClientRect();
+    this.vu.width = Math.round(v.width * dpr);
+    this.vu.height = Math.round(v.height * dpr);
+  }
+
+  private disegna() {
+    const p = store.doc;
+    const c = this.cv, ctx = c.getContext('2d')!;
+    const W = c.width, H = c.height;
+    if (!W || !H) return;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(8,7,12,.55)';
+    ctx.fillRect(0, 0, W, H);
+    const e = this.fine();
+    // solo le tracce che hanno qualcosa: in piccolo contano le clip, non le righe vuote
+    const piene = p.tracks.filter((t) => p.clips.some((c) => c.track === t.id));
+    const n = piene.length;
+    const lane = H / Math.max(1, n);
+    piene.forEach((t, i) => {
+      const y = i * lane;
+      ctx.fillStyle = t.kind === 'video' ? 'rgba(255,255,255,.04)' : 'rgba(93,255,180,.03)';
+      ctx.fillRect(0, y + 1, W, lane - 2);
+      for (const cl of p.clips) {
+        if (cl.track !== t.id) continue;
+        const x0 = (cl.start / e) * W, x1 = (end(cl) / e) * W;
+        ctx.fillStyle = isVideoClip(cl) ? (cl.kind === 'title' ? '#8448d6' : '#3565c7') : '#2a8a5e';
+        ctx.fillRect(x0 + 0.5, y + 2, Math.max(1, x1 - x0 - 1), lane - 4);
+        if (cl.trIn) { ctx.fillStyle = 'rgba(255,213,74,.8)'; ctx.fillRect(x0, y + 2, Math.max(2, (cl.trIn.len / e) * W), lane - 4); }
+      }
+    });
+    if (p.inF !== null || p.outF !== null) {
+      const a = ((p.inF ?? 0) / e) * W, b = ((p.outF ?? e) / e) * W;
+      ctx.fillStyle = 'rgba(53,232,255,.18)';
+      ctx.fillRect(a, 0, b - a, H);
+    }
+    const x = (store.head / e) * W;
+    ctx.fillStyle = '#ff4d6d';
+    ctx.fillRect(x - 1, 0, 2.5, H);
+    ctx.fillStyle = '#ffd54a';
+    ctx.beginPath(); ctx.moveTo(x - 6, 0); ctx.lineTo(x + 6, 0); ctx.lineTo(x, 8); ctx.closePath(); ctx.fill();
+    this.tc.textContent = frameToTc(Math.floor(store.head + 1e-6), p.rate, p.drop);
+    this.play.replaceChildren(icona(motore.playing ? 'stop' : 'play', 18));
+    // VU a barre (L e R) con la tacca del picco
+    const v = this.vu, vx = v.getContext('2d')!;
+    const vw = v.width, vh = v.height;
+    vx.clearRect(0, 0, vw, vh);
+    const m = banco.misure();
+    const pk = [m.lPeak, m.rPeak];
+    const bw = (vw - 6) / 2;
+    for (let i = 0; i < 2; i++) {
+      const db = 20 * Math.log10(Math.max(1e-5, pk[i]));
+      const k = Math.max(0, Math.min(1, (db + 48) / 48));
+      this.picchi[i] = k > this.picchi[i] ? k : Math.max(k, this.picchi[i] - 0.015);
+      if (k >= this.tieni[i]) this.tieni[i] = k; else this.tieni[i] = Math.max(0, this.tieni[i] - 0.004);
+      const bx = 2 + i * (bw + 2);
+      vx.fillStyle = 'rgba(0,0,0,.6)';
+      vx.fillRect(bx, 0, bw, vh);
+      const hLiv = this.picchi[i] * vh;
+      const g = vx.createLinearGradient(0, vh, 0, 0);
+      g.addColorStop(0, '#5dffb4'); g.addColorStop(0.72, '#ffd54a'); g.addColorStop(0.9, '#ff4d6d');
+      vx.fillStyle = g;
+      vx.fillRect(bx, vh - hLiv, bw, hLiv);
+      vx.fillStyle = '#fff';
+      vx.fillRect(bx, vh - this.tieni[i] * vh - 1, bw, 2);
+    }
+  }
+}
+
 /** la manopola doppia della centralina: anello esterno = shuttle (torna al centro), rotella interna = jog */
 class JogShuttle {
   el: HTMLCanvasElement;
   private ang = 0;
   private shuttle = 0;
-  constructor(attiva: () => void) {
+  constructor() {
     this.el = h('canvas', { class: 'jog', width: 112, height: 112, title: 'Jog (centro, gira) · Shuttle (anello, tira e lascia)' });
     this.disegna();
     this.el.addEventListener('pointerdown', (e) => {
-      attiva();
       const r = this.el.getBoundingClientRect();
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       const dist = Math.hypot(e.clientX - cx, e.clientY - cy) / (r.width / 2);
@@ -303,7 +459,7 @@ class JogShuttle {
       this.el.addEventListener('pointermove', mv);
       this.el.addEventListener('pointerup', up);
     });
-    this.el.addEventListener('wheel', (e) => { e.preventDefault(); attiva(); motore.passo(e.deltaY > 0 ? 1 : -1); this.ang += e.deltaY > 0 ? 0.26 : -0.26; this.disegna(); }, { passive: false });
+    this.el.addEventListener('wheel', (e) => { e.preventDefault(); motore.passo(e.deltaY > 0 ? 1 : -1); this.ang += e.deltaY > 0 ? 0.26 : -0.26; this.disegna(); }, { passive: false });
   }
 
   private disegna() {

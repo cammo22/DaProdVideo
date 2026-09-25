@@ -71,6 +71,7 @@ class Ricerca {
   current: VideoSample | null = null;
   want: number | null = null;
   busy = false;
+  dead = false;
   lastUse = performance.now();
   constructor(private sink: VideoSampleSink) {}
 
@@ -92,6 +93,8 @@ class Ricerca {
       this.want = null;
       try {
         const s = await this.sink.getSample(t);
+        // chiusa mentre decodificava: il fotogramma non serve più a nessuno
+        if (this.dead) { s?.close(); break; }
         if (s) {
           this.current?.close();
           this.current = s;
@@ -103,6 +106,7 @@ class Ricerca {
   }
 
   close() {
+    this.dead = true;
     this.current?.close();
     this.current = null;
     this.want = null;
@@ -205,6 +209,13 @@ export function fermaFlussi() {
     f.close();
   }
   flussi.clear();
+}
+
+/** chi ha finito di guardare (l'anteprima del contenitore) libera il suo fotogramma */
+export function lascia(key: string, mediaId: string) {
+  const k = key + '|' + mediaId;
+  ricerche.get(k)?.close();
+  ricerche.delete(k);
 }
 
 export function dimenticaMedia(mediaId: string) {

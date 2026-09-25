@@ -27,6 +27,8 @@ export class VuMetri {
     const r = this.el.getBoundingClientRect();
     this.el.width = Math.round(r.width * this.dpr);
     this.el.height = Math.round(r.height * this.dpr);
+    // la tela si è svuotata: al prossimo giro si ridisegna anche da fermi
+    this.disegnato = false;
   }
 
   private giro() {

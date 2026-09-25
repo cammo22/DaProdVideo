@@ -27,10 +27,24 @@ async function scatta(nome, viewport, extra = {}) {
   if (viewport.width > 1000) {
     await p.evaluate(() => window.__motore.vaiA(312));
     await p.waitForTimeout(1200);
-    await p.locator('.monitor.recorder .schermo').screenshot({ path: path.join(OUT, nome + '-iride.png') });
+    await p.locator('.monitor .schermo').screenshot({ path: path.join(OUT, nome + '-iride.png') });
     await p.click('text=Strumenti');
     await p.waitForTimeout(800);
     await p.locator('.lato').screenshot({ path: path.join(OUT, nome + '-strumenti.png') });
+    await p.click('.lato .scheda[data-s=clip]');
+    // il contenitore mentre il mouse fa scorrere un video
+    const img = await p.locator('.carta[data-id] .carta-img').nth(1).boundingBox();
+    await p.mouse.move(img.x + img.width * 0.3, img.y + img.height / 2);
+    await p.mouse.move(img.x + img.width * 0.7, img.y + img.height / 2, { steps: 3 });
+    await p.waitForTimeout(900);
+    await p.locator('.contenitore').screenshot({ path: path.join(OUT, nome + '-contenitore.png') });
+    // la pagina Finale con il look Cinema, prima e dopo
+    await p.evaluate(() => { window.__motore.vaiA(210); window.__dpv.select([]); });
+    await p.click('.pagina-btn[data-p=finale]');
+    await p.locator('.fin-look', { hasText: 'Cinema' }).click();
+    await p.click('.monitor .prima-dopo');
+    await p.waitForTimeout(1500);
+    await p.screenshot({ path: path.join(OUT, nome + '-finale.png') });
   }
   await p.close();
 }
