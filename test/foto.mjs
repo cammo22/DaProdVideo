@@ -53,6 +53,27 @@ async function scatta(nome, viewport, extra = {}) {
     await p.mouse.move(5, 5);
     await p.waitForTimeout(1500);
     await p.screenshot({ path: path.join(OUT, nome + '-finale.png') });
+    // i sottotitoli scritti dall'AI
+    await p.click('.fin-voce[data-s=sottotitoli]');
+    await p.waitForTimeout(500);
+    await p.screenshot({ path: path.join(OUT, nome + '-sottotitoli.png') });
+    await p.click('.fin-voce[data-s=colore]');
+    await p.click('.pagina-btn[data-p=montaggio]');
+    await p.waitForTimeout(600);
+    // un blocchetto FX scelto: le sue proprietà, col suono
+    await p.evaluate(() => { const c = window.__dpv.doc.clips.find((x) => x.fxb?.id === 'wipe:119'); if (c) window.__dpv.select([c.id]); window.__motore.vaiA(c ? c.start + 6 : 250); });
+    await p.waitForTimeout(900);
+    await p.locator('.lato').screenshot({ path: path.join(OUT, nome + '-blocco.png') });
+    // la timeline stretta (tasto V)
+    await p.keyboard.press('v');
+    await p.waitForTimeout(900);
+    await p.screenshot({ path: path.join(OUT, nome + '-stretta.png') });
+    await p.keyboard.press('v');
+    // le novità della versione
+    await p.click('.voce-menu:has-text("Aiuto")');
+    await p.click('.tendina .voce:has-text("Novità della")');
+    await p.waitForTimeout(600);
+    await p.screenshot({ path: path.join(OUT, nome + '-novita.png') });
   }
   await p.close();
 }

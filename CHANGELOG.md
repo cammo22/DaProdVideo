@@ -4,6 +4,41 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.5] — 2026-09-25 · FX sopra le clip, coi loro suoni, e i sottotitoli che li scrive l'AI ✨
+
+### Gli FX stanno sopra le clip (niente più corsia a parte)
+- **Effetti e transizioni sono blocchetti sulla traccia video**, in una striscia sottile in basso sulla clip. La corsia FX in cima non c'è più: i progetti di prima si sistemano da soli all'apertura.
+- **Si attaccano da soli**: lasci un effetto vicino all'inizio della clip e parte con lei, vicino alla fine e finisce con lei, proprio sul taglio fra due clip e si centra lì. Lontano dai bordi resta dove l'hai lasciato. Mentre lo trascini vedi dove va ("all'inizio della clip", "sul taglio"…).
+- **Poi si allunga dai bordi** per sistemare i tempi. Anche spostandolo si aggancia a inizio, fine e tagli.
+- **Seguono la clip**: sposti la clip (anche su un'altra traccia) e i suoi FX vanno con lei; la elimini e se ne vanno con lei; tagli l'inizio o la fine e quello attaccato al bordo resta attaccato.
+- **Non occupano posto**: due FX sullo stesso punto si mettono uno sopra l'altro, e non spostano mai una clip.
+- **Valgono per la loro traccia e per quelle sotto**: uno zoom lento sulla V1 muove la ripresa ma non il titolo sulla V2; un lampo sulla V2 illumina tutto.
+
+### Gli FX hanno il loro suono 🔊
+- **Tredici suoni fatti apposta**, dentro il programma (niente file, niente diritti): whoosh, swish rapido, impatto, colpo secco, zap di luce, glitch, scatto della macchina foto, salita, discesa, nastro che si ferma, battito, campanella, piatto al contrario.
+- **Ogni FX ha già quello giusto**: il cubo e le spinte col whoosh, le tendine con lo swish, il lampo con lo zap, la scossa con l'impatto, il glitch col glitch, "al bianco" con la salita… (le dissolvenze e gli effetti lunghi restano muti).
+- **Il colpo cade sul punto giusto**: sul taglio, sul lampo, alla fine di chi sale.
+- **L'altoparlante sul blocco**: un clic lo spegne, un altro lo riaccende (e te lo fa sentire). **Tasto destro → Suono**: scegline un altro, o piano / medio / normale / forte. Anche nelle proprietà del blocco, con "▶ Ascolta".
+- Si sentono nel monitor e **finiscono nell'export**.
+
+### La timeline
+- **Si parte con 2 tracce video e 2 audio** (le altre si aggiungono da sole quando servono, o col "+").
+- **La barra a destra** per scorrere su e giù fra le tracce, sempre lì: trascinala, o clic per saltare.
+- **Alt+Shift+trascina** (come in EDIUS): sposti la clip **e tutto quello che viene dopo, su tutte le tracce**, insieme. Per fare spazio o stringere in un colpo solo.
+- **Tasto V: timeline stretta**. Proprietà, mixer e VU scendono fino in fondo a destra e la timeline si stringe; di nuovo V e torna larga. C'è anche il tasto nell'angolo della timeline e in *Vista*.
+
+### I sottotitoli li scrive l'AI 💬
+- **Finale → Sottotitoli → "✨ Scrivi i sottotitoli con l'AI"**: Whisper ascolta la presa diretta (non la musica) e scrive le righe **coi loro tempi**.
+- **Italiano o inglese**, e da un parlato italiano **direttamente in inglese**.
+- **Tre modelli**: Veloce (40 MB), Buono (80 MB), Preciso (250 MB). Si scarica **una volta sola** da Hugging Face e poi resta sul computer; va con la scheda video se può.
+- **L'audio non esce mai dal computer**: il lavoro si fa tutto lì.
+- Le frasi lunghe si spezzano in righe che si leggono in fretta, "[Musica]" e simili si saltano. Si vede a che punto è, si può fermare, e Ctrl+Z torna a prima.
+- In *Lingue e AI* i tasti ora funzionano (resta "in arrivo" solo la voce in un'altra lingua).
+
+### Aggiornamenti e novità
+- **Nell'app c'è il tasto Aggiornamenti** in alto: controlla se è uscita una versione nuova, ti fa leggere le novità e con un clic **scarica e apre** il file giusto (il setup per chi ha installato, l'exe portatile accanto a quello vecchio, il DMG sul Mac, l'APK sul telefono). Una volta al giorno controlla da solo e, se c'è, il tasto si accende.
+- **Dopo un aggiornamento**, alla prima apertura, compaiono le **novità** della versione. Sempre anche da *Aiuto → Novità*.
+
 ## [1.0.4] — 2026-09-25 · La corsia FX, i proxy e il Finale con tutto al suo posto 🚀
 
 ### Il player non si blocca più

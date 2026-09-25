@@ -5,6 +5,7 @@
 //! senza caricarli in memoria), scrivere l'export mentre esce, salvare i progetti e l'autosalvataggio.
 //! Su Android i file arrivano come `content://` e passano dal plugin fs, che li apre con un descrittore vero.
 
+mod aggiorna;
 mod audio_riserva;
 
 use std::collections::HashMap;
@@ -287,6 +288,10 @@ pub fn run() {
             audio_apri,
             audio_decodifica,
             audio_chiudi,
+            aggiorna::variante_app,
+            aggiorna::aggiornamento_scarica,
+            aggiorna::aggiornamento_progresso,
+            aggiorna::aggiornamento_apri,
         ])
         .run(tauri::generate_context!())
         .expect("errore all'avvio di DaProd Video");

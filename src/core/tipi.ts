@@ -5,7 +5,7 @@
 
 export type Rate = { num: number; den: number };
 
-/** fx = la corsia sottile degli effetti a tempo e delle transizioni a blocchetti (sta in cima, vale per tutto sotto) */
+/** fx = la vecchia corsia FX a parte (1.0.4): all'apertura i suoi blocchi passano sulle tracce video e lei sparisce */
 export type TrackKind = 'video' | 'audio' | 'fx';
 
 export interface Track {
@@ -25,6 +25,7 @@ export interface Track {
   pan: number;
 }
 
+/** fx = un blocchetto effetto/transizione: sta su una traccia video, sopra le clip, e non occupa posto */
 export type ClipKind = 'media' | 'color' | 'bars' | 'tone' | 'countdown' | 'title' | 'beep' | 'fx';
 
 /** Un punto della linea elastica (rubber band): f = fotogrammi dall'inizio della clip. */
@@ -66,6 +67,12 @@ export interface BloccoFx {
   colore: string;
   /** transizione: tipo, modello, bordo… (la durata è quella del blocco) */
   tr?: Transition;
+  /** il suono dentro l'FX (src/core/suoni.ts): whoosh, colpo, zap… (niente = muto) */
+  suono?: string;
+  /** il suono è acceso? (un clic sull'altoparlante del blocco) */
+  audio?: boolean;
+  /** volume del suono in dB (0 = normale) */
+  volume?: number;
 }
 
 export interface VideoFx {

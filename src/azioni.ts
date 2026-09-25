@@ -7,7 +7,7 @@ import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEn
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
 import type { Clip, Transition } from './core/tipi';
-import { durataBlocco, inizioBlocco, nomeBlocco, nuovoBlocco, posaBlocco, taglioVicino, transizioneDa } from './core/blocchi';
+import { cambiaModello, durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioneSul } from './core/blocchi';
 
 export interface Azione {
   id: string;
@@ -152,7 +152,7 @@ reg({ id: 'eliminaSinistra', nome: 'Elimina lo scarto a sinistra del cursore', g
 reg({ id: 'eliminaDestra', nome: 'Elimina lo scarto a destra del cursore', gruppo: 'Montaggio', tasti: ['W'], info: 'La clip sotto il cursore (o quella selezionata) perde la parte dopo il cursore.', fn: () => eliminaLato('destra') });
 reg({
   id: 'dissolvenza', nome: 'Dissolvenza sul taglio', gruppo: 'Montaggio', tasti: ['5', 'Ctrl+P'],
-  info: 'Un blocchetto di dissolvenza nella corsia FX, sul taglio più vicino al cursore. Premi di nuovo per toglierla.',
+  info: 'Un blocchetto di dissolvenza sopra il taglio più vicino al cursore. Premi di nuovo per toglierla.',
   fn: () => applicaTransizione('mix'),
 });
 reg({
@@ -177,39 +177,41 @@ reg({
 const secondi = (len: number) => (len / r()).toFixed(1).replace('.', ',').replace(',0', '') + ' s';
 
 /**
- * Mette un blocchetto nella corsia FX. Le transizioni vanno sul taglio più vicino al cursore (o sul bordo della
- * clip scelta); gli effetti al cursore, o sul taglio se il cursore ci sta sopra. La stessa transizione già su
- * quel taglio si toglie, una diversa si cambia. Ritorna l'id del blocco.
+ * Mette un blocchetto FX sopra le clip. Le transizioni vanno sul taglio più vicino al cursore (o sul bordo della
+ * clip scelta); gli effetti al cursore, o sul bordo se il cursore ci sta sopra. La traccia è quella della clip
+ * scelta (o quella indicata, o la più in alto con una clip lì). La stessa transizione già su quel taglio si toglie,
+ * una diversa si cambia. Ritorna l'id del blocco.
  */
-export function mettiBlocco(tipo: 'effetto' | 'transizione', id: string, f = head()): string | null {
+export function mettiBlocco(tipo: 'effetto' | 'transizione', id: string, f = head(), track?: string, inizio?: number): string | null {
   const p = store.doc;
   const len = durataBlocco(p, tipo, id, modi.durataFx);
   let rif = f;
-  if (tipo === 'transizione') {
-    const c = p.clips.find((x) => store.sel.has(x.id) && isVideoClip(x));
-    if (c) rif = Math.abs(f - c.start) <= Math.abs(f - end(c)) ? c.start : end(c);
-  }
+  const scelta = p.clips.find((x) => store.sel.has(x.id) && isVideoClip(x));
+  if (tipo === 'transizione' && scelta && track === undefined) rif = Math.abs(f - scelta.start) <= Math.abs(f - end(scelta)) ? scelta.start : end(scelta);
   const soglia = tipo === 'transizione' ? Math.round(r() * 5) : Math.max(2, Math.round(r() * 0.2));
-  const tg = taglioVicino(p, rif, soglia);
+  const tk = track ?? scelta?.track ?? (tipo === 'transizione' ? taglioVicino(p, rif, soglia)?.track : undefined) ?? tracciaPerBlocco(p, rif);
+  const tg = taglioVicino(p, rif, soglia, tk);
   if (tipo === 'transizione') {
     if (!tg) { avviso('Non c\'è un taglio vicino al cursore: portalo su un taglio (↑ ↓) o trascina la transizione sopra', 'info', 2600); return null; }
-    const gia = p.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= tg.f && end(c) >= tg.f);
+    const gia = transizioneSul(p, tg);
     if (gia) {
       if (gia.fxb!.id === id) {
         store.edit('Togli transizione', (pp) => { pp.clips = pp.clips.filter((c) => c.id !== gia.id); });
         avviso(`${nomeBlocco(gia.fxb!)} tolta`, 'tasto', 1200);
         return null;
       }
-      store.edit('Cambia transizione', (pp) => { const c = clipById(pp, gia.id)!; c.fxb = { ...c.fxb!, id, tr: transizioneDa(id, c.len) }; c.name = nomeBlocco(c.fxb); });
+      store.edit('Cambia transizione', (pp) => { const c = clipById(pp, gia.id)!; c.fxb = cambiaModello(c.fxb!, id); c.name = nomeBlocco(c.fxb); });
       store.select([gia.id]);
       avviso(`✦ ${nomeBlocco(clipById(store.doc, gia.id)!.fxb!)} al posto di prima`, 'tasto', 1400);
       return gia.id;
     }
   }
-  const { start } = inizioBlocco(p, tipo, rif, len, soglia);
-  const c = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), start, len));
+  const posto = postoBlocco(p, tipo, rif, len, soglia, tk, tipo === 'effetto');
+  const start = inizio ?? posto.start, dove = inizio === undefined ? posto.dove : 'libero';
+  const c = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), start, len, tk));
   store.select([c.id]);
-  avviso(`${tipo === 'effetto' ? '⚡' : '✦'} ${nomeBlocco(c.fxb!)} · ${secondi(len)}${tg ? ' sul taglio' : ''}`, 'tasto', 1400);
+  const dov = dove === 'taglio' ? ' sul taglio' : dove === 'inizio' ? ' all\'inizio della clip' : dove === 'fine' ? ' alla fine della clip' : '';
+  avviso(`${tipo === 'effetto' ? '⚡' : '✦'} ${nomeBlocco(c.fxb!)} · ${secondi(len)}${dov}`, 'tasto', 1400);
   return c.id;
 }
 
@@ -256,7 +258,7 @@ reg({
         n.id = uid('c');
         n.start = c.start - min + f;
         if (c.link) { if (!links.has(c.link)) links.set(c.link, uid('l')); n.link = links.get(c.link); }
-        if (!p.tracks.some((t) => t.id === n.track)) n.track = p.tracks.find((t) => t.kind === (c.kind === 'fx' ? 'fx' : isVideoClip(c) ? 'video' : 'audio'))!.id;
+        if (!p.tracks.some((t) => t.id === n.track)) n.track = p.tracks.find((t) => t.kind === (c.kind === 'fx' || isVideoClip(c) ? 'video' : 'audio'))!.id;
         return n;
       });
       const set = new Set(nuove.map((c) => c.id));
@@ -267,7 +269,8 @@ reg({
       } else {
         // niente viene coperto: se la traccia è occupata la clip va su una libera
         for (const c of nuove) {
-          c.track = M.tracciaLibera(p, trackOf(p, c.track).kind, c.track, c.start, end(c));
+          // i blocchetti FX stanno sopra le clip: restano sulla loro traccia
+          if (c.kind !== 'fx') c.track = M.tracciaLibera(p, trackOf(p, c.track).kind, c.track, c.start, end(c));
           p.clips.push(c);
         }
       }
@@ -492,7 +495,7 @@ reg({ id: 'opacitaMeno', nome: 'Trasparenza: meno opaca (−10%)', gruppo: 'Live
 reg({ id: 'opacitaPiu', nome: 'Trasparenza: più opaca (+10%)', gruppo: 'Livelli', tasti: ['Alt+ArrowUp'], fn: () => opacitaSel(0.1) });
 reg({
   id: 'tracciaV', nome: 'Aggiungi traccia video', gruppo: 'Livelli', tasti: ['Ctrl+Alt+V'],
-  fn: () => store.edit('Traccia video', (p) => { p.tracks.splice(p.tracks.findIndex((t) => t.kind !== 'fx'), 0, newTrack('video', nextTrackName(p, 'video'))); }),
+  fn: () => store.edit('Traccia video', (p) => { p.tracks.unshift(newTrack('video', nextTrackName(p, 'video'))); }),
 });
 reg({
   id: 'tracciaA', nome: 'Aggiungi traccia audio', gruppo: 'Livelli', tasti: ['Ctrl+Alt+A'],

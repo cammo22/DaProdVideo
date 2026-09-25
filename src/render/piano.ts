@@ -1,6 +1,6 @@
 // Il "piano" di un fotogramma: quali clip si vedono, in che ordine, con che trasparenza e con quale
 // transizione. Lo usano sia i monitor sia l'export, così quello che vedi è quello che esce.
-// Le transizioni arrivano dai blocchetti della corsia FX (src/core/blocchi.ts): il blocco sta sopra un taglio e
+// Le transizioni arrivano dai blocchetti FX sulle tracce video (src/core/blocchi.ts): il blocco sta sopra un taglio e
 // per la sua durata si vedono tutte e due le clip, la prima che continua oltre la sua fine e la seconda che parte
 // prima del suo inizio (con le maniglie della sorgente, o fermandosi sul primo/ultimo fotogramma).
 import type { Clip, Project, Transition } from '../core/tipi';
@@ -65,7 +65,7 @@ export function pianoVideo(p: Project, f: number): Strato[] {
     const opacity = clipOpacity(c, f) * t.opacity;
     let a: Sorgente | null = null, tr: Transition | null = null, prog = 1;
     let b: Sorgente | null = sorgente(p, c, f);
-    // le transizioni vecchie attaccate alle clip (i progetti di prima le portano nella corsia FX quando si aprono)
+    // le transizioni vecchie attaccate alle clip (i progetti di prima le trasformano in blocchetti quando si aprono)
     if (c.trIn && f < c.start + c.trIn.len) {
       tr = c.trIn;
       prog = (f - c.start + 0.5) / c.trIn.len;

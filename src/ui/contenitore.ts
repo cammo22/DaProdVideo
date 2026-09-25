@@ -301,7 +301,7 @@ export class Contenitore {
       anteprimaViva(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 });
       const id = tipo === 'mix' || tipo === 'dip' ? tipo : `${tipo}:${m.p}`;
       const el = h('div', {
-        class: 'carta tr gen-voce', 'data-tr': id, title: 'Trascina sopra un taglio (diventa un blocchetto nella corsia FX) · Clic: sul taglio più vicino al cursore',
+        class: 'carta tr gen-voce', 'data-tr': id, title: 'Trascina sopra un taglio (diventa un blocchetto sulla clip) · Clic: sul taglio più vicino al cursore',
         on: { click: () => applicaTransizione(tipo, m.p) },
       }, h('div', { class: 'carta-img' }, cv, h('span', { class: 'carta-blocco tr' })), h('div', { class: 'carta-nome' }, m.nome), h('div', { class: 'carta-info' }, m.info));
       trascinabile(el, () => 'x:t:' + id, () => '✦ ' + m.nome);
@@ -309,7 +309,7 @@ export class Contenitore {
     };
     return h('div', { class: 'gen-lista' },
       this.durate(),
-      h('p', { class: 'nota' }, 'Trascina la transizione sopra un taglio fra due clip: diventa un blocchetto turchese nella corsia FX, centrato sul taglio. Più è lungo, più è lenta. Clic = sul taglio più vicino al cursore. Le clip non cambiano durata.'),
+      h('p', { class: 'nota' }, 'Trascina la transizione sopra un taglio fra due clip: diventa un blocchetto turchese in basso sulle clip, centrato sul taglio (all\'inizio o alla fine libera di una clip entra o esce da quello che c\'è sotto). Più è lungo, più è lenta. Molte hanno il loro whoosh: l\'altoparlante sul blocco lo accende e lo spegne. Le clip non cambiano durata.'),
       h('h4', { class: 'bin-sezione' }, 'Dissolvenze'),
       h('div', { class: 'bin-griglia' },
         t('mix', { p: 0, nome: 'Dissolvenza incrociata', info: 'il MIX classico · tasto 5' }),
@@ -323,10 +323,10 @@ export class Contenitore {
 
   private carteEffetti: { el: HTMLElement; e: Effetto }[] = [];
   private paginaEffetti(): HTMLElement {
-    // gli effetti a tempo: blocchetti magenta nella corsia FX (valgono per tutto quello che sta sotto)
+    // gli effetti a tempo: blocchetti magenta sopra le clip (valgono per la loro traccia e per tutto quello sotto)
     const tempo = (e: EffettoTempo) => {
       const el = h('div', {
-        class: 'carta fxt', 'data-fx': e.id, title: 'Trascina sopra le clip o su un taglio (diventa un blocchetto nella corsia FX) · Clic: al cursore',
+        class: 'carta fxt', 'data-fx': e.id, title: 'Trascina sopra una clip: si attacca all\'inizio, alla fine o al taglio più vicino · Clic: al cursore',
         on: { click: () => mettiBlocco('effetto', e.id) },
       }, h('div', { class: 'carta-img fxt-anteprima fxt-' + e.motore + (e.colore === '#000000' ? ' nero' : '') }, h('i', { class: 'fxt-scena' }), h('i', { class: 'fxt-velo' }), h('span', { class: 'carta-blocco fx' }), h('span', { class: 'carta-dur' }, String(e.durata).replace('.', ',') + ' s')),
       h('div', { class: 'carta-nome' }, e.nome), h('div', { class: 'carta-info' }, e.info));
@@ -344,7 +344,7 @@ export class Contenitore {
     };
     return h('div', { class: 'gen-lista' },
       this.durate(),
-      h('p', { class: 'nota' }, 'Trascina un effetto sopra le clip o proprio su un taglio: diventa un blocchetto nella corsia FX in cima, e vale per tutto quello che ci sta sotto. Allungalo dai bordi, mettine uno dopo l\'altro. Vicino a un taglio il lampo scoppia proprio lì.'),
+      h('p', { class: 'nota' }, 'Trascina un effetto sopra una clip: diventa un blocchetto in basso sulla clip e si sistema da solo all\'inizio, alla fine o centrato sul taglio fra due clip (lontano dai bordi resta dove lo lasci). Poi allungalo dai bordi. Vale per la sua traccia e per quelle sotto; i rapidi hanno il loro suono (altoparlante sul blocco = acceso/spento).'),
       h('h4', { class: 'bin-sezione' }, '⚡ Effetti rapidi'),
       h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'rapidi').map(tempo)),
       h('h4', { class: 'bin-sezione' }, '⏱ Effetti lunghi'),

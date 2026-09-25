@@ -11,6 +11,8 @@ export default defineConfig({
     __VERSIONE__: JSON.stringify(pkg.version),
   },
   clearScreen: false,
+  // i worker come moduli: quello della voce carica l'AI solo quando serve
+  worker: { format: 'es' },
   server: { port: 5173, strictPort: true },
   build: {
     target: 'es2022',

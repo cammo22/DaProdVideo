@@ -11,8 +11,8 @@ export const FX0: VideoFx = {
 };
 export const TF0: Transform = { x: 0, y: 0, scale: 1, rot: 0, cropL: 0, cropR: 0, cropT: 0, cropB: 0 };
 
-/** altezze di partenza: l'audio più alto (si vede la forma d'onda e il volume), il video più basso,
- *  la corsia FX metà del video (i blocchetti si mettono in fila facilmente) */
+/** altezze di partenza: l'audio più alto (si vede la forma d'onda e il volume), il video più basso
+ *  (fx = la vecchia corsia a parte, solo per i progetti di prima) */
 export const ALTEZZA = { video: 54, audio: 76, fx: 27 } as const;
 
 export function newTrack(kind: TrackKind, name: string): Track {
@@ -27,9 +27,8 @@ export function newProject(fmt: { w: number; h: number; rate: Rate; drop: boolea
   return {
     format: 'daprod-video', v: 1, name,
     w: fmt.w, h: fmt.h, rate: { ...fmt.rate }, drop: fmt.drop, sampleRate: 48000,
-    // in alto la corsia FX, poi le tracce video (V3 sopra a tutto), poi le audio
-    tracks: [newTrack('fx', 'FX'), newTrack('video', 'V3'), newTrack('video', 'V2'), newTrack('video', 'V1'),
-      newTrack('audio', 'A1'), newTrack('audio', 'A2'), newTrack('audio', 'A3'), newTrack('audio', 'A4')],
+    // due tracce video (V2 sopra) e due audio: gli FX stanno sopra le clip, le altre tracce si aggiungono da sole
+    tracks: [newTrack('video', 'V2'), newTrack('video', 'V1'), newTrack('audio', 'A1'), newTrack('audio', 'A2')],
     clips: [], media: [], markers: [], inF: null, outF: null, preroll: 3, master: { ...MASTER0 },
     created: now, saved: 0,
   };
@@ -70,7 +69,6 @@ export const mediaOf = (p: Project, c: Clip): MediaItem | undefined => (c.media 
 export const clipById = (p: Project, id: string) => p.clips.find((c) => c.id === id);
 export const clipsOn = (p: Project, trackId: string) => p.clips.filter((c) => c.track === trackId).sort((a, b) => a.start - b.start);
 export const videoTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'video');
-export const fxTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'fx');
 export const audioTracks = (p: Project) => p.tracks.filter((t) => t.kind === 'audio');
 /** il progetto aperto, per sapere su che traccia sta una clip (lo tiene aggiornato lo Store) */
 let aperto: Project | null = null;

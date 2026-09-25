@@ -158,7 +158,8 @@ function valida(o: unknown): Project | null {
     if (t.kind === 'video' && t.height === 58) t.height = ALTEZZA.video;
   }
   p.master = { ...MASTER0, ...(p.master ?? {}) };
-  // dalla 1.0.4: la corsia FX in cima, e le transizioni delle clip video diventano blocchetti
+  // dalla 1.0.5: gli FX stanno sulle tracce video (la corsia a parte della 1.0.4 sparisce), e le transizioni delle
+  // clip video diventano blocchetti
   migraBlocchi(p);
   return p;
 }

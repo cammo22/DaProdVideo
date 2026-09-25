@@ -7,6 +7,7 @@ import { MASTER0, TITLE0, end, isVideoClip, masterDi, newClip, projectEnd, track
 import * as M from '../core/montaggio';
 import { nuovoBlocco, posaBlocco } from '../core/blocchi';
 import { LINGUE, SOTTO0, creaSrt, leggiSrt, righeDaiDialoghi, sottotitoliDi } from '../core/sottotitoli';
+import { MODELLI, fermaVoce, sottotitoliAI, type OpzioniVoce } from '../media/voce';
 import { salvaTesto } from '../platform';
 import { importaDialogo } from '../progetti';
 import { durataUmana, f2s, fps, frameToTc } from '../core/timecode';
@@ -15,7 +16,7 @@ import { mediaRT } from '../media/libreria';
 import { motore } from '../motore';
 import { volumeLivellato } from '../effetti';
 import { finestraEsporta, esportaEdl, esportaFotogramma } from './dialoghi';
-import { avviso, clamp, h, icona } from './dom';
+import { avviso, clamp, conferma, h, icona } from './dom';
 
 type Campo = { aggiorna: () => void };
 
@@ -49,7 +50,7 @@ const SEZIONI: { id: Sezione; nome: string; icona: string; info: string }[] = [
   { id: 'sottotitoli', nome: 'Sottotitoli', icona: 'sottotitoli', info: 'righe, tempi dai dialoghi, .srt' },
   { id: 'logo', nome: 'Logo', icona: 'logo', info: 'il logo sempre in vista' },
   { id: 'apertura', nome: 'Apertura', icona: 'apertura', info: 'clip, titoli e nero all\'inizio e alla fine' },
-  { id: 'lingue', nome: 'Lingue e AI', icona: 'lingua', info: 'sottotitoli con l\'AI e traduzioni (in arrivo)' },
+  { id: 'lingue', nome: 'Lingue e AI', icona: 'lingua', info: 'sottotitoli scritti dall\'AI, traduzione in inglese' },
   { id: 'esporta', nome: 'Esporta', icona: 'esporta', info: 'il master, la EDL, il fotogramma' },
 ];
 
@@ -163,7 +164,7 @@ export class Finale {
         h('button', { class: 'btn piccolo', title: 'La lista di montaggio per Resolve, Avid, Premiere, EDIUS', on: { click: () => esportaEdl() } }, 'EDL CMX3600'),
         h('button', { class: 'btn piccolo', title: 'Il fotogramma sotto il cursore, con il colore finale', on: { click: () => esportaFotogramma() } }, 'Fotogramma PNG'),
         h('button', { class: 'btn piccolo', title: 'I sottotitoli in un file a parte', on: { click: () => void this.esportaSrt() } }, 'Sottotitoli .srt')),
-      h('p', { class: 'nota' }, 'Nel master escono anche il logo e i sottotitoli (se sono "scritti nel video"), gli effetti della corsia FX e il colore finale.'));
+      h('p', { class: 'nota' }, 'Nel master escono anche il logo e i sottotitoli (se sono "scritti nel video"), gli FX sulle clip (coi loro suoni) e il colore finale.'));
     return pagina(sez('Esporta', 'esporta', esporta));
   }
 
@@ -190,6 +191,7 @@ export class Finale {
     });
     this.listaSott = h('div', { class: 'sott-lista' });
     return [
+      sez('Scritti dall\'AI', 'lingua', ...this.pannelloAI()),
       sez('Sottotitoli', 'sottotitoli', nelVideo,
         h('div', { class: 'isp-pulsanti' },
           h('button', { class: 'btn-mini oro', title: 'Il programma ascolta dove si parla e prepara le righe vuote al punto giusto: resta solo da scrivere', on: { click: () => this.dialoghi() } }, '🎙 Prepara i tempi dai dialoghi'),
@@ -246,6 +248,74 @@ export class Finale {
     const f = store.head;
     const qui = sottotitoliDi(store.doc).righe.find((x) => x.da <= f && f < x.a);
     this.listaSott.querySelectorAll('.sott-riga').forEach((el) => el.classList.toggle('qui', (el as HTMLElement).dataset.id === qui?.id));
+  }
+
+  // ——— i sottotitoli scritti dall'AI (Whisper, sul computer) ———
+  private ai: OpzioniVoce = (() => {
+    const base: OpzioniVoce = { lingua: 'it', traduci: false, modello: MODELLI[1].id };
+    try { return { ...base, ...(JSON.parse(localStorage.getItem('dpv-ai') ?? '{}') as Partial<OpzioniVoce>) }; } catch { return base; }
+  })();
+  private lavoroAI: AbortController | null = null;
+  private aggiornaAI: (() => void)[] = [];
+
+  private pannelloAI(): HTMLElement[] {
+    const salva = () => { try { localStorage.setItem('dpv-ai', JSON.stringify(this.ai)); } catch { /* niente */ } this.aggiornaAI.forEach((f) => f()); };
+    const scelta = (nome: string, opz: [string, string, string?][], get: () => string, put: (v: string) => void) => {
+      const bott = opz.map(([v, t, info]) => h('button', { class: 'chip', 'data-v': v, title: info ?? '', on: { click: () => { put(v); salva(); } } }, t));
+      this.aggiornaAI.push(() => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === get())));
+      return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
+    };
+    const barra = h('div', { class: 'ai-barra' }, h('i'));
+    const fase = h('div', { class: 'ai-fase' });
+    const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.scriviConAI(barra, fase, vai, ferma) } }, '✨ Scrivi i sottotitoli con l\'AI');
+    const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroAI?.abort(); fermaVoce(); } } }, '■ Ferma');
+    const traduci = scelta('Scrivi in', [['no', 'La stessa lingua'], ['si', 'Inglese (traduci)', 'Dall\'italiano: i sottotitoli escono già in inglese']], () => (this.ai.traduci && this.ai.lingua === 'it' ? 'si' : 'no'), (v) => { this.ai.traduci = v === 'si'; });
+    this.aggiornaAI.push(() => { traduci.style.display = this.ai.lingua === 'it' ? '' : 'none'; });
+    const out = [
+      scelta('Si parla in', [['it', 'Italiano'], ['en', 'Inglese']], () => this.ai.lingua, (v) => { this.ai.lingua = v as 'it' | 'en'; }),
+      traduci,
+      scelta('Modello', MODELLI.map((m) => [m.id, `${m.nome} · ${m.mb} MB`, m.info] as [string, string, string]), () => this.ai.modello, (v) => { this.ai.modello = v; }),
+      h('div', { class: 'isp-pulsanti' }, vai, ferma),
+      barra, fase,
+      h('p', { class: 'nota' }, 'Ascolta la presa diretta del montaggio (non la musica) e scrive le righe coi loro tempi. Il modello è Whisper (Hugging Face): si scarica una volta sola, poi resta sul computer. L\'audio non esce mai dal computer. Le righe si correggono qui sotto; Ctrl+Z torna a prima.'),
+    ];
+    salva();
+    return out;
+  }
+
+  private async scriviConAI(barra: HTMLElement, fase: HTMLElement, vai: HTMLButtonElement, ferma: HTMLElement) {
+    if (this.lavoroAI) return;
+    const p = store.doc;
+    if (!p.clips.some((c) => c.kind === 'media' && store.doc.tracks.find((t) => t.id === c.track)?.kind === 'audio')) { avviso('Nel montaggio non c\'è audio da ascoltare', 'info', 2400); return; }
+    const scritte = sottotitoliDi(p).righe.filter((x) => x.testo.trim()).length;
+    if (scritte && !(await conferma('Sottotitoli con l\'AI', `Ci sono già ${scritte} righe scritte: l'AI le rifà tutte da capo (con Ctrl+Z tornano).`, 'Rifalle', 'Lascia stare'))) return;
+    const ctrl = new AbortController();
+    this.lavoroAI = ctrl;
+    vai.disabled = true;
+    ferma.style.display = '';
+    barra.classList.add('attiva');
+    const stato = (t: string, x: number) => { fase.textContent = t; (barra.firstChild as HTMLElement).style.width = Math.round(x * 100) + '%'; };
+    const o = { ...this.ai };
+    try {
+      const righe = await sottotitoliAI(structuredClone(store.doc), o, stato, ctrl.signal);
+      if (!righe.length) { avviso('Non ho sentito parole nel montaggio', 'info', 2600); stato('Nessuna parola trovata', 1); return; }
+      this.cambiaSott('Sottotitoli con l\'AI', (x) => { x.righe = righe; x.lingua = o.traduci && o.lingua === 'it' ? 'en' : o.lingua; });
+      stato(`Fatto: ${righe.length} righe`, 1);
+      avviso(`✨ ${righe.length} righe scritte dall'AI: rileggile qui sotto`, 'ok', 3200);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'fermato') stato('Fermato', 0);
+      else if (msg === 'muto') { stato('L\'audio dei dialoghi è muto', 0); avviso('L\'audio dei dialoghi è muto: niente da scrivere', 'info', 2600); }
+      else {
+        stato('Non ci sono riuscito: ' + msg, 0);
+        avviso('L\'AI non è partita: serve internet la prima volta (per scaricare il modello). ' + msg, 'errore', 5000);
+      }
+    } finally {
+      this.lavoroAI = null;
+      vai.disabled = false;
+      ferma.style.display = 'none';
+      barra.classList.remove('attiva');
+    }
   }
 
   private dialoghi() {
@@ -327,7 +397,7 @@ export class Finale {
         h('div', { class: 'isp-pulsanti' },
           h('button', { class: 'btn-mini', title: 'Un secondo: l\'immagine esce dal nero e l\'audio sale', on: { click: () => this.estremiNero('inizio', Math.round(r())) } }, 'Entra dal nero'),
           h('button', { class: 'btn-mini', title: 'Un secondo e mezzo: l\'immagine va nel nero e l\'audio scende', on: { click: () => this.estremiNero('fine', Math.round(r() * 1.5)) } }, 'Chiudi nel nero')),
-        h('p', { class: 'nota' }, 'Mette i blocchetti "Dal nero" e "Al nero" nella corsia FX e sfuma l\'audio: li puoi allungare dalla timeline.')),
+        h('p', { class: 'nota' }, 'Mette i blocchetti "Dal nero" e "Al nero" sulla traccia video più in alto e sfuma l\'audio: li puoi allungare dalla timeline.')),
     ];
   }
 
@@ -382,7 +452,8 @@ export class Finale {
     const fine = projectEnd(p);
     if (!fine) { avviso('La timeline è vuota', 'info'); return; }
     store.edit(dove === 'inizio' ? 'Entra dal nero' : 'Chiudi nel nero', (pp) => {
-      posaBlocco(pp, nuovoBlocco('effetto', dove === 'inizio' ? 'dalNero' : 'alNero'), dove === 'inizio' ? 0 : fine - len, len);
+      // sulla traccia video più in alto: vale per tutto (anche i titoli)
+      posaBlocco(pp, nuovoBlocco('effetto', dove === 'inizio' ? 'dalNero' : 'alNero'), dove === 'inizio' ? 0 : fine - len, len, pp.tracks.find((t) => t.kind === 'video')?.id);
       const audio = new Set(pp.tracks.filter((t) => t.kind === 'audio').map((t) => t.id));
       for (const c of pp.clips) {
         if (!audio.has(c.track)) continue;
@@ -399,12 +470,13 @@ export class Finale {
     lingua.addEventListener('change', () => this.cambiaSott('Lingua dei sottotitoli', (x) => { x.lingua = lingua.value; }));
     this.campi.push({ aggiorna: () => { lingua.value = sottotitoliDi(store.doc).lingua; } });
     const presto = (nome: string, info: string) => h('button', { class: 'fin-presto', disabled: true, title: info }, h('span', null, nome), h('i', null, 'PRESTO'));
+    const vai = (nome: string, info: string, fn: () => void) => h('button', { class: 'fin-presto pronto', title: info, on: { click: fn } }, h('span', null, nome), h('i', null, 'VAI'));
     return sez('Lingue e AI', 'lingua',
       h('div', { class: 'fin-scelte' }, h('span', null, 'Lingua'), lingua),
-      presto('✨ Scrivi i sottotitoli con l\'AI', 'Il riconoscimento della voce scriverà da solo il testo delle righe'),
-      presto('🌍 Traduci i sottotitoli', 'Le righe tradotte in un\'altra lingua, pronte per un secondo .srt'),
+      vai('✨ Scrivi i sottotitoli con l\'AI', 'Whisper ascolta i dialoghi e scrive le righe coi tempi (italiano o inglese)', () => { this.ai.traduci = false; this.mostra('sottotitoli'); }),
+      vai('🌍 Sottotitoli in inglese da un parlato italiano', 'Whisper ascolta l\'italiano e scrive direttamente in inglese', () => { this.ai.lingua = 'it'; this.ai.traduci = true; this.mostra('sottotitoli'); this.aggiornaAI.forEach((f) => f()); }),
       presto('🗣 Voce in un\'altra lingua', 'Il doppiaggio automatico, per chi lo vorrà'),
-      h('p', { class: 'nota' }, 'Qui arriveranno i sottotitoli scritti dall\'AI e le traduzioni: è tutto predisposto (righe, tempi, lingua, file .srt). Intanto il programma prepara già i tempi dai dialoghi, e puoi importare un .srt fatto con un altro programma.'));
+      h('p', { class: 'nota' }, 'I sottotitoli li scrive Whisper, il riconoscimento del parlato di OpenAI nella versione di Hugging Face: gira sul tuo computer (l\'audio non va da nessuna parte) e il modello si scarica una volta sola. La lingua qui sopra finisce nel nome del file .srt.'));
   }
 
   /** porta tutte le clip audio a un livello comodo (come l'effetto "Livella" clip per clip) */
