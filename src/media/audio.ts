@@ -2,11 +2,34 @@
 // incroci; il tono di riferimento. Lo stesso grafo serve la riproduzione e l'export (OfflineAudioContext).
 import { AudioBufferSink } from 'mediabunny';
 import type { Clip, Project } from '../core/tipi';
-import { dbToGain, end, keyValue, masterDi, mediaOf } from '../core/progetto';
+import { dbToGain, end, keyValue, masterDi, mediaOf, newTransition } from '../core/progetto';
+import { transizioniAttive } from '../core/blocchi';
 import { f2s } from '../core/timecode';
 import { mediaRT } from './libreria';
 
 const SUONA = new Set(['media', 'tone', 'beep']);
+
+/**
+ * Le transizioni dei blocchetti FX valgono anche per l'audio legato: la clip audio che entra con la sua ripresa si
+ * incrocia con quella di prima, come una dissolvenza. Si lavora su una copia leggera del progetto (le clip audio
+ * interessate ricevono una transizione in testa), così il resto del banco non cambia.
+ */
+export function conIncroci(p: Project): Project {
+  const trs = transizioniAttive(p);
+  if (!trs.length) return p;
+  const audio = new Set(p.tracks.filter((t) => t.kind === 'audio').map((t) => t.id));
+  const nuovi = new Map<string, Clip>();
+  for (const x of trs) {
+    if (!x.a || !x.b?.link) continue;
+    const L = Math.max(1, x.e - x.cut);
+    for (const c of p.clips) {
+      if (c.link !== x.b.link || !audio.has(c.track) || c.trIn || c.start !== x.b.start) continue;
+      if (!p.clips.some((z) => z.track === c.track && z.id !== c.id && end(z) === c.start)) continue;
+      nuovi.set(c.id, { ...c, trIn: newTransition('mix', Math.min(L, c.len)) });
+    }
+  }
+  return nuovi.size ? { ...p, clips: p.clips.map((c) => nuovi.get(c.id) ?? c) } : p;
+}
 
 /** la clip audio attaccata dopo c con transizione in testa (allunga c per l'incrocio) */
 function codaIncrocio(p: Project, c: Clip): number {
@@ -68,14 +91,29 @@ function applicaInviluppo(g: GainNode, p: Project, c: Clip, coda: number, t0: nu
  */
 function catenaEffetti(ctx: BaseAudioContext, c: Clip, uscita: AudioNode): AudioNode {
   const fx = c.afx;
-  if (!fx || (!fx.voce && !fx.bassi && !fx.radio)) return uscita;
-  const nodi: BiquadFilterNode[] = [];
+  if (!fx || (!fx.voce && !fx.bassi && !fx.radio && !fx.eco && !fx.ovattato)) return uscita;
+  const nodi: AudioNode[] = [];
   const f = (type: BiquadFilterType, freq: number, gain = 0, q = 0.707) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = freq; b.gain.value = gain; b.Q.value = q; nodi.push(b); };
   if (fx.bassi || fx.voce) f('highpass', fx.voce ? 110 : 90);
   if (fx.voce) { f('peaking', 3200, 4, 0.9); f('lowshelf', 220, -2.5); }
   if (fx.radio) { f('highpass', 450, 0, 0.9); f('lowpass', 3200, 0, 0.9); f('peaking', 1600, 5, 1.2); }
+  if (fx.ovattato) { f('lowpass', 650, 0, 0.8); f('lowshelf', 180, 3); }
+  if (!nodi.length) { const g = ctx.createGain(); nodi.push(g); }
   for (let i = 0; i < nodi.length - 1; i++) nodi[i].connect(nodi[i + 1]);
-  nodi[nodi.length - 1].connect(uscita);
+  const ultimo = nodi[nodi.length - 1];
+  ultimo.connect(uscita);
+  if (fx.eco) {
+    // l'eco: un ritardo che si richiama da solo, sempre più piano
+    const d = ctx.createDelay(1);
+    d.delayTime.value = 0.27;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.38;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.42;
+    ultimo.connect(d);
+    d.connect(fb).connect(d);
+    d.connect(wet).connect(uscita);
+  }
   return nodi[0];
 }
 
@@ -209,9 +247,10 @@ class Banco {
   }
 
   /** parte dalla timeline al secondo startSec */
-  suona(p: Project, startSec: number) {
+  suona(p0: Project, startSec: number) {
     this.ferma();
     const ctx = this.sveglia();
+    const p = conIncroci(p0);
     this.p = p;
     this.modo = 'timeline';
     this.startSec = startSec;
@@ -432,9 +471,10 @@ class Banco {
   }
 
   /** il suono della timeline al secondo sec, per un attimo (non mentre suona) */
-  scrub(p: Project, sec: number, durata = 0.085) {
+  scrub(p0: Project, sec: number, durata = 0.085) {
     if (this.attivo) return;
     this.sveglia();
+    const p = conIncroci(p0);
     this.p = p;
     this.aggiornaTracce(p);
     const fr = p.rate;
@@ -491,7 +531,8 @@ export const banco = new Banco();
  * Mixaggio per l'export: rende l'audio della timeline da fromSec a toSec in pezzi (così un'ora di
  * montaggio non chiede gigabyte di memoria). Chiama onChunk con ogni AudioBuffer in ordine.
  */
-export async function* mixaggio(p: Project, fromSec: number, toSec: number): AsyncGenerator<AudioBuffer> {
+export async function* mixaggio(p0: Project, fromSec: number, toSec: number): AsyncGenerator<AudioBuffer> {
+  const p = conIncroci(p0);
   const SR = p.sampleRate || 48000;
   const PEZZO = 10;
   const solo = p.tracks.some((t) => t.kind === 'audio' && t.solo);

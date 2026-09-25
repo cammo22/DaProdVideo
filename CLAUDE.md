@@ -10,6 +10,12 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   `node test/foto.mjs` fa le foto in `test/.out/`: si guardano prima di pubblicare.
 - I tasti numerici sono sacri: **1 taglia, 2 elimina** (li ha chiesti Cammo). **S** separa/unisce, **Q/W** tolgono lo scarto,
   la **rotella** va di un fotogramma col suono (Ctrl+rotella = zoom). Tutti i comandi stanno in `src/azioni.ts`.
+- **Effetti a tempo e transizioni sono blocchetti** nella corsia FX (traccia `fx`, in cima, alta metà del video):
+  catalogo, calcolo per fotogramma e regole per posarli in `src/core/blocchi.ts`. Le transizioni lavorano sul
+  taglio sotto il blocco (una transizione, un taglio); le `trIn/trOut` delle clip video restano solo per i progetti
+  vecchi, che si migrano all'apertura. L'audio legato si incrocia da solo (`conIncroci` in `src/media/audio.ts`).
+- **La riproduzione non deve mai bloccarsi**: `src/media/fotogrammi.ts` non butta un flusso che non ha ancora il primo
+  fotogramma, e i proxy (`src/media/proxy.ts`) si fanno da soli per le riprese pesanti. L'export legge gli originali.
 - **Il montaggio non copre mai niente** da solo: spostare, lasciare, incollare e i generatori usano il modo `libero`
   (`src/core/montaggio.ts`: si fermano contro le vicine o vanno su una traccia libera). Copre solo SOVR dal monitor.
   Le transizioni non cambiano la durata delle clip. Il taglio tocca solo le tracce accese (se ce ne sono).

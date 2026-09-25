@@ -2,8 +2,13 @@
 // tutto (colore automatico, look, luce e colore, audio finale) e si esporta. Il monitor è lo stesso del
 // montaggio (con il "prima | dopo"), la timeline resta sotto per spostarsi al volo.
 import { store } from '../core/store';
-import type { LookFinale, Master, Project } from '../core/tipi';
-import { MASTER0, end, isVideoClip, masterDi, projectEnd, trackOf } from '../core/progetto';
+import type { LookFinale, Master, Project, Sottotitoli } from '../core/tipi';
+import { MASTER0, TITLE0, end, isVideoClip, masterDi, newClip, projectEnd, trackOf, uid } from '../core/progetto';
+import * as M from '../core/montaggio';
+import { nuovoBlocco, posaBlocco } from '../core/blocchi';
+import { LINGUE, SOTTO0, creaSrt, leggiSrt, righeDaiDialoghi, sottotitoliDi } from '../core/sottotitoli';
+import { salvaTesto } from '../platform';
+import { importaDialogo } from '../progetti';
 import { durataUmana, f2s, fps, frameToTc } from '../core/timecode';
 import { LOOKS } from '../render/colore';
 import { mediaRT } from '../media/libreria';
@@ -31,23 +36,51 @@ function buchi(p: Project): [number, number][] {
   return out.filter(([a, b]) => b - a >= 1);
 }
 
+/** quando qualcosa entra all'inizio, anche i sottotitoli scivolano avanti (restano sulle parole giuste) */
+function spostaSottotitoli(p: Project, len: number) {
+  for (const r of p.sottotitoli?.righe ?? []) { r.da += len; r.a += len; }
+}
+
+type Sezione = 'colore' | 'audio' | 'sottotitoli' | 'logo' | 'apertura' | 'lingue' | 'esporta';
+
+const SEZIONI: { id: Sezione; nome: string; icona: string; info: string }[] = [
+  { id: 'colore', nome: 'Colore', icona: 'effetti', info: 'colore automatico, look e ritocchi su tutto' },
+  { id: 'audio', nome: 'Audio', icona: 'altoparlante', info: 'volume finale e limitatore' },
+  { id: 'sottotitoli', nome: 'Sottotitoli', icona: 'sottotitoli', info: 'righe, tempi dai dialoghi, .srt' },
+  { id: 'logo', nome: 'Logo', icona: 'logo', info: 'il logo sempre in vista' },
+  { id: 'apertura', nome: 'Apertura', icona: 'apertura', info: 'clip, titoli e nero all\'inizio e alla fine' },
+  { id: 'lingue', nome: 'Lingue e AI', icona: 'lingua', info: 'sottotitoli con l\'AI e traduzioni (in arrivo)' },
+  { id: 'esporta', nome: 'Esporta', icona: 'esporta', info: 'il master, la EDL, il fotogramma' },
+];
+
 export class Finale {
   el: HTMLElement;
   private corpo: HTMLElement;
   private riepilogo: HTMLElement;
+  private menu: HTMLElement;
   private campi: Campo[] = [];
   private formato = 'mp4';
   private qualita = 'alta';
   private misura = '1';
+  private sezione: Sezione = 'colore';
+  private pagine = new Map<Sezione, HTMLElement>();
+  private listaSott: HTMLElement | null = null;
+  private firmaSott = '';
 
   constructor() {
     this.riepilogo = h('div', { class: 'fin-riepilogo' });
     this.corpo = h('div', { class: 'fin-corpo' });
+    // il menu a destra: ogni cosa finale ha la sua pagina, così non si mescola niente
+    this.menu = h('nav', { class: 'fin-menu' }, SEZIONI.map((z) => h('button', {
+      class: 'fin-voce' + (z.id === this.sezione ? ' attiva' : ''), 'data-s': z.id, title: z.info,
+      on: { click: () => this.mostra(z.id) },
+    }, icona(z.icona, 19), h('span', null, z.nome))));
     this.el = h('section', { class: 'pannello finale' },
       h('header', { class: 'fin-testa' }, icona('finale', 18), h('b', null, 'FINALE'), h('span', null, 'ritocchi su tutto il montaggio, poi esporta')),
-      this.corpo);
-    this.costruisci();
-    store.on('doc', () => { this.aggiornaRiepilogo(); for (const c of this.campi) c.aggiorna(); });
+      h('div', { class: 'fin-dentro' }, this.corpo, this.menu));
+    this.mostra('colore');
+    store.on('doc', () => { this.aggiornaRiepilogo(); for (const c of this.campi) c.aggiorna(); this.aggiornaSott(); });
+    store.on('head', () => this.segnaRigaCorrente());
   }
 
   private m(): Master { return masterDi(store.doc); }
@@ -57,24 +90,70 @@ export class Finale {
     store.edit(label, (p) => { p.master = { ...MASTER0, ...(p.master ?? {}) }; fn(p.master); });
   }
 
-  private costruisci() {
-    this.campi = [];
+  /** modifica annullabile dei sottotitoli */
+  private cambiaSott(label: string, fn: (s: Sottotitoli, p: Project) => void) {
+    store.edit(label, (p) => { p.sottotitoli = { ...structuredClone(SOTTO0), ...(p.sottotitoli ?? {}) }; fn(p.sottotitoli, p); });
+  }
+
+  /** apre una pagina del menu a destra */
+  mostra(z: Sezione) {
+    this.sezione = z;
+    this.menu.querySelectorAll('.fin-voce').forEach((b) => b.classList.toggle('attiva', (b as HTMLElement).dataset.s === z));
+    let pg = this.pagine.get(z);
+    if (!pg) { pg = this.costruisci(z); this.pagine.set(z, pg); }
     const sez = (titolo: string, ic: string, ...figli: (HTMLElement | null)[]) => h('div', { class: 'fin-sezione' }, h('h4', null, icona(ic, 14), titolo), ...figli.filter(Boolean) as HTMLElement[]);
+    this.corpo.replaceChildren(sez('Riepilogo', 'info', this.riepilogo), pg);
+    this.corpo.scrollTop = 0;
+    this.aggiornaRiepilogo();
+    for (const c of this.campi) c.aggiorna();
+    if (z === 'sottotitoli') { this.firmaSott = ''; this.aggiornaSott(); }
+  }
 
-    // colore automatico: un interruttore grande e la forza
-    const auto = h('button', { class: 'fin-interruttore', on: { click: () => this.cambia(this.m().auto ? 'Colore automatico spento' : 'Colore automatico acceso', (m) => { m.auto = !m.auto; }) } },
-      h('span', { class: 'led' }), h('span', { class: 'fin-int-testo' }, 'Colore automatico su tutte le riprese'));
-    this.campi.push({ aggiorna: () => { auto.classList.toggle('acceso', this.m().auto); auto.querySelector('.led')!.classList.toggle('acceso', this.m().auto); } });
-
-    // i look: carte con i tre colori
-    const looks = h('div', { class: 'fin-looks' }, LOOKS.map((l) => {
-      const b = h('button', { class: 'fin-look', title: l.info, on: { click: () => this.cambia(`Look ${l.nome}`, (m) => { m.look = l.id as LookFinale; if (!m.intensita) m.intensita = 1; }) } },
-        h('span', { class: 'fin-look-col', style: `background: linear-gradient(90deg, ${l.colori[0]} 0 33%, ${l.colori[1]} 0 66%, ${l.colori[2]} 0)` }),
-        h('b', null, l.nome), h('small', null, l.info));
-      this.campi.push({ aggiorna: () => b.classList.toggle('acceso', this.m().look === l.id) });
-      return b;
-    }));
-
+  private costruisci(z: Sezione): HTMLElement {
+    const sez = (titolo: string, ic: string, ...figli: (HTMLElement | null)[]) => h('div', { class: 'fin-sezione' }, h('h4', null, icona(ic, 14), titolo), ...figli.filter(Boolean) as HTMLElement[]);
+    const pagina = (...figli: HTMLElement[]) => h('div', { class: 'fin-pagina', 'data-s': z }, ...figli);
+    if (z === 'colore') {
+      // colore automatico: un interruttore grande e la forza
+      const auto = h('button', { class: 'fin-interruttore', on: { click: () => this.cambia(this.m().auto ? 'Colore automatico spento' : 'Colore automatico acceso', (m) => { m.auto = !m.auto; }) } },
+        h('span', { class: 'led' }), h('span', { class: 'fin-int-testo' }, 'Colore automatico su tutte le riprese'));
+      this.campi.push({ aggiorna: () => { auto.classList.toggle('acceso', this.m().auto); auto.querySelector('.led')!.classList.toggle('acceso', this.m().auto); } });
+      const looks = h('div', { class: 'fin-looks' }, LOOKS.map((l) => {
+        const b = h('button', { class: 'fin-look', title: l.info, on: { click: () => this.cambia(`Look ${l.nome}`, (m) => { m.look = l.id as LookFinale; if (!m.intensita) m.intensita = 1; }) } },
+          h('span', { class: 'fin-look-col', style: `background: linear-gradient(90deg, ${l.colori[0]} 0 33%, ${l.colori[1]} 0 66%, ${l.colori[2]} 0)` }),
+          h('b', null, l.nome), h('small', null, l.info));
+        this.campi.push({ aggiorna: () => b.classList.toggle('acceso', this.m().look === l.id) });
+        return b;
+      }));
+      return pagina(
+        sez('Colore automatico', 'effetti', auto,
+          this.cursore('Forza', 0, 100, (m) => Math.round(m.autoK * 100), (m, v) => { m.autoK = v / 100; }, '%'),
+          h('p', { class: 'nota' }, 'Ogni ripresa viene misurata: nero, bianco e luce si sistemano da soli, così le clip si somigliano. Una clip può fare eccezione dal suo tasto "fx".')),
+        sez('Look di tutto il montaggio', 'immagine', looks,
+          this.cursore('Intensità', 0, 100, (m) => Math.round(m.intensita * 100), (m, v) => { m.intensita = v / 100; }, '%')),
+        sez('Ritocchi', 'ingranaggio',
+          this.cursore('Luce', -100, 100, (m) => Math.round(m.bright * 100), (m, v) => { m.bright = v / 100; }, ''),
+          this.cursore('Contrasto', 50, 150, (m) => Math.round(m.contrast * 100), (m, v) => { m.contrast = v / 100; }, '%'),
+          this.cursore('Saturazione', 0, 200, (m) => Math.round(m.sat * 100), (m, v) => { m.sat = v / 100; }, '%'),
+          this.cursore('Temperatura', -100, 100, (m) => Math.round(m.temp * 100), (m, v) => { m.temp = v / 100; }, ''),
+          this.cursore('Tinta', -100, 100, (m) => Math.round(m.tint * 100), (m, v) => { m.tint = v / 100; }, ''),
+          this.cursore('Vignetta', 0, 100, (m) => Math.round(m.vignette * 100), (m, v) => { m.vignette = v / 100; }, ''),
+          this.cursore('Grana', 0, 100, (m) => Math.round(m.grain * 100), (m, v) => { m.grain = v / 100; }, ''),
+          h('div', { class: 'isp-pulsanti' },
+            h('button', { class: 'btn-mini', on: { click: () => this.cambia('Azzera ritocchi', (m) => { Object.assign(m, { look: 'nessuno', intensita: 1, bright: 0, contrast: 1, sat: 1, temp: 0, tint: 0, vignette: 0, grain: 0 }); }) } }, 'Azzera look e ritocchi'),
+            h('button', { class: 'btn-mini prima-dopo-fin', on: { click: () => (document.querySelector('.monitor .prima-dopo') as HTMLElement | null)?.click() } }, 'Prima | dopo'))));
+    }
+    if (z === 'audio') {
+      return pagina(sez('Audio finale', 'altoparlante',
+        this.cursore('Volume finale', -24, 12, (m) => m.volume, (m, v) => { m.volume = v; }, 'dB', 0.5),
+        this.spunta('Limitatore (niente distorsione)', (m) => m.limiter, (m, v) => { m.limiter = v; }),
+        h('div', { class: 'isp-pulsanti' },
+          h('button', { class: 'btn-mini', title: 'Porta ogni clip audio a un livello simile (si annulla con Ctrl+Z)', on: { click: () => this.livellaTutto() } }, 'Livella il volume di tutte le clip')),
+        h('p', { class: 'nota' }, 'Il fade in e il fade out delle singole clip: trascinali dal contenitore (Effetti → Audio) o tira i quadratini in alto sulle clip.')));
+    }
+    if (z === 'sottotitoli') return pagina(...this.paginaSottotitoli(sez));
+    if (z === 'logo') return pagina(this.paginaLogo(sez));
+    if (z === 'apertura') return pagina(...this.paginaApertura(sez));
+    if (z === 'lingue') return pagina(this.paginaLingue(sez));
     const esporta = h('div', { class: 'fin-esporta' },
       this.scelte('Formato', [['mp4', 'MP4'], ['mov', 'MOV'], ['webm', 'WebM'], ['wav', 'Solo audio']], () => this.formato, (v) => { this.formato = v; }),
       this.scelte('Qualità', [['media', 'Leggera'], ['alta', 'Alta'], ['altissima', 'Master']], () => this.qualita, (v) => { this.qualita = v; }),
@@ -82,35 +161,250 @@ export class Finale {
       h('button', { class: 'btn primario fin-vai', on: { click: () => finestraEsporta({ formato: this.formato, qualita: this.qualita, misura: this.misura }) } }, icona('esporta', 18), 'ESPORTA IL MASTER'),
       h('div', { class: 'fin-altri' },
         h('button', { class: 'btn piccolo', title: 'La lista di montaggio per Resolve, Avid, Premiere, EDIUS', on: { click: () => esportaEdl() } }, 'EDL CMX3600'),
-        h('button', { class: 'btn piccolo', title: 'Il fotogramma sotto il cursore, con il colore finale', on: { click: () => esportaFotogramma() } }, 'Fotogramma PNG')));
+        h('button', { class: 'btn piccolo', title: 'Il fotogramma sotto il cursore, con il colore finale', on: { click: () => esportaFotogramma() } }, 'Fotogramma PNG'),
+        h('button', { class: 'btn piccolo', title: 'I sottotitoli in un file a parte', on: { click: () => void this.esportaSrt() } }, 'Sottotitoli .srt')),
+      h('p', { class: 'nota' }, 'Nel master escono anche il logo e i sottotitoli (se sono "scritti nel video"), gli effetti della corsia FX e il colore finale.'));
+    return pagina(sez('Esporta', 'esporta', esporta));
+  }
 
-    this.corpo.replaceChildren(
-      sez('Riepilogo', 'info', this.riepilogo),
-      sez('Colore automatico', 'effetti', auto,
-        this.cursore('Forza', 0, 100, (m) => Math.round(m.autoK * 100), (m, v) => { m.autoK = v / 100; }, '%'),
-        h('p', { class: 'nota' }, 'Ogni ripresa viene misurata: nero, bianco e luce si sistemano da soli, così le clip si somigliano. Una clip può fare eccezione dal suo tasto "fx".')),
-      sez('Look di tutto il montaggio', 'immagine', looks,
-        this.cursore('Intensità', 0, 100, (m) => Math.round(m.intensita * 100), (m, v) => { m.intensita = v / 100; }, '%')),
-      sez('Ritocchi', 'ingranaggio',
-        this.cursore('Luce', -100, 100, (m) => Math.round(m.bright * 100), (m, v) => { m.bright = v / 100; }, ''),
-        this.cursore('Contrasto', 50, 150, (m) => Math.round(m.contrast * 100), (m, v) => { m.contrast = v / 100; }, '%'),
-        this.cursore('Saturazione', 0, 200, (m) => Math.round(m.sat * 100), (m, v) => { m.sat = v / 100; }, '%'),
-        this.cursore('Temperatura', -100, 100, (m) => Math.round(m.temp * 100), (m, v) => { m.temp = v / 100; }, ''),
-        this.cursore('Tinta', -100, 100, (m) => Math.round(m.tint * 100), (m, v) => { m.tint = v / 100; }, ''),
-        this.cursore('Vignetta', 0, 100, (m) => Math.round(m.vignette * 100), (m, v) => { m.vignette = v / 100; }, ''),
-        this.cursore('Grana', 0, 100, (m) => Math.round(m.grain * 100), (m, v) => { m.grain = v / 100; }, ''),
+  // ——— sottotitoli ———
+  private paginaSottotitoli(sez: (t: string, ic: string, ...f: (HTMLElement | null)[]) => HTMLElement): HTMLElement[] {
+    const s = () => sottotitoliDi(store.doc);
+    const nelVideo = h('button', { class: 'fin-interruttore', on: { click: () => this.cambiaSott(s().nelVideo ? 'Sottotitoli fuori dal video' : 'Sottotitoli nel video', (x) => { x.nelVideo = !x.nelVideo; }) } },
+      h('span', { class: 'led' }), h('span', { class: 'fin-int-testo' }, 'Scritti nel video (monitor ed export)'));
+    this.campi.push({ aggiorna: () => { nelVideo.classList.toggle('acceso', s().nelVideo); nelVideo.querySelector('.led')!.classList.toggle('acceso', s().nelVideo); } });
+    const stile = (nome: string, opz: [string, string][], get: () => string, put: (x: Sottotitoli, v: string) => void) => {
+      const bott = opz.map(([v, t]) => h('button', { class: 'chip', 'data-v': v, on: { click: () => this.cambiaSott(nome, (x) => put(x, v)) } }, t));
+      this.campi.push({ aggiorna: () => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === get())) });
+      return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
+    };
+    const file = h('input', { type: 'file', accept: '.srt,.vtt,text/plain', style: 'display:none' }) as HTMLInputElement;
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const righe = leggiSrt(await f.text(), store.doc);
+      file.value = '';
+      if (!righe.length) { avviso('In questo file non ho trovato sottotitoli', 'errore'); return; }
+      this.cambiaSott('Importa sottotitoli', (x) => { x.righe = righe; });
+      avviso(`💬 ${righe.length} righe importate (Ctrl+Z per tornare indietro)`, 'ok', 2400);
+    });
+    this.listaSott = h('div', { class: 'sott-lista' });
+    return [
+      sez('Sottotitoli', 'sottotitoli', nelVideo,
         h('div', { class: 'isp-pulsanti' },
-          h('button', { class: 'btn-mini', on: { click: () => this.cambia('Azzera ritocchi', (m) => { Object.assign(m, { look: 'nessuno', intensita: 1, bright: 0, contrast: 1, sat: 1, temp: 0, tint: 0, vignette: 0, grain: 0 }); }) } }, 'Azzera look e ritocchi'),
-          h('button', { class: 'btn-mini prima-dopo-fin', on: { click: () => (document.querySelector('.monitor .prima-dopo') as HTMLElement | null)?.click() } }, 'Prima | dopo'))),
-      sez('Audio finale', 'altoparlante',
-        this.cursore('Volume finale', -24, 12, (m) => m.volume, (m, v) => { m.volume = v; }, 'dB', 0.5),
-        this.spunta('Limitatore (niente distorsione)', (m) => m.limiter, (m, v) => { m.limiter = v; }),
+          h('button', { class: 'btn-mini oro', title: 'Il programma ascolta dove si parla e prepara le righe vuote al punto giusto: resta solo da scrivere', on: { click: () => this.dialoghi() } }, '🎙 Prepara i tempi dai dialoghi'),
+          h('button', { class: 'btn-mini', title: 'Una riga di 2,5 secondi dove sta il cursore', on: { click: () => this.rigaAlCursore() } }, '+ Riga al cursore'),
+          h('button', { class: 'btn-mini', on: { click: () => file.click() } }, 'Importa .srt'),
+          h('button', { class: 'btn-mini', on: { click: () => void this.esportaSrt() } }, 'Esporta .srt'),
+          h('button', { class: 'btn-mini', on: { click: () => { if (s().righe.length) this.cambiaSott('Togli i sottotitoli', (x) => { x.righe = []; }); } } }, 'Togli tutti')),
+        file,
+        stile('Grandezza', [['36', 'Piccoli'], ['46', 'Medi'], ['60', 'Grandi']], () => String(s().dimensione), (x, v) => { x.dimensione = Number(v); }),
+        stile('Dove', [['basso', 'In basso'], ['alto', 'In alto']], () => (s().alto ? 'alto' : 'basso'), (x, v) => { x.alto = v === 'alto'; }),
+        stile('Fascia', [['si', 'Con la fascia'], ['no', 'Solo il testo']], () => (s().fascia ? 'si' : 'no'), (x, v) => { x.fascia = v === 'si'; })),
+      sez('Le righe', 'titolo', this.listaSott,
+        h('p', { class: 'nota' }, 'Clic sul tempo per andarci. Le righe vuote non si vedono. La riga sotto il cursore è evidenziata.')),
+    ];
+  }
+
+  /** ricostruisce la lista delle righe solo se sono cambiate (mentre scrivi il campo resta dov'è) */
+  private aggiornaSott() {
+    if (!this.listaSott || this.sezione !== 'sottotitoli') return;
+    const p = store.doc;
+    const righe = sottotitoliDi(p).righe;
+    const firma = righe.map((r) => r.id + ':' + r.da + ':' + r.a).join(',');
+    if (firma === this.firmaSott) {
+      // solo i testi: si aggiornano i campi che non hai sotto le dita
+      for (const r of righe) { const t = this.listaSott.querySelector(`[data-id="${r.id}"] textarea`) as HTMLTextAreaElement | null; if (t && document.activeElement !== t && t.value !== r.testo) t.value = r.testo; }
+      return;
+    }
+    this.firmaSott = firma;
+    if (!righe.length) {
+      this.listaSott.replaceChildren(h('p', { class: 'nota' }, 'Nessuna riga. Premi "Prepara i tempi dai dialoghi": le righe vuote compaiono dove si parla. Oppure "+ Riga al cursore", o importa un .srt.'));
+      return;
+    }
+    const r = fps(p.rate);
+    this.listaSott.replaceChildren(...righe.map((x) => {
+      const t = h('textarea', { class: 'sott-testo', rows: 1, placeholder: 'scrivi qui…' }) as HTMLTextAreaElement;
+      t.value = x.testo;
+      let timer = 0;
+      t.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = window.setTimeout(() => this.cambiaSott('Sottotitolo', (s) => { const z = s.righe.find((y) => y.id === x.id); if (z) z.testo = t.value; }), 280);
+      });
+      t.addEventListener('focus', () => { motore.setMonitor('recorder'); motore.vaiA(x.da + 1); });
+      t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ((t.closest('.sott-riga')?.nextElementSibling as HTMLElement | null)?.querySelector('textarea') as HTMLTextAreaElement | null)?.focus(); } });
+      return h('div', { class: 'sott-riga', 'data-id': x.id },
+        h('button', { class: 'sott-tc', title: 'Vai qui', on: { click: () => { motore.setMonitor('recorder'); motore.vaiA(x.da); } } }, frameToTc(x.da, p.rate, p.drop), h('small', null, ((x.a - x.da) / r).toFixed(1).replace('.', ',') + ' s')),
+        t,
+        h('button', { class: 'sott-via', title: 'Togli la riga', on: { click: () => this.cambiaSott('Togli riga', (s) => { s.righe = s.righe.filter((y) => y.id !== x.id); }) } }, '✕'));
+    }));
+    this.segnaRigaCorrente();
+  }
+
+  private segnaRigaCorrente() {
+    if (!this.listaSott || this.sezione !== 'sottotitoli') return;
+    const f = store.head;
+    const qui = sottotitoliDi(store.doc).righe.find((x) => x.da <= f && f < x.a);
+    this.listaSott.querySelectorAll('.sott-riga').forEach((el) => el.classList.toggle('qui', (el as HTMLElement).dataset.id === qui?.id));
+  }
+
+  private dialoghi() {
+    const p = store.doc;
+    const pronti = p.clips.some((c) => c.kind === 'media' && c.media && mediaRT(c.media)?.peaks);
+    if (!pronti) { avviso('Nel montaggio non c\'è audio da ascoltare (o la forma d\'onda non è ancora pronta)', 'info', 2600); return; }
+    let n = 0;
+    store.edit('Tempi dai dialoghi', (pp) => { n = righeDaiDialoghi(pp); });
+    avviso(n ? `🎙 ${n} righe pronte dove si parla: scrivi il testo` : 'Non ho sentito parlato nuovo (le righe già scritte restano)', n ? 'ok' : 'info', 2600);
+  }
+
+  private rigaAlCursore() {
+    const p = store.doc;
+    const r = fps(p.rate);
+    const da = Math.round(store.head);
+    const dopo = sottotitoliDi(p).righe.filter((x) => x.da > da).sort((a, b) => a.da - b.da)[0];
+    const a = Math.max(da + 2, Math.min(da + Math.round(r * 2.5), dopo ? dopo.da : Infinity));
+    const id = uid('s');
+    this.cambiaSott('Riga di sottotitolo', (s) => { s.righe.push({ id, da, a, testo: '' }); s.righe.sort((x, y) => x.da - y.da); });
+    setTimeout(() => (this.listaSott?.querySelector(`[data-id="${id}"] textarea`) as HTMLTextAreaElement | null)?.focus(), 60);
+  }
+
+  private async esportaSrt() {
+    const p = store.doc;
+    const testo = creaSrt(p);
+    if (!testo.trim()) { avviso('Non ci sono sottotitoli scritti da esportare', 'info'); return; }
+    const nome = p.name.replace(/[\\/:*?"<>|]/g, '_') + '_' + sottotitoliDi(p).lingua + '.srt';
+    const r = await salvaTesto(nome, testo, 'srt');
+    if (r) avviso(`💬 Sottotitoli salvati: ${r}`, 'ok');
+  }
+
+  // ——— logo ———
+  private paginaLogo(sez: (t: string, ic: string, ...f: (HTMLElement | null)[]) => HTMLElement): HTMLElement {
+    const scelta = h('select', { class: 'mini-select largo' }) as HTMLSelectElement;
+    const riempi = () => {
+      const imm = store.doc.media.filter((m) => m.type === 'image');
+      const att = this.m().logo?.media ?? '';
+      scelta.replaceChildren(h('option', { value: '' }, imm.length ? '— nessun logo —' : '— importa prima un\'immagine (PNG) —'), ...imm.map((m) => h('option', { value: m.id }, m.name)));
+      scelta.value = att;
+    };
+    scelta.addEventListener('change', () => this.cambia(scelta.value ? 'Logo' : 'Togli logo', (m) => { m.logo = scelta.value ? { pos: 'alto-dx', scala: 0.12, opacita: 0.85, ...(m.logo ?? {}), media: scelta.value } : null; }));
+    this.campi.push({ aggiorna: riempi });
+    const angoli: [NonNullable<Master['logo']>['pos'], string][] = [['alto-sx', '↖ Alto a sinistra'], ['alto-dx', 'Alto a destra ↗'], ['basso-sx', '↙ Basso a sinistra'], ['basso-dx', 'Basso a destra ↘']];
+    const bott = angoli.map(([v, t]) => h('button', { class: 'chip', 'data-v': v, on: { click: () => this.cambia('Posizione del logo', (m) => { if (m.logo) m.logo.pos = v; }) } }, t));
+    this.campi.push({ aggiorna: () => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === this.m().logo?.pos)) });
+    return sez('Logo sempre in vista', 'logo',
+      h('div', { class: 'fin-scelte' }, h('span', null, 'Immagine'), scelta),
+      h('div', { class: 'isp-pulsanti' }, h('button', { class: 'btn-mini', on: { click: () => void importaDialogo() } }, 'Importa un\'immagine…')),
+      h('div', { class: 'fin-scelte' }, h('span', null, 'Angolo'), h('div', { class: 'isp-chips' }, bott)),
+      this.cursore('Grandezza', 4, 40, (m) => Math.round((m.logo?.scala ?? 0.12) * 100), (m, v) => { if (m.logo) m.logo.scala = v / 100; }, '%'),
+      this.cursore('Opacità', 10, 100, (m) => Math.round((m.logo?.opacita ?? 0.85) * 100), (m, v) => { if (m.logo) m.logo.opacita = v / 100; }, '%'),
+      h('p', { class: 'nota' }, 'Un PNG con lo sfondo trasparente è l\'ideale. Il logo sta sopra a tutto, non prende il colore finale ed esce nel master.'));
+  }
+
+  // ——— apertura e chiusura ———
+  private paginaApertura(sez: (t: string, ic: string, ...f: (HTMLElement | null)[]) => HTMLElement): HTMLElement[] {
+    const scelta = h('select', { class: 'mini-select largo' }) as HTMLSelectElement;
+    const riempi = () => {
+      const lista = store.doc.media.filter((m) => m.type !== 'audio');
+      const v = scelta.value;
+      scelta.replaceChildren(...(lista.length ? lista.map((m) => h('option', { value: m.id }, m.name)) : [h('option', { value: '' }, '— il contenitore è vuoto —')]));
+      if (lista.some((m) => m.id === v)) scelta.value = v;
+    };
+    this.campi.push({ aggiorna: riempi });
+    const r = () => fps(store.doc.rate);
+    return [
+      sez('Una clip all\'inizio o alla fine', 'apertura',
+        h('div', { class: 'fin-scelte' }, h('span', null, 'Clip'), scelta),
         h('div', { class: 'isp-pulsanti' },
-          h('button', { class: 'btn-mini', title: 'Porta ogni clip audio a un livello simile (si annulla con Ctrl+Z)', on: { click: () => this.livellaTutto() } }, 'Livella il volume di tutte le clip'))),
-      sez('Esporta', 'esporta', esporta),
-    );
-    this.aggiornaRiepilogo();
-    for (const c of this.campi) c.aggiorna();
+          h('button', { class: 'btn-mini', title: 'Entra all\'inizio e sposta avanti tutto il montaggio', on: { click: () => this.clipAgliEstremi(scelta.value, 'inizio') } }, '⇤ Metti all\'inizio'),
+          h('button', { class: 'btn-mini', on: { click: () => this.clipAgliEstremi(scelta.value, 'fine') } }, 'Metti alla fine ⇥')),
+        h('p', { class: 'nota' }, 'La sigla, il logo animato, lo sponsor: una piccola clip prima o dopo. Se ha segnati attacco e stacco, entra solo quel pezzo.')),
+      sez('Titoli', 'titolo',
+        h('div', { class: 'isp-pulsanti' },
+          h('button', { class: 'btn-mini', title: 'Tre secondi col nome del progetto, all\'inizio (il resto scorre avanti)', on: { click: () => this.titoloApertura() } }, 'Titolo d\'apertura'),
+          h('button', { class: 'btn-mini', title: 'Il rullo dei titoli di coda alla fine', on: { click: () => this.titoliCoda() } }, 'Titoli di coda')),
+        h('p', { class: 'nota' }, 'Il testo si cambia dalle proprietà del titolo (pagina Montaggio).')),
+      sez('Dal nero e al nero', 'effetti',
+        h('div', { class: 'isp-pulsanti' },
+          h('button', { class: 'btn-mini', title: 'Un secondo: l\'immagine esce dal nero e l\'audio sale', on: { click: () => this.estremiNero('inizio', Math.round(r())) } }, 'Entra dal nero'),
+          h('button', { class: 'btn-mini', title: 'Un secondo e mezzo: l\'immagine va nel nero e l\'audio scende', on: { click: () => this.estremiNero('fine', Math.round(r() * 1.5)) } }, 'Chiudi nel nero')),
+        h('p', { class: 'nota' }, 'Mette i blocchetti "Dal nero" e "Al nero" nella corsia FX e sfuma l\'audio: li puoi allungare dalla timeline.')),
+    ];
+  }
+
+  private clipAgliEstremi(mediaId: string, dove: 'inizio' | 'fine') {
+    const p = store.doc;
+    const m = p.media.find((x) => x.id === mediaId);
+    if (!m) { avviso('Scegli prima una clip del contenitore', 'info'); return; }
+    const srcIn = m.markIn ?? m.t0 ?? 0;
+    const srcOut = m.markOut ?? (m.type === 'image' ? srcIn + 3 : m.duration);
+    const v = p.tracks.filter((t) => t.kind === 'video' && !t.lock).slice(-1)[0]?.id ?? null;
+    const a = p.tracks.find((t) => t.kind === 'audio' && !t.lock)?.id;
+    const tg = { video: v, audio: a ? [a] : [] };
+    const f = dove === 'inizio' ? 0 : projectEnd(p);
+    const ids = store.edit(dove === 'inizio' ? 'Clip all\'inizio' : 'Clip alla fine', (pp) => {
+      const nuove = M.placeSource(pp, { mediaId, srcIn, srcOut }, f, null, tg, dove === 'inizio' ? 'insert' : 'libero');
+      const c = pp.clips.find((x) => x.id === nuove[0]);
+      if (dove === 'inizio' && c) spostaSottotitoli(pp, c.len);
+      return nuove;
+    });
+    store.select(ids);
+    avviso(`${m.name} ${dove === 'inizio' ? 'all\'inizio: il resto è scivolato avanti' : 'alla fine'}`, 'ok');
+  }
+
+  private titoloApertura() {
+    const p = store.doc;
+    const len = Math.round(fps(p.rate) * 3);
+    store.edit('Titolo d\'apertura', (pp) => {
+      M.insertSpace(pp, 0, len, new Set(pp.tracks.filter((t) => !t.lock).map((t) => t.id)));
+      spostaSottotitoli(pp, len);
+      const v = pp.tracks.filter((t) => t.kind === 'video' && !t.lock).slice(-1)[0];
+      if (!v) return;
+      const c = newClip('title', v.id, 0, len, { name: 'Titolo d\'apertura', gen: { title: { ...TITLE0, text: pp.name, font: 'Orbitron', size: 92, color: '#ffffff' } } });
+      c.fadeIn = c.fadeOut = Math.round(fps(pp.rate) / 2);
+      pp.clips.push(c);
+    });
+    avviso('Titolo d\'apertura: tre secondi all\'inizio, il resto è scivolato avanti', 'ok');
+  }
+
+  private titoliCoda() {
+    const p = store.doc;
+    const len = Math.round(fps(p.rate) * 12);
+    const f = projectEnd(p);
+    store.edit('Titoli di coda', (pp) => {
+      const v = M.tracciaLibera(pp, 'video', pp.tracks.filter((t) => t.kind === 'video').slice(-1)[0]?.id ?? null, f, f + len);
+      pp.clips.push(newClip('title', v, f, len, { name: 'Titoli di coda', gen: { title: { ...TITLE0, style: 'rullo', size: 64, text: `${pp.name}\n\nMontaggio\nDaProd Video\n\nMusica\n…\n\nGrazie per la visione` } } }));
+    });
+    avviso('Titoli di coda alla fine: il testo si cambia dalle proprietà', 'ok');
+  }
+
+  private estremiNero(dove: 'inizio' | 'fine', len: number) {
+    const p = store.doc;
+    const fine = projectEnd(p);
+    if (!fine) { avviso('La timeline è vuota', 'info'); return; }
+    store.edit(dove === 'inizio' ? 'Entra dal nero' : 'Chiudi nel nero', (pp) => {
+      posaBlocco(pp, nuovoBlocco('effetto', dove === 'inizio' ? 'dalNero' : 'alNero'), dove === 'inizio' ? 0 : fine - len, len);
+      const audio = new Set(pp.tracks.filter((t) => t.kind === 'audio').map((t) => t.id));
+      for (const c of pp.clips) {
+        if (!audio.has(c.track)) continue;
+        if (dove === 'inizio' && c.start === 0) c.fadeIn = Math.max(c.fadeIn, Math.min(len, c.len - c.fadeOut));
+        if (dove === 'fine' && end(c) === fine) c.fadeOut = Math.max(c.fadeOut, Math.min(len, c.len - c.fadeIn));
+      }
+    });
+    avviso(dove === 'inizio' ? 'Il montaggio entra dal nero (e l\'audio sale)' : 'Il montaggio si chiude nel nero (e l\'audio scende)', 'ok');
+  }
+
+  // ——— lingue e AI (predisposto) ———
+  private paginaLingue(sez: (t: string, ic: string, ...f: (HTMLElement | null)[]) => HTMLElement): HTMLElement {
+    const lingua = h('select', { class: 'mini-select largo' }, LINGUE.map(([v, t]) => h('option', { value: v }, t))) as HTMLSelectElement;
+    lingua.addEventListener('change', () => this.cambiaSott('Lingua dei sottotitoli', (x) => { x.lingua = lingua.value; }));
+    this.campi.push({ aggiorna: () => { lingua.value = sottotitoliDi(store.doc).lingua; } });
+    const presto = (nome: string, info: string) => h('button', { class: 'fin-presto', disabled: true, title: info }, h('span', null, nome), h('i', null, 'PRESTO'));
+    return sez('Lingue e AI', 'lingua',
+      h('div', { class: 'fin-scelte' }, h('span', null, 'Lingua'), lingua),
+      presto('✨ Scrivi i sottotitoli con l\'AI', 'Il riconoscimento della voce scriverà da solo il testo delle righe'),
+      presto('🌍 Traduci i sottotitoli', 'Le righe tradotte in un\'altra lingua, pronte per un secondo .srt'),
+      presto('🗣 Voce in un\'altra lingua', 'Il doppiaggio automatico, per chi lo vorrà'),
+      h('p', { class: 'nota' }, 'Qui arriveranno i sottotitoli scritti dall\'AI e le traduzioni: è tutto predisposto (righe, tempi, lingua, file .srt). Intanto il programma prepara già i tempi dai dialoghi, e puoi importare un .srt fatto con un altro programma.'));
   }
 
   /** porta tutte le clip audio a un livello comodo (come l'effetto "Livella" clip per clip) */
@@ -137,9 +431,9 @@ export class Finale {
     const fine = projectEnd(p);
     const r = fps(p.rate);
     const video = p.clips.filter((c) => c.kind === 'media' && isVideoClip(c)).length;
-    const audio = p.clips.filter((c) => !isVideoClip(c)).length;
+    const audio = p.clips.filter((c) => !isVideoClip(c) && c.kind !== 'fx').length;
     const titoli = p.clips.filter((c) => c.kind === 'title').length;
-    const tr = p.clips.filter((c) => c.trIn || c.trOut).length;
+    const tr = p.clips.filter((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione').length + p.clips.filter((c) => isVideoClip(c) && (c.trIn || c.trOut)).length;
     const offline = p.media.filter((m) => mediaRT(m.id)?.stato !== 'ok').length;
     const vuoti = buchi(p);
     const avvisi: HTMLElement[] = [];

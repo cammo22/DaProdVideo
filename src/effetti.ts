@@ -2,11 +2,15 @@
 // Li usano il tasto "fx" in fondo alle clip, la sezione Effetti del contenitore (anche trascinandoli su una
 // clip) e le proprietà. Ogni effetto sa dire se è acceso e sa accendersi o spegnersi.
 import type { Clip, Look, Project } from './core/tipi';
-import { autoColore, dbToGain, gainToDb, isVideoClip, masterDi } from './core/progetto';
+import { autoColore, dbToGain, gainToDb, isVideoClip, masterDi, newTransition } from './core/progetto';
 import { fps } from './core/timecode';
 import { mediaRT, PEAKS_PER_SEC } from './media/libreria';
 import { store } from './core/store';
 import { avviso } from './ui/dom';
+import { modi } from './azioni';
+
+/** i fotogrammi di una dissolvenza trascinata: la durata scelta nel contenitore (Auto = 1 secondo) */
+export const durataDissolvenza = (p: Project, c: Clip) => Math.max(1, Math.min(c.len, Math.round((modi.durataFx || 1) * fps(p.rate))));
 
 export interface Effetto {
   id: string;
@@ -123,6 +127,31 @@ export const EFFETTI_AUDIO: Effetto[] = [
     metti: (c, on) => { c.afx = { ...c.afx, radio: on || undefined }; },
   },
   {
+    id: 'fadeIn', nome: 'Fade in', info: 'entra piano dal silenzio', per: 'audio', anteprima: 'fx-fade-in',
+    acceso: (c) => c.fadeIn > 0,
+    metti: (c, on, p) => { c.fadeIn = on ? Math.min(durataDissolvenza(p, c), c.len - c.fadeOut) : 0; },
+  },
+  {
+    id: 'fadeOut', nome: 'Fade out', info: 'esce piano nel silenzio', per: 'audio', anteprima: 'fx-fade-out',
+    acceso: (c) => c.fadeOut > 0,
+    metti: (c, on, p) => { c.fadeOut = on ? Math.min(durataDissolvenza(p, c), c.len - c.fadeIn) : 0; },
+  },
+  {
+    id: 'incrocio', nome: 'Incrocio', info: 'sul taglio fra due audio: una sfuma nell\'altra', per: 'audio', anteprima: 'fx-incrocio',
+    acceso: (c) => !!c.trIn,
+    metti: (c, on, p) => { c.trIn = on ? newTransition('mix', durataDissolvenza(p, c)) : undefined; },
+  },
+  {
+    id: 'eco', nome: 'Eco', info: 'la voce che rimbalza', per: 'audio', anteprima: 'fx-eco',
+    acceso: (c) => !!c.afx?.eco,
+    metti: (c, on) => { c.afx = { ...c.afx, eco: on || undefined }; },
+  },
+  {
+    id: 'ovattato', nome: 'Ovattato', info: 'dalla stanza accanto, sott\'acqua', per: 'audio', anteprima: 'fx-ovattato',
+    acceso: (c) => !!c.afx?.ovattato,
+    metti: (c, on) => { c.afx = { ...c.afx, ovattato: on || undefined }; },
+  },
+  {
     id: 'dissolviAudio', nome: 'Entra ed esce piano', info: 'dissolvenza di mezzo secondo', per: 'audio', anteprima: 'fx-dissolvi',
     acceso: (c) => c.fadeIn > 0 && c.fadeOut > 0,
     metti: (c, on, p) => { const n = on ? Math.min(Math.round(secondo(p) / 2), Math.floor(c.len / 2)) : 0; c.fadeIn = n; c.fadeOut = n; },
@@ -138,7 +167,7 @@ export const EFFETTI = [...EFFETTI_VIDEO, ...EFFETTI_AUDIO];
 export const effetto = (id: string) => EFFETTI.find((e) => e.id === id);
 
 /** le clip a cui un effetto si può mettere */
-export const adatte = (e: Effetto, cs: Clip[]) => cs.filter((c) => (e.per === 'video' ? isVideoClip(c) : !isVideoClip(c)) && (e.id !== 'auto' || c.kind === 'media') && (e.id !== 'livella' || c.kind === 'media'));
+export const adatte = (e: Effetto, cs: Clip[]) => cs.filter((c) => c.kind !== 'fx' && (e.per === 'video' ? isVideoClip(c) : !isVideoClip(c)) && (e.id !== 'auto' || c.kind === 'media') && (e.id !== 'livella' || c.kind === 'media'));
 
 /**
  * Accende o spegne un effetto sulle clip (se è acceso su tutte si spegne, altrimenti si accende).
@@ -162,7 +191,8 @@ export function alternaEffetto(id: string, ids: Iterable<string>): number {
 /** gli effetti accesi su una clip (per i puntini sulla clip) */
 export function effettiAccesi(c: Clip, p: Project): Effetto[] {
   const lista = isVideoClip(c) ? EFFETTI_VIDEO : EFFETTI_AUDIO;
-  return lista.filter((e) => e.id !== 'auto' && e.acceso(c, p));
+  // le dissolvenze si vedono già disegnate sulla clip: niente puntino
+  return lista.filter((e) => e.id !== 'auto' && e.id !== 'fadeIn' && e.id !== 'fadeOut' && e.id !== 'incrocio' && e.acceso(c, p));
 }
 
 export { dbToGain };

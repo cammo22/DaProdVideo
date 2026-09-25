@@ -7,6 +7,7 @@ import {
 import type { MediaItem } from '../core/tipi';
 import { uid } from '../core/progetto';
 import { invoke, isTauri, type FileScelto } from '../platform';
+import { accodaProxy, type Proxy } from './proxy';
 
 export type StatoMedia = 'caricamento' | 'ok' | 'offline' | 'errore';
 
@@ -28,6 +29,10 @@ export interface MediaRT {
   aDecodable: boolean;
   /** misura del colore per il colore automatico (livelli, bianco, luce) */
   colore?: Analisi;
+  /** la copia leggera per i monitor (src/media/proxy.ts) */
+  proxy?: Proxy;
+  proxyStato?: 'coda' | 'lavoro' | 'pronto' | 'no' | 'errore';
+  proxyProg?: number;
 }
 
 export interface Analisi {
@@ -100,6 +105,7 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
       const w = await cs.getCanvas(Math.min(dur * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
       if (w) r.poster = w.canvas;
       void misuraColore(r, dur);
+      void accodaProxy(item, r, () => sorgente(r));
     }
     if (r.a && r.aDecodable) void calcolaPicchi(r, item.duration);
   } catch (e) {
@@ -185,6 +191,7 @@ export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: M
       const w = await cs.getCanvas(Math.min(base.duration * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
       if (w) r.poster = w.canvas;
       void misuraColore(r, base.duration);
+      void accodaProxy(base, r, () => sorgente(r));
     }
     if (a && r.aDecodable) void calcolaPicchi(r, base.duration);
     return { item: base, rt: r };
@@ -197,6 +204,7 @@ export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: M
 export function chiudi(id: string) {
   const r = rt.get(id);
   r?.input?.dispose();
+  r?.proxy?.input.dispose();
   if (r?.path && isTauri) void invoke('media_chiudi', { path: r.path }).catch(() => {});
   r?.image?.close();
   rt.delete(id);
@@ -333,7 +341,7 @@ async function lavoraMiniature(id: string) {
   const r = rt.get(id);
   if (!r?.v) return;
   lavorando.add(id);
-  const sink = new CanvasSink(r.v, { width: THUMB_W, fit: 'contain' });
+  const sink = new CanvasSink(r.proxy?.v ?? r.v, { width: THUMB_W, fit: 'contain' });
   try {
     while (inCoda.get(id)?.size) {
       // prima il fotogramma del monitor e la riproduzione, poi le miniature

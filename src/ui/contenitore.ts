@@ -7,7 +7,8 @@ import { motore } from '../motore';
 import { mediaRT, quandoAnalisi, quandoPicchi } from '../media/libreria';
 import { fotogramma, lascia, quandoFotogramma } from '../media/fotogrammi';
 import { durataUmana, fps } from '../core/timecode';
-import { applicaTransizione, bersagli, inserisciGeneratore, montaDalPlayer, modi } from '../azioni';
+import { applicaTransizione, bersagli, inserisciGeneratore, montaDalPlayer, mettiBlocco, modi } from '../azioni';
+import { DURATE, EFFETTI_TEMPO, type EffettoTempo } from '../core/blocchi';
 import { importaDialogo, importaDaDrop, ricollega, togliMedia } from '../progetti';
 import { avviso, chiedi, h, icona, menuContesto } from './dom';
 import { trascinabile } from './trascina';
@@ -281,19 +282,34 @@ export class Contenitore {
     );
   }
 
+  /** i chip della durata dei blocchetti nuovi: valgono per effetti e transizioni (Auto = quella giusta per ognuno) */
+  private chipDurate: HTMLElement[] = [];
+  private durate(): HTMLElement {
+    const el = h('div', { class: 'bin-durate', title: 'Quanto durano i blocchetti che metti (poi li allunghi o accorci dai bordi)' },
+      h('span', null, 'Durata'),
+      DURATE.map((d) => h('button', {
+        class: 'chip' + (modi.durataFx === d ? ' acceso' : ''), 'data-d': d,
+        on: { click: () => { modi.durataFx = d; for (const c of this.chipDurate) c.querySelectorAll('.chip').forEach((b) => b.classList.toggle('acceso', Number((b as HTMLElement).dataset.d) === d)); } },
+      }, d ? String(d).replace('.', ',') + ' s' : 'Auto')));
+    this.chipDurate.push(el);
+    return el;
+  }
+
   private paginaTransizioni(): HTMLElement {
     const t = (tipo: Transition['type'], m: { p: number; nome: string; info: string }) => {
       const cv = h('canvas', { class: 'tr-anteprima', width: 160, height: 90 });
       anteprimaViva(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 });
+      const id = tipo === 'mix' || tipo === 'dip' ? tipo : `${tipo}:${m.p}`;
       const el = h('div', {
-        class: 'carta tr gen-voce', title: 'Clic: sul taglio più vicino al cursore (o sulla clip scelta) · Trascina: su un taglio, su una clip o sul suo bordo',
+        class: 'carta tr gen-voce', 'data-tr': id, title: 'Trascina sopra un taglio (diventa un blocchetto nella corsia FX) · Clic: sul taglio più vicino al cursore',
         on: { click: () => applicaTransizione(tipo, m.p) },
-      }, h('div', { class: 'carta-img' }, cv), h('div', { class: 'carta-nome' }, m.nome), h('div', { class: 'carta-info' }, m.info));
-      trascinabile(el, () => `t:${tipo}:${m.p}`, () => '✦ ' + m.nome);
+      }, h('div', { class: 'carta-img' }, cv, h('span', { class: 'carta-blocco tr' })), h('div', { class: 'carta-nome' }, m.nome), h('div', { class: 'carta-info' }, m.info));
+      trascinabile(el, () => 'x:t:' + id, () => '✦ ' + m.nome);
       return el;
     };
     return h('div', { class: 'gen-lista' },
-      h('p', { class: 'nota' }, 'Funzionano come i generatori: clic e la transizione va sul taglio più vicino al cursore. Oppure trascinala su un taglio, su una clip (va sul bordo più vicino) o sul bordo libero di una clip (entra o esce su quello che c\'è sotto). Le clip non cambiano durata.'),
+      this.durate(),
+      h('p', { class: 'nota' }, 'Trascina la transizione sopra un taglio fra due clip: diventa un blocchetto turchese nella corsia FX, centrato sul taglio. Più è lungo, più è lenta. Clic = sul taglio più vicino al cursore. Le clip non cambiano durata.'),
       h('h4', { class: 'bin-sezione' }, 'Dissolvenze'),
       h('div', { class: 'bin-griglia' },
         t('mix', { p: 0, nome: 'Dissolvenza incrociata', info: 'il MIX classico · tasto 5' }),
@@ -307,6 +323,16 @@ export class Contenitore {
 
   private carteEffetti: { el: HTMLElement; e: Effetto }[] = [];
   private paginaEffetti(): HTMLElement {
+    // gli effetti a tempo: blocchetti magenta nella corsia FX (valgono per tutto quello che sta sotto)
+    const tempo = (e: EffettoTempo) => {
+      const el = h('div', {
+        class: 'carta fxt', 'data-fx': e.id, title: 'Trascina sopra le clip o su un taglio (diventa un blocchetto nella corsia FX) · Clic: al cursore',
+        on: { click: () => mettiBlocco('effetto', e.id) },
+      }, h('div', { class: 'carta-img fxt-anteprima fxt-' + e.motore + (e.colore === '#000000' ? ' nero' : '') }, h('i', { class: 'fxt-scena' }), h('i', { class: 'fxt-velo' }), h('span', { class: 'carta-blocco fx' }), h('span', { class: 'carta-dur' }, String(e.durata).replace('.', ',') + ' s')),
+      h('div', { class: 'carta-nome' }, e.nome), h('div', { class: 'carta-info' }, e.info));
+      trascinabile(el, () => 'x:e:' + e.id, () => '⚡ ' + e.nome);
+      return el;
+    };
     const carta = (e: Effetto) => {
       const el = h('div', {
         class: 'carta fx', title: 'Clic: acceso/spento sulle clip scelte · Trascina: sopra una clip',
@@ -317,10 +343,15 @@ export class Contenitore {
       return el;
     };
     return h('div', { class: 'gen-lista' },
-      h('p', { class: 'nota' }, 'Gli effetti che servono mentre monti. Clic per accenderli sulle clip scelte, o trascinali sopra una clip. Li trovi anche nel tasto "fx" in fondo a ogni clip. Il colore di tutto il montaggio si fa nella pagina Finale.'),
-      h('h4', { class: 'bin-sezione' }, icona('video', 13), 'Video'),
+      this.durate(),
+      h('p', { class: 'nota' }, 'Trascina un effetto sopra le clip o proprio su un taglio: diventa un blocchetto nella corsia FX in cima, e vale per tutto quello che ci sta sotto. Allungalo dai bordi, mettine uno dopo l\'altro. Vicino a un taglio il lampo scoppia proprio lì.'),
+      h('h4', { class: 'bin-sezione' }, '⚡ Effetti rapidi'),
+      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'rapidi').map(tempo)),
+      h('h4', { class: 'bin-sezione' }, '⏱ Effetti lunghi'),
+      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'lunghi').map(tempo)),
+      h('h4', { class: 'bin-sezione' }, icona('video', 13), 'Stile della clip · trascinali su una clip'),
       h('div', { class: 'bin-griglia' }, EFFETTI_VIDEO.map(carta)),
-      h('h4', { class: 'bin-sezione' }, icona('musica', 13), 'Audio'),
+      h('h4', { class: 'bin-sezione' }, icona('musica', 13), 'Audio · trascinali su una clip audio'),
       h('div', { class: 'bin-griglia' }, EFFETTI_AUDIO.map(carta)),
     );
   }

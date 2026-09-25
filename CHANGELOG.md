@@ -4,6 +4,49 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.4] — 2026-09-25 · La corsia FX, i proxy e il Finale con tutto al suo posto 🚀
+
+### Il player non si blocca più
+- **Trovato il colpevole**: premendo play a metà di una ripresa coi fotogrammi chiave radi (i video dei telefoni e dei generatori AI), il decoder ripartiva da capo a ogni fotogramma e l'immagine restava ferma fino al taglio dopo. Ora parte e va.
+- **Il play aspetta un attimo il primo fotogramma** (al massimo un istante) e poi fa partire audio e video insieme: niente più partenze a scatti.
+- **Proxy automatici**: appena una ripresa pesante entra nel contenitore (più grande di 720p, HEVC, o coi fotogrammi chiave lontani) il programma ne fa **da solo** una copia leggera per i monitor (al massimo 960 pixel, un fotogramma chiave ogni mezzo secondo). Si fa dietro le quinte, si mette in pausa mentre suoni, e si ricorda per la volta dopo. Da fermo, se il monitor è grande, arriva il fotogramma nitido dell'originale. **L'export usa sempre gli originali.**
+- **La rotella in avanti costa un fotogramma solo**: il decoder continua da dove era invece di ripartire.
+- L'audio delle riprese non accende più un decoder video che non serve.
+
+### La corsia FX: effetti e transizioni a blocchetti
+- In cima alla timeline c'è la **corsia FX**, **alta la metà del video**: ci stanno i **blocchetti**, facili da mettere in fila, allungare e spostare.
+- **Effetti a tempo (magenta)**: trascinali **sopra le clip** o **proprio su un taglio** e valgono per tutto quello che ci sta sotto, per la durata del blocco.
+  - **Rapidi**: lampo, lampo nero, scossa, zoom colpo, glitch, colori sdoppiati, negativo, stroboscopio, pixel, messa a fuoco, sfoca.
+  - **Lunghi**: dal nero, al nero, dal bianco, al bianco, zoom lento, camera a mano, battito (a tempo di musica), luce calda, bande cinema, bianco e nero, torna il colore, disturbo VHS.
+  - **Vicino a un taglio il lampo scoppia proprio lì**: il blocco si centra da solo sul taglio.
+- **Transizioni (turchesi)**: il blocco sta sopra un taglio e passa da una clip all'altra. **Più è lungo, più è lenta.** Trascinala vicino a un taglio e si centra da sola. Sopra una transizione che c'è già, la cambia. **Le clip non cambiano mai durata.**
+- **La durata** si sceglie coi chip nel contenitore (**Auto · 0,5 · 1 · 2 · 5 · 10 s**), poi si allunga o si accorcia dai bordi del blocco.
+- **Tasto destro sul blocco**: durata, centra sul taglio, cambia effetto o transizione, colore del lampo, forza, "ripeti subito dopo".
+- **Niente si copre**: se la corsia è occupata se ne apre un'altra (FX1, FX2…). L'occhio della corsia spegne tutti i suoi effetti.
+- Nelle proprietà di una clip video, la sezione **Transizioni** mostra cosa c'è all'inizio e alla fine, e la mette con un clic.
+- **L'audio legato si incrocia da solo** sotto la transizione. Tasti 5, 6, 7 come prima: dissolvenza, tendina, passaggio al nero sul taglio (di nuovo = la togli).
+- **I progetti di prima si aggiornano da soli**: le transizioni attaccate alle clip diventano blocchetti.
+- Nel contenitore ogni effetto ha la sua **anteprima animata** al passaggio del mouse.
+
+### Audio al volo
+- **Fade in, Fade out, Incrocio** (sul taglio fra due audio), **Eco** e **Ovattato**: trascinali sopra una clip audio, con la durata dei chip.
+- **Le maniglie delle dissolvenze**: i quadratini in alto agli angoli di ogni clip. **Tirali verso l'interno** e la clip entra o esce in dissolvenza (video dal trasparente, audio dal silenzio).
+
+### La timeline
+- **La barra in fondo è un navigatore**: tutto il montaggio in piccolo e la finestra gialla di quello che vedi. **Trascina la finestra** per scorrere, **tira i suoi bordi** per lo zoom, clic fuori per andare lì.
+- **Testate strette**: via manopole e decibel, resta il **misuratore che si muove** (una colonnina sul bordo). Il volume delle tracce sta nel mixer. Un tasto **"+"** aggiunge traccia video, audio o corsia FX.
+
+### Il banco come lo vuoi tu
+- **All'apertura**: contenitore largo a sinistra, monitor al centro, proprietà a destra, timeline sotto.
+- **Pagina Finale**: monitor a sinistra, ritocchi larghi a destra, timeline sotto, e **un menu a destra** con le sue pagine:
+  - **Colore**: colore automatico, look e ritocchi.
+  - **Audio**: volume finale, limitatore, livella tutto.
+  - **Sottotitoli**: "**Prepara i tempi dai dialoghi**" (il programma ascolta dove si parla e mette le righe vuote al punto giusto: tu scrivi e basta), "+ Riga al cursore", **importa ed esporta .srt**, grandezza, posizione, fascia. Scritti nel video, nel monitor e nell'export.
+  - **Logo**: un'immagine del contenitore sempre in vista in un angolo, con grandezza e opacità (non prende il colore finale).
+  - **Apertura**: una piccola clip all'inizio o alla fine, titolo d'apertura, titoli di coda, entra dal nero e chiudi nel nero (anche l'audio).
+  - **Lingue e AI**: la lingua dei sottotitoli e, **predisposti**, i sottotitoli scritti dall'AI, la traduzione e il doppiaggio (in arrivo).
+  - **Esporta**: il master, la EDL, il fotogramma e i sottotitoli .srt.
+
 ## [1.0.3] — 2026-09-25 · Un monitor solo, il contenitore nuovo e la pagina Finale 🎬
 
 ### Il banco rifatto

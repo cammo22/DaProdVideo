@@ -32,24 +32,32 @@ async function scatta(nome, viewport, extra = {}) {
     await p.waitForTimeout(800);
     await p.locator('.lato').screenshot({ path: path.join(OUT, nome + '-strumenti.png') });
     await p.click('.lato .scheda[data-s=clip]');
-    // il contenitore mentre il mouse fa scorrere un video
-    const img = await p.locator('.carta[data-id] .carta-img').nth(1).boundingBox();
-    await p.mouse.move(img.x + img.width * 0.3, img.y + img.height / 2);
-    await p.mouse.move(img.x + img.width * 0.7, img.y + img.height / 2, { steps: 3 });
-    await p.waitForTimeout(900);
+    // il contenitore: gli effetti a blocchetti, col mouse sopra al lampo (l'anteprima si anima)
+    await p.click('.bin-cat[data-c=effetti]');
+    await p.waitForTimeout(400);
+    const fx = await p.locator('.carta.fxt[data-fx=flash] .carta-img').boundingBox();
+    await p.mouse.move(fx.x + fx.width / 2, fx.y + fx.height / 2);
+    await p.waitForTimeout(500);
     await p.locator('.contenitore').screenshot({ path: path.join(OUT, nome + '-contenitore.png') });
-    // la pagina Finale con il look Cinema, prima e dopo
+    await p.click('.bin-cat[data-c=tutto]');
+    // la pagina Finale: il look Cinema, un sottotitolo e il menu a destra
     await p.evaluate(() => { window.__motore.vaiA(210); window.__dpv.select([]); });
     await p.click('.pagina-btn[data-p=finale]');
     await p.locator('.fin-look', { hasText: 'Cinema' }).click();
-    await p.click('.monitor .prima-dopo');
+    await p.click('.fin-voce[data-s=sottotitoli]');
+    await p.click('text=+ Riga al cursore');
+    await p.waitForTimeout(200);
+    await p.locator('.sott-testo').first().fill('Napoli di notte, le luci della città');
+    await p.waitForTimeout(700);
+    await p.click('.fin-voce[data-s=colore]');
+    await p.mouse.move(5, 5);
     await p.waitForTimeout(1500);
     await p.screenshot({ path: path.join(OUT, nome + '-finale.png') });
   }
   await p.close();
 }
 
-await scatta('computer', { width: 1600, height: 950 });
+await scatta('computer', { width: 1920, height: 1009 });
 await scatta('telefono', { width: 400, height: 860 }, { isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
 const h = await browser.newPage({ viewport: { width: 1400, height: 900 } });
 await h.goto(srv.url + '/');

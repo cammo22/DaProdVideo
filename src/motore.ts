@@ -4,8 +4,9 @@ import { store } from './core/store';
 import { fps, f2s } from './core/timecode';
 import { projectEnd } from './core/progetto';
 import { banco } from './media/audio';
-import { fermaFlussi, fotogramma, prepara, pulisci, quandoFotogramma } from './media/fotogrammi';
+import { fermaFlussi, fotogramma, prepara, pronto, pulisci, quandoFotogramma } from './media/fotogrammi';
 import { mediaRT, quandoAnalisi } from './media/libreria';
+import { pausaProxy } from './media/proxy';
 import { Compositore } from './render/compositore';
 import { inArrivo, pianoVideo } from './render/piano';
 
@@ -24,6 +25,9 @@ class Motore {
   playerCanvas: HTMLCanvasElement | null = null;
   private clock0 = 0;
   private pos0 = 0;
+  /** il play aspetta (al massimo un attimo) che i fotogrammi del punto di partenza siano pronti: così audio e
+   *  video partono insieme anche dal mezzo di una ripresa coi fotogrammi chiave radi */
+  private attesa = 0;
   private stopAt: number | null = null;
   private sporcoRec = true;
   private sporcoPlayer = true;
@@ -81,27 +85,58 @@ class Motore {
     const d = store.doc;
     this.speed = speed;
     this.stopAt = stopAt;
-    this.clock0 = performance.now();
     if (this.attivo === 'recorder') {
       const endF = projectEnd(d);
       if (speed > 0 && store.head >= endF - 1 && stopAt === null) store.setHead(0);
-      this.pos0 = store.head;
-      banco.ferma();
-      if (speed === 1) banco.suona(d, f2s(store.head, d.rate));
     } else {
       const m = d.media.find((x) => x.id === this.playerMedia)!;
       const out = m.markOut ?? m.duration;
       if (speed > 0 && this.playerT >= out - 0.02 && stopAt === null) this.playerT = m.markIn ?? m.t0 ?? 0;
-      this.pos0 = this.playerT;
-      banco.ferma();
-      if (speed === 1) banco.suonaSorgente(d, m.id, this.playerT);
     }
+    banco.ferma();
+    pausaProxy(true);
+    if (speed > 0 && speed <= 2) {
+      this.attesa = performance.now();
+      this.scalda();
+    } else this.avvia(performance.now());
     store.emit('status');
+  }
+
+  /** i decoder del punto di partenza si mettono in moto */
+  private scalda() {
+    for (const [key, media, t] of this.vociVideo()) prepara(key, media, t);
+  }
+
+  /** le voci video che servono adesso: [chiave, media, secondi di sorgente] */
+  private vociVideo(): [string, string, number][] {
+    const out: [string, string, number][] = [];
+    if (this.attivo === 'recorder') {
+      for (const s of pianoVideo(store.doc, Math.floor(store.head + 1e-6))) {
+        for (const x of [s.a, s.b]) if (x && x.clip.kind === 'media' && x.clip.media) out.push([x.clip.id, x.clip.media, x.t]);
+      }
+    } else if (this.playerMedia) out.push(['player', this.playerMedia, this.playerT]);
+    return out;
+  }
+
+  /** l'orologio parte: da adesso contano il tempo e l'audio */
+  private avvia(now: number) {
+    this.attesa = 0;
+    this.clock0 = now;
+    const d = store.doc;
+    if (this.attivo === 'recorder') {
+      this.pos0 = store.head;
+      if (this.speed === 1) banco.suona(d, f2s(store.head, d.rate));
+    } else {
+      this.pos0 = this.playerT;
+      if (this.speed === 1 && this.playerMedia) banco.suonaSorgente(d, this.playerMedia, this.playerT);
+    }
   }
 
   stop() {
     if (!this.speed) return;
     this.speed = 0;
+    this.attesa = 0;
+    pausaProxy(false);
     banco.ferma();
     fermaFlussi();
     if (this.attivo === 'recorder') store.setHead(Math.round(store.head));
@@ -127,6 +162,8 @@ class Motore {
     if (this.speed === s) return;
     const wasAudio = this.speed === 1;
     this.speed = s;
+    this.attesa = 0;
+    pausaProxy(true);
     this.pos0 = this.attivo === 'recorder' ? store.head : this.playerT;
     this.clock0 = performance.now();
     if (wasAudio || s === 1) {
@@ -185,7 +222,11 @@ class Motore {
     requestAnimationFrame((t) => this.tick(t));
     const d = store.doc;
     const r = fps(d.rate);
-    if (this.speed !== 0) {
+    if (this.speed !== 0 && this.attesa) {
+      // si parte quando tutti i fotogrammi del punto di partenza ci sono (o dopo un attimo comunque)
+      if (now - this.attesa > 900 || this.vociVideo().every(([k, m, t]) => pronto(k, m, t))) this.avvia(now);
+    }
+    if (this.speed !== 0 && !this.attesa) {
       if (this.attivo === 'recorder') {
         let f: number;
         if (this.speed === 1 && banco.suonando) f = banco.ora() * r;
@@ -256,7 +297,7 @@ class Motore {
       disegnaOnda(ctx, c.width, c.height, rt.peaks, m.duration, this.playerT);
       return;
     }
-    const f = fotogramma('player', m.id, this.playerT, flusso);
+    const f = fotogramma('player', m.id, this.playerT, flusso, c.width);
     if (!f) return;
     if (f instanceof ImageBitmap) {
       const k = Math.min(c.width / f.width, c.height / f.height);

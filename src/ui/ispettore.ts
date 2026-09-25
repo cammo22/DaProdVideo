@@ -3,13 +3,14 @@
 // chiuso in "Avanzate". Il colore di tutto il montaggio sta nella pagina Finale.
 import { store } from '../core/store';
 import type { Clip, TitleSpec } from '../core/tipi';
-import { isVideoClip, mediaOf, trackOf, TF0, FX0 } from '../core/progetto';
+import { clipById, end, isVideoClip, mediaOf, trackOf, TF0, FX0 } from '../core/progetto';
 import { frameToTc, fps } from '../core/timecode';
-import { h } from './dom';
+import { avviso, h } from './dom';
 import * as M from '../core/montaggio';
-import { modi, applicaTransizione } from '../azioni';
-import { EFFETTI, TENDINE, tipoDi } from '../render/transizioni';
+import { esegui, modi, mettiBlocco } from '../azioni';
+import { EFFETTI, TENDINE } from '../render/transizioni';
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto } from '../effetti';
+import { durataDelBlocco, EFFETTI_TEMPO, effettoTempo, nomeBlocco, nuovoBlocco, posaBlocco, sistemaCorsia, taglioDelBlocco, taglioVicino, transizioneDa } from '../core/blocchi';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
 
@@ -34,7 +35,8 @@ export class Ispettore {
 
   private costruisci() {
     const cs = this.sel();
-    const firma = cs.map((c) => c.id + c.kind + (c.trIn ? c.trIn.type : '-') + (c.trOut ? c.trOut.type : '-')).join(',');
+    // si ricostruisce se cambia la scelta o se cambiano i blocchi FX (le transizioni della clip scelta)
+    const firma = cs.map((c) => c.id + c.kind + (c.fxb ? c.fxb.id : '')).join(',') + '|' + store.doc.clips.filter((c) => c.kind === 'fx').map((c) => c.id + c.start + ':' + c.len + (c.fxb?.id ?? '')).join(',');
     if (firma === this.firma && this.campi.length) { for (const c of this.campi) c.aggiorna(); return; }
     this.firma = firma;
     this.campi = [];
@@ -51,8 +53,10 @@ export class Ispettore {
           h('li', null, h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'rotella'), ' zoom della timeline'))));
       return;
     }
+    const blocchi = cs.filter((c) => c.kind === 'fx');
+    if (blocchi.length === cs.length) { this.corpo.replaceChildren(...this.blocchi(blocchi)); return; }
     const video = cs.filter(isVideoClip);
-    const audio = cs.filter((c) => !isVideoClip(c));
+    const audio = cs.filter((c) => !isVideoClip(c) && c.kind !== 'fx');
     const primo = video[0] ?? audio[0];
     const p = store.doc;
     const r = fps(p.rate);
@@ -114,9 +118,8 @@ export class Ispettore {
         h('p', { class: 'nota' }, 'Nella timeline la linea gialla è il volume: trascinala, doppio clic per un punto, tasto destro → "Abbassa qui".'),
       ]));
     }
-    out.push(this.gruppo('durata', 'Durata', [this.durata(cs)]));
-    out.push(this.transizioni(cs, 'in'));
-    out.push(this.transizioni(cs, 'out'));
+    out.push(this.gruppo('durata', 'Durata', [this.durata(cs.filter((c) => c.kind !== 'fx'))]));
+    if (video.length) out.push(this.transizioniClip(video[0]));
     const gen = cs.filter((c) => c.kind === 'color' || c.kind === 'bars' || c.kind === 'tone' || c.kind === 'beep');
     if (gen.length) {
       const g0 = gen[0];
@@ -152,51 +155,90 @@ export class Ispettore {
     this.corpo.replaceChildren(...out);
   }
 
-  /** la transizione in testa ('in') o in coda ('out') delle clip scelte */
-  private transizioni(cs: Clip[], lato: 'in' | 'out'): HTMLElement {
+  /** le transizioni all'inizio e alla fine della clip: i blocchetti della corsia FX che stanno su quei bordi */
+  private transizioniClip(v: Clip): HTMLElement {
     const p = store.doc;
     const r = fps(p.rate);
-    const di = (c: Clip) => (lato === 'in' ? c.trIn : c.trOut);
-    const con = cs.filter((c) => di(c));
-    const titolo = lato === 'in' ? 'Transizione in testa' : 'Transizione in coda';
-    if (!con.length) {
-      return this.gruppo('tr' + lato, titolo, [
-        h('p', { class: 'nota' }, lato === 'in' ? 'Nessuna. Trascinane una dal contenitore (Transizioni) sul taglio, o:' : 'Nessuna. Una transizione in coda fa uscire la clip su quello che sta sotto:'),
-        this.pulsanti([
-          ['Dissolvenza', () => applicaTransizione('mix', 0, { clipId: this.bersaglioLato(cs[0], lato).clipId, lato: this.bersaglioLato(cs[0], lato).lato })],
-          ['Nero', () => applicaTransizione('dip', 0, this.bersaglioLato(cs[0], lato))],
-          ['Spinta', () => applicaTransizione('dve', 301, this.bersaglioLato(cs[0], lato))],
-          ['Cubo 3D', () => applicaTransizione('dve', 401, this.bersaglioLato(cs[0], lato))],
-        ]),
-      ], lato === 'out');
-    }
-    const set = (c: Clip, fn: (t: NonNullable<Clip['trIn']>) => void) => { const t = di(c); if (t) fn(t); };
-    return this.gruppo('tr' + lato, titolo, [
-      this.scelta('Modello', [['mix', 'Dissolvenza incrociata'], ['dip', 'Passaggio a colore'], ...[...EFFETTI, ...TENDINE].map((m) => [String(m.p), (m.p >= 300 ? 'Effetto · ' : 'Tendina ') + m.nome] as [string, string])],
-        (c) => { const t = di(c); return !t ? 'mix' : t.type === 'mix' || t.type === 'dip' ? t.type : String(t.pattern); },
-        (c, v) => set(c, (t) => {
-          if (v === 'mix' || v === 'dip') { t.type = v; return; }
-          t.pattern = Number(v);
-          t.type = isVideoClip(c) ? tipoDi(Number(v)) : 'mix';
-        }), con),
-      this.cursore('Durata', 1, Math.round(r * 4), 1, (c) => di(c)?.len ?? 0, (c, v) => set(c, (t) => { t.len = Math.min(v, c.len); }), 'fot', con),
-      this.pulsanti([
-        ['½ s', () => store.edit('Durata transizione', () => { for (const c of con) set(c, (t) => { t.len = Math.min(Math.round(r / 2), c.len); }); })],
-        ['1 s', () => store.edit('Durata transizione', () => { for (const c of con) set(c, (t) => { t.len = Math.min(Math.round(r), c.len); }); })],
-        ['2 s', () => store.edit('Durata transizione', () => { for (const c of con) set(c, (t) => { t.len = Math.min(Math.round(r * 2), c.len); }); })],
-        ['Togli', () => store.edit('Togli transizione', () => { for (const c of this.sel()) { if (lato === 'in') c.trIn = undefined; else c.trOut = undefined; } })],
-      ]),
-      this.spunta('Al contrario', (c) => !!di(c)?.reverse, (c, v) => set(c, (t) => { t.reverse = v; }), con),
-      this.colore('Colore (bordo o passaggio)', (c) => { const t = di(c); return t?.type === 'dip' ? t.color : t?.borderColor ?? '#ffd54a'; }, (c, v) => set(c, (t) => { if (t.type === 'dip') t.color = v; else t.borderColor = v; }), con),
-      this.cursore('Bordo', 0, 20, 0.5, (c) => (di(c)?.border ?? 0) * 100, (c, v) => set(c, (t) => { t.border = v / 100; }), '', con),
+    const sulBordo = (f: number) => p.clips.find((z) => z.kind === 'fx' && z.fxb?.tipo === 'transizione' && z.start <= f && end(z) >= f);
+    const riga = (nome: string, f: number) => {
+      const b = sulBordo(f);
+      return h('div', { class: 'isp-riga' }, h('label', null, nome),
+        b
+          ? h('div', { class: 'isp-chips' },
+            h('button', { class: 'chip acceso tr', title: 'Scegli il blocco per cambiarlo', on: { click: () => store.select([b.id]) } }, `${nomeBlocco(b.fxb!)} · ${(b.len / r).toFixed(1).replace('.', ',')} s`),
+            h('button', { class: 'chip', title: 'Togli', on: { click: () => store.edit('Togli transizione', (pp) => { pp.clips = pp.clips.filter((z) => z.id !== b.id); }) } }, '✕'))
+          : h('div', { class: 'isp-chips' }, ['mix', 'dip', 'dve:301', 'dve:401'].map((id) => h('button', {
+            class: 'chip', on: { click: () => { store.select([]); mettiBlocco('transizione', id, f); } },
+          }, nomeBlocco(nuovoBlocco('transizione', id))))));
+    };
+    return this.gruppo('trclip', 'Transizioni', [
+      riga('All\'inizio', v.start),
+      riga('Alla fine', end(v)),
+      h('p', { class: 'nota' }, 'Sono i blocchetti turchesi nella corsia FX in cima: più lunghi = più lente. Trascinale su un altro taglio quando vuoi.'),
     ]);
   }
 
-  /** la testa della clip, o la coda: se dopo c'è una clip attaccata, la testa di quella */
-  private bersaglioLato(c: Clip, lato: 'in' | 'out'): { clipId: string; lato: 'in' | 'out' } {
-    if (lato === 'in') return { clipId: c.id, lato: 'in' };
-    const n = store.doc.clips.find((x) => x.track === c.track && x.start === c.start + c.len);
-    return n ? { clipId: n.id, lato: 'in' } : { clipId: c.id, lato: 'out' };
+  /** le proprietà dei blocchetti FX scelti: durata, tipo, forza, colore */
+  private blocchi(bs: Clip[]): HTMLElement[] {
+    const p = store.doc;
+    const r = fps(p.rate);
+    const b0 = bs[0];
+    const fb = b0.fxb!;
+    const tr = fb.tipo === 'transizione';
+    const tg = tr ? taglioDelBlocco(p, b0) : null;
+    const out: HTMLElement[] = [];
+    const sec = (len: number) => (len / r).toFixed(2).replace('.', ',').replace(/,?0+$/, '') + ' s';
+    out.push(h('div', { class: 'isp-testa' },
+      h('input', { class: 'isp-nome', value: bs.length > 1 ? `${bs.length} blocchi scelti` : nomeBlocco(fb), disabled: true }),
+      h('div', { class: 'isp-riassunto' },
+        h('span', { class: 'chip-tipo ' + (tr ? 'tr' : 'fx') }, tr ? 'Transizione' : 'Effetto a tempo'),
+        h('span', null, 'da ', h('b', { class: 'tc-testo' }, frameToTc(b0.start, p.rate, p.drop))),
+        h('span', null, 'dura ', h('b', null, sec(b0.len))),
+        tr ? h('span', { class: tg ? '' : 'avviso-rosso' }, tg ? `sul taglio a ${frameToTc(tg.f, p.rate, p.drop)} (${trackOf(p, tg.track).name})` : 'nessun taglio sotto: spostala sopra un taglio') : h('span', null, effettoTempo(fb.id)?.info ?? ''))));
+    const ids = bs.map((c) => c.id);
+    const tutti = (label: string, fn: (c: Clip) => void) => store.edit(label, (pp) => { for (const id of ids) { const c = clipById(pp, id); if (c) { fn(c); sistemaCorsia(pp, c); } } });
+    // durata: i chip fanno prima dei numeri (più corto = più rapido)
+    const durate = [0.25, 0.5, 1, 2, 3, 5, 10];
+    const n = h('input', { type: 'number', class: 'num largo', min: 0.08, step: 0.04, value: (b0.len / r).toFixed(2) }) as HTMLInputElement;
+    n.addEventListener('change', () => store.edit('Durata', (pp) => { for (const id of ids) durataDelBlocco(pp, clipById(pp, id)!, Math.max(0.08, Number(n.value) || 1) * r); }));
+    out.push(this.gruppo('bdurata', tr ? 'Durata (più lunga = più lenta)' : 'Durata', [
+      h('div', { class: 'isp-chips' }, durate.map((d) => h('button', {
+        class: 'chip' + (Math.round(d * r) === b0.len ? ' acceso' : ''),
+        on: { click: () => store.edit('Durata', (pp) => { for (const id of ids) durataDelBlocco(pp, clipById(pp, id)!, d * r); }) },
+      }, String(d).replace('.', ',') + ' s'))),
+      h('div', { class: 'isp-riga' }, h('label', null, 'Secondi'), n),
+    ]));
+    if (tr) {
+      const opz: [string, string][] = [['mix', 'Dissolvenza incrociata'], ['dip', 'Passaggio a colore'], ...EFFETTI.map((m) => ['dve:' + m.p, 'Effetto · ' + m.nome] as [string, string]), ...TENDINE.map((m) => ['wipe:' + m.p, 'Tendina ' + m.nome] as [string, string])];
+      const trDi = (c: Clip) => c.fxb!.tr!;
+      out.push(this.gruppo('btipo', 'Transizione', [
+        this.scelta('Modello', opz, (c) => c.fxb?.id ?? 'mix', (c, v) => { c.fxb = { ...c.fxb!, id: v, tr: { ...transizioneDa(v, c.len), reverse: c.fxb!.tr?.reverse ?? false } }; c.name = nomeBlocco(c.fxb); }, bs),
+        this.spunta('Al contrario', (c) => !!trDi(c)?.reverse, (c, v) => { trDi(c).reverse = v; }, bs),
+        this.colore('Colore (passaggio o bordo)', (c) => (trDi(c)?.type === 'dip' ? trDi(c).color : trDi(c)?.borderColor ?? '#ffd54a'), (c, v) => { const t = trDi(c); if (t.type === 'dip') t.color = v; else t.borderColor = v; }, bs),
+        this.cursore('Bordo', 0, 20, 0.5, (c) => (trDi(c)?.border ?? 0) * 100, (c, v) => { trDi(c).border = v / 100; }, '', bs),
+        this.cursore('Morbidezza', 0, 30, 0.5, (c) => (trDi(c)?.soft ?? 0) * 100, (c, v) => { trDi(c).soft = v / 100; }, '', bs),
+      ]));
+    } else {
+      const colori = ['flash', 'lampoNero', 'strobo', 'dalNero', 'alNero', 'dalBianco', 'alBianco'].includes(fb.id);
+      out.push(this.gruppo('btipo', 'Effetto', [
+        this.scelta('Effetto', EFFETTI_TEMPO.map((e) => [e.id, `${e.nome} · ${e.info}`] as [string, string]), (c) => c.fxb?.id ?? 'flash', (c, v) => { const e = effettoTempo(v)!; c.fxb = { ...c.fxb!, id: v, colore: e.colore ?? c.fxb!.colore }; c.name = e.nome; }, bs),
+        this.cursore('Forza', 10, 150, 1, (c) => Math.round((c.fxb?.forza ?? 1) * 100), (c, v) => { c.fxb!.forza = v / 100; }, '%', bs),
+        colori ? this.colore('Colore', (c) => c.fxb?.colore ?? '#ffffff', (c, v) => { c.fxb!.colore = v; }, bs) : null,
+      ]));
+    }
+    out.push(this.pulsanti([
+      ['Centra sul taglio', () => {
+        const tg2 = taglioVicino(store.doc, b0.start + b0.len / 2, Math.round(r * 5));
+        if (!tg2) { avviso('Non c\'è un taglio qui vicino', 'info'); return; }
+        tutti('Sul taglio', (c) => { c.start = Math.max(0, Math.round(tg2.f - c.len / 2)); });
+      }],
+      ['Ripeti dopo', () => { const nb = store.edit('Ripeti blocco', (pp) => posaBlocco(pp, fb, end(b0), b0.len, b0.track)); store.select([nb.id]); }],
+      ['Elimina', () => esegui('elimina')],
+    ]));
+    out.push(h('p', { class: 'nota' }, tr
+      ? 'Il blocco lavora sul taglio che ha sotto: si vedono tutte e due le clip, e nessuna cambia durata.'
+      : 'L\'effetto vale per tutto quello che sta sotto il blocco. Allungalo dai bordi, o mettine un altro subito dopo.'));
+    return out;
   }
 
   private titolatrice(tt: Clip[]): HTMLElement {

@@ -1,7 +1,7 @@
 // Le operazioni di montaggio. Lavorano direttamente sul progetto (lo Store ne fa la copia per l'annulla).
 // I nomi sono quelli della centralina: taglia, elimina, elimina e chiudi, solleva (lift), estrai (extract),
 // inserisci, sovrascrivi, trim, roll, slip.
-import type { Clip, Key, Project, Transition } from './tipi';
+import type { Clip, Key, Project, TrackKind, Transition } from './tipi';
 import { clipsOn, end, handles, keyValue, mediaOf, newClip, newTrack, nextTrackName, srcTimeAt, trackOf, uid, isVideoClip } from './progetto';
 import { f2s } from './timecode';
 
@@ -58,7 +58,9 @@ const unlocked = (p: Project, c: Clip) => !trackOf(p, c.track).lock;
  * non bloccate: le altre restano intatte. Ritorna gli id dei pezzi di destra.
  */
 export function splitAt(p: Project, f: number, tracce?: Set<string> | null): string[] {
-  const targets = p.clips.filter((c) => c.start < f && end(c) > f && unlocked(p, c) && (!tracce?.size || tracce.has(c.track)));
+  // i blocchetti della corsia FX si tagliano solo se la corsia è accesa apposta
+  const targets = p.clips.filter((c) => c.start < f && end(c) > f && unlocked(p, c)
+    && (tracce?.size ? tracce.has(c.track) : trackOf(p, c.track).kind !== 'fx'));
   const linkMap = new Map<string, string>();
   const out: string[] = [];
   for (const c of targets) {
@@ -174,16 +176,19 @@ export function occupato(p: Project, trackId: string, a: number, b: number, exce
  * Una traccia del tipo giusto libera fra a e b: prima quella preferita, poi le vicine (il video sale,
  * l'audio scende), e se sono tutte piene se ne apre una nuova. Così niente viene mai coperto.
  */
-export function tracciaLibera(p: Project, kind: 'video' | 'audio', preferita: string | null, a: number, b: number, except?: Set<string>, evita?: Set<string>): string {
+export function tracciaLibera(p: Project, kind: TrackKind, preferita: string | null, a: number, b: number, except?: Set<string>, evita?: Set<string>): string {
   const list = p.tracks.filter((t) => t.kind === kind && !t.lock);
   const i0 = Math.max(0, list.findIndex((t) => t.id === preferita));
-  const ordine = kind === 'video'
+  const ordine = kind !== 'audio'
     ? [...list.slice(0, i0 + 1).reverse(), ...list.slice(i0 + 1)]
     : [...list.slice(i0), ...list.slice(0, i0).reverse()];
   const t = ordine.find((x) => !evita?.has(x.id) && !occupato(p, x.id, a, b, except));
   if (t) return t.id;
   const nt = newTrack(kind, nextTrackName(p, kind));
-  if (kind === 'video') p.tracks.unshift(nt); else p.tracks.push(nt);
+  if (kind === 'audio') p.tracks.push(nt);
+  else if (kind === 'fx') p.tracks.unshift(nt);
+  // una traccia video nuova va sopra le altre video, ma sotto la corsia FX
+  else p.tracks.splice(p.tracks.findIndex((t) => t.kind !== 'fx'), 0, nt);
   return nt.id;
 }
 
@@ -214,12 +219,12 @@ function spostamentoLibero(moving: { c: Clip; track: string }[], df: number, fer
  * punto d'arrivo scorrono avanti. Sovrascrivi resta solo per chi lo chiede apposta.
  * Ritorna lo spostamento davvero fatto.
  */
-export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, dragKind: 'video' | 'audio', mode: EditMode): { df: number; dt: number } {
+export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, dragKind: TrackKind, mode: EditMode): { df: number; dt: number } {
   const moving = p.clips.filter((c) => ids.has(c.id) && unlocked(p, c));
   if (!moving.length) return { df: 0, dt: 0 };
   const minStart = Math.min(...moving.map((c) => c.start));
   if (minStart + df < 0) df = -minStart;
-  const kinds = { video: p.tracks.filter((t) => t.kind === 'video'), audio: p.tracks.filter((t) => t.kind === 'audio') };
+  const kinds = { video: p.tracks.filter((t) => t.kind === 'video'), audio: p.tracks.filter((t) => t.kind === 'audio'), fx: p.tracks.filter((t) => t.kind === 'fx') };
   // tracce di destinazione: le video in alto hanno indice basso, quindi dt>0 = verso il basso
   if (dt !== 0) {
     const list = kinds[dragKind];
@@ -457,7 +462,8 @@ export function snapPoints(p: Project, exclude: Set<string>, extra: number[]): n
 export function editPoints(p: Project): number[] {
   const s = new Set<number>([0]);
   for (const c of p.clips) {
-    if (trackOf(p, c.track).mute && trackOf(p, c.track).kind === 'audio') continue;
+    const t = trackOf(p, c.track);
+    if ((t.mute && t.kind === 'audio') || t.kind === 'fx') continue;
     s.add(c.start);
     s.add(end(c));
   }
@@ -467,7 +473,7 @@ export function editPoints(p: Project): number[] {
 /** la clip video più in alto sotto il cursore (per "match frame" e per il tasto 2 senza selezione) */
 export function topClipAt(p: Project, f: number, kind: 'video' | 'audio' | 'any' = 'any'): Clip | undefined {
   for (const t of p.tracks) {
-    if (kind !== 'any' && t.kind !== kind) continue;
+    if ((kind !== 'any' && t.kind !== kind) || t.kind === 'fx') continue;
     if (t.lock) continue;
     const c = p.clips.find((x) => x.track === t.id && x.start <= f && end(x) > f);
     if (c) return c;

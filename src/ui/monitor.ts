@@ -367,9 +367,8 @@ class MiniTimeline {
       for (const cl of p.clips) {
         if (cl.track !== t.id) continue;
         const x0 = (cl.start / e) * W, x1 = (end(cl) / e) * W;
-        ctx.fillStyle = isVideoClip(cl) ? (cl.kind === 'title' ? '#8448d6' : '#3565c7') : '#2a8a5e';
+        ctx.fillStyle = cl.kind === 'fx' ? (cl.fxb?.tipo === 'transizione' ? '#22c4d4' : '#d44bd9') : isVideoClip(cl) ? (cl.kind === 'title' ? '#8448d6' : '#3565c7') : '#2a8a5e';
         ctx.fillRect(x0 + 0.5, y + 2, Math.max(1, x1 - x0 - 1), lane - 4);
-        if (cl.trIn) { ctx.fillStyle = 'rgba(255,213,74,.8)'; ctx.fillRect(x0, y + 2, Math.max(2, (cl.trIn.len / e) * W), lane - 4); }
       }
     });
     if (p.inF !== null || p.outF !== null) {

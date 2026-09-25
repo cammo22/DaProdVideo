@@ -4,7 +4,7 @@ import type { Project } from './tipi';
 import { newProject, progettoAperto } from './progetto';
 import { FORMATI } from './tipi';
 
-type Snap = Pick<Project, 'tracks' | 'clips' | 'markers' | 'inF' | 'outF' | 'media' | 'w' | 'h' | 'rate' | 'drop' | 'name' | 'master'> & { label: string };
+type Snap = Pick<Project, 'tracks' | 'clips' | 'markers' | 'inF' | 'outF' | 'media' | 'w' | 'h' | 'rate' | 'drop' | 'name' | 'master' | 'sottotitoli'> & { label: string };
 
 export type StoreEvent = 'doc' | 'sel' | 'head' | 'view' | 'status';
 
@@ -51,7 +51,7 @@ class Store {
 
   private snap(label: string): Snap {
     const d = this.doc;
-    return structuredClone({ tracks: d.tracks, clips: d.clips, markers: d.markers, inF: d.inF, outF: d.outF, media: d.media, w: d.w, h: d.h, rate: d.rate, drop: d.drop, name: d.name, master: d.master, label });
+    return structuredClone({ tracks: d.tracks, clips: d.clips, markers: d.markers, inF: d.inF, outF: d.outF, media: d.media, w: d.w, h: d.h, rate: d.rate, drop: d.drop, name: d.name, master: d.master, sottotitoli: d.sottotitoli, label });
   }
 
   private restore(s: Snap) {

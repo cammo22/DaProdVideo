@@ -6,12 +6,14 @@ import {
 } from 'mediabunny';
 import { importaFile, avvisoLungo } from './progetti';
 import { store } from './core/store';
-import { newClip, newTransition, TITLE0, uid } from './core/progetto';
+import { newClip, TITLE0, uid } from './core/progetto';
 import { fps, s2f } from './core/timecode';
+import { nuovoBlocco, posaBlocco } from './core/blocchi';
 import { avviso } from './ui/dom';
 import { motore } from './motore';
 
-const W = 960, H = 540, FPS = 25, DUR = 6;
+const W = 960, H = 540, FPS = 25, DUR0 = 6;
+const DUR = DUR0;
 
 type Scena = (ctx: OffscreenCanvasRenderingContext2D, t: number) => void;
 
@@ -60,7 +62,7 @@ const scene: { nome: string; nota: number[]; disegna: Scena }[] = [
       ctx.strokeStyle = 'rgba(0,0,0,.08)';
       for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
       for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-      const ph = (t * 1.1) % 1, y = H - 90 - Math.abs(Math.sin(ph * Math.PI)) * 330, x = 120 + ((t / DUR) * (W - 240));
+      const ph = (t * 1.1) % 1, y = H - 90 - Math.abs(Math.sin(ph * Math.PI)) * 330, x = 120 + (((t % DUR) / DUR) * (W - 240));
       const sq = 1 + Math.max(0, 0.25 - Math.abs(Math.sin(ph * Math.PI))) * 1.2;
       ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(x, H - 60, 50 * (1.2 - (H - 90 - y) / 500), 10, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#ff4d6d'; ctx.beginPath(); ctx.ellipse(x, y, 42 * sq, 42 / sq, 0, 0, Math.PI * 2); ctx.fill();
@@ -93,7 +95,8 @@ async function melodia(note: number[]): Promise<AudioBuffer> {
 }
 
 /** crea un file video di prova (MP4 se il sistema codifica H.264/AAC, altrimenti WebM) */
-async function creaClip(sc: typeof scene[number]): Promise<File> {
+async function creaClip(sc: typeof scene[number], o: { dur?: number; gop?: number } = {}): Promise<File> {
+  const DUR = o.dur ?? DUR0;
   const v = await getFirstEncodableVideoCodec(['avc', 'vp9', 'vp8', 'av1'], { width: W, height: H });
   if (!v) throw new Error('nessun codificatore video');
   const mp4 = v === 'avc';
@@ -101,13 +104,12 @@ async function creaClip(sc: typeof scene[number]): Promise<File> {
   const out = new Output({ format: mp4 ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(), target: new BufferTarget() });
   const cv = new OffscreenCanvas(W, H);
   const ctx = cv.getContext('2d')!;
-  const vs = new CanvasSource(cv, { codec: v, bitrate: new Quality('medium'), keyFrameInterval: 1 });
+  const vs = new CanvasSource(cv, { codec: v, bitrate: new Quality('medium'), keyFrameInterval: o.gop ?? 1 });
   out.addVideoTrack(vs, { frameRate: FPS });
   let as: AudioBufferSource | null = null;
   if (a) { as = new AudioBufferSource({ codec: a, bitrate: new Quality('medium') }); out.addAudioTrack(as); }
   await out.start();
-  const audio = await melodia(sc.nota);
-  if (as) await as.add(audio);
+  if (as) for (let t = 0; t < DUR; t += DUR0) await as.add(await melodia(sc.nota));
   for (let i = 0; i < DUR * FPS; i++) {
     sc.disegna(ctx, i / FPS);
     await vs.add(i / FPS, 1 / FPS);
@@ -116,6 +118,9 @@ async function creaClip(sc: typeof scene[number]): Promise<File> {
   const nome = mp4 ? sc.nome : sc.nome.replace('.mp4', '.webm');
   return new File([(out.target as BufferTarget).buffer!], nome, { type: mp4 ? 'video/mp4' : 'video/webm', lastModified: Date.now() });
 }
+
+/** una ripresa lunga con i fotogrammi chiave radi (come i video dei telefoni e dei generatori): per le prove */
+export const ripresaDiProva = (dur: number, gop: number) => creaClip({ ...scene[2], nome: `Lunga ${dur}s.mp4` }, { dur, gop });
 
 export async function montaggioDimostrativo() {
   const barra = avvisoLungo('Preparo il montaggio dimostrativo: giro le riprese…');
@@ -141,8 +146,9 @@ export async function montaggioDimostrativo() {
         const link = uid('l');
         const cv = newClip('media', v1.id, at, L, { media: m.id, name: m.name, link, srcIn: 0 });
         const ca = newClip('media', a1.id, at, L, { media: m.id, name: m.name, link, srcIn: 0 });
-        if (i === 1) { cv.trIn = newTransition('mix', tr); ca.trIn = newTransition('mix', tr); }
-        if (i === 2) { cv.trIn = newTransition('wipe', tr, 119); ca.trIn = newTransition('mix', tr); }
+        // le transizioni sono blocchetti nella corsia FX, sul taglio; l'audio si incrocia da solo
+        if (i === 1) posaBlocco(pp, nuovoBlocco('transizione', 'mix'), at - Math.round(tr / 2), tr);
+        if (i === 2) posaBlocco(pp, nuovoBlocco('transizione', 'wipe:119'), at - Math.round(tr / 2), tr);
         if (i === 0) { cv.fadeIn = Math.round(r / 2); ca.fadeIn = Math.round(r / 2); }
         if (i === media.length - 1) { cv.fadeOut = tr; ca.fadeOut = tr; }
         pp.clips.push(cv, ca);
@@ -153,6 +159,9 @@ export async function montaggioDimostrativo() {
       const sotto = newClip('title', v2.id, L + Math.round(r * 1.5), Math.round(r * 3.5), { name: 'Sottopancia', gen: { title: { ...TITLE0, style: 'sottopancia', text: 'Napoli di notte\nripresa dimostrativa', size: 52, align: 'left' } } });
       sotto.fadeIn = 6; sotto.fadeOut = 6;
       pp.clips.push(titolo, sotto);
+      // gli effetti a tempo della corsia FX: un lampo quando entra il sottopancia, uno zoom lento sull'ultima ripresa
+      posaBlocco(pp, nuovoBlocco('effetto', 'flash'), L + Math.round(r * 1.5), Math.round(r / 2));
+      posaBlocco(pp, nuovoBlocco('effetto', 'zoomLento'), L * 2 + Math.round(r), L - Math.round(r * 2));
       pp.name = 'Montaggio dimostrativo';
     });
     store.dirty = false;

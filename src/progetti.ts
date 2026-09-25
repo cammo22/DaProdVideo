@@ -5,6 +5,7 @@ import { store } from './core/store';
 import type { MediaItem, Project } from './core/tipi';
 import { FORMATI } from './core/tipi';
 import { ALTEZZA, MASTER0, newProject } from './core/progetto';
+import { migraBlocchi } from './core/blocchi';
 import { apri as apriMedia, chiudi as chiudiMedia, importa, mediaRT } from './media/libreria';
 import { dimenticaMedia } from './media/fotogrammi';
 import { apriProgetto, invoke, isTauri, nomeDaPercorso, salvaTesto, scegliMedia, type FileScelto } from './platform';
@@ -157,6 +158,8 @@ function valida(o: unknown): Project | null {
     if (t.kind === 'video' && t.height === 58) t.height = ALTEZZA.video;
   }
   p.master = { ...MASTER0, ...(p.master ?? {}) };
+  // dalla 1.0.4: la corsia FX in cima, e le transizioni delle clip video diventano blocchetti
+  migraBlocchi(p);
   return p;
 }
 

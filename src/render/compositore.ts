@@ -9,6 +9,9 @@ export type Fornitore = (s: Sorgente) => Fotogramma | null;
 import { autoColore, masterDi, mediaOf } from '../core/progetto';
 import { mediaRT } from '../media/libreria';
 import { gradeDi, gradeNeutro } from './colore';
+import { statoEffetti, type StatoFx } from '../core/blocchi';
+import { disegnaSovr, firmaSovr } from './sovrimpressione';
+import { nuovaTela } from './grafica';
 import { disegnaCountdown, motoTitolo, telaTitolo } from './grafica';
 import { TITLE0 } from '../core/progetto';
 
@@ -195,6 +198,70 @@ void main() {
   }
   if (u_split > 0.0 && abs(v_uv.x - u_split) < 0.0015) r = vec3(1.0, 0.84, 0.29);
   o = vec4(clamp(r, 0.0, 1.0), 1.0);
+}`;
+
+/** gli effetti a tempo della corsia FX (lampo, scossa, zoom, glitch…) su tutto il quadro, prima del colore finale */
+const FS_FX = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_src;
+uniform vec2 u_res, u_off;
+uniform float u_zoom, u_rot, u_blur, u_pixel, u_rgb, u_glitch, u_seme, u_desat, u_invert, u_flash, u_fade, u_luce, u_lucePh, u_bande, u_vhs, u_time;
+uniform vec3 u_flashCol, u_fadeCol;
+out vec4 o;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+vec3 campione(vec2 uv) { return texture(u_src, clamp(uv, vec2(0.0005), vec2(0.9995))).rgb; }
+void main() {
+  float asp = u_res.x / u_res.y;
+  // zoom e rotazione attorno al centro, poi lo spostamento (scossa, camera a mano)
+  vec2 c = (v_uv - 0.5) * vec2(asp, 1.0);
+  float cr = cos(u_rot), sr = sin(u_rot);
+  c = vec2(cr * c.x - sr * c.y, sr * c.x + cr * c.y) / u_zoom;
+  vec2 uv = c / vec2(asp, 1.0) + 0.5 + u_off;
+  if (u_glitch > 0.0) {
+    float riga = floor(uv.y * 28.0);
+    if (hash(vec2(riga, u_seme)) > 1.0 - u_glitch * 0.55) uv.x += (hash(vec2(riga * 3.1, u_seme + 1.0)) - 0.5) * 0.18 * u_glitch;
+  }
+  if (u_vhs > 0.0) uv.x += sin(uv.y * 120.0 + u_time * 9.0) * 0.0025 * u_vhs + (hash(vec2(floor(uv.y * 200.0), u_time)) - 0.5) * 0.004 * u_vhs;
+  if (u_pixel > 0.0) {
+    float lato = mix(1.0, 80.0, u_pixel * u_pixel) / u_res.y;
+    vec2 cella = vec2(lato / asp, lato);
+    uv = (floor(uv / cella) + 0.5) * cella;
+  }
+  vec3 col;
+  if (u_blur > 0.0) {
+    // sfocatura a disco con la spirale d'oro: pochi campioni, morbida
+    float r = u_blur * 0.035;
+    col = vec3(0.0);
+    for (int i = 0; i < 24; i++) {
+      float fi = float(i);
+      float a = fi * 2.39996;
+      col += campione(uv + vec2(cos(a), sin(a)) * sqrt((fi + 0.5) / 24.0) * r * vec2(1.0 / asp, 1.0));
+    }
+    col /= 24.0;
+  } else col = campione(uv);
+  float sp = u_rgb * 0.014 + u_glitch * 0.012 + u_vhs * 0.004;
+  if (sp > 0.0) { col.r = campione(uv + vec2(sp, 0.0)).r; col.b = campione(uv - vec2(sp, 0.0)).b; }
+  float y = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = mix(col, vec3(y), u_desat);
+  col = mix(col, 1.0 - col, u_invert);
+  if (u_vhs > 0.0) {
+    col += (hash(v_uv * vec2(640.0, 480.0) + u_time) - 0.5) * 0.12 * u_vhs;
+    col += smoothstep(0.03, 0.0, abs(fract(v_uv.y * 0.7 - u_time * 0.35) - 0.9)) * 0.35 * u_vhs;
+  }
+  if (u_luce > 0.0) {
+    // la lama di luce calda che attraversa il quadro
+    float x = v_uv.x + (v_uv.y - 0.5) * 0.35;
+    float lama = exp(-pow((x - mix(-0.2, 1.2, u_lucePh)) * 3.2, 2.0));
+    col += vec3(1.0, 0.55, 0.2) * lama * u_luce * 0.9 + vec3(1.0, 0.85, 0.6) * pow(lama, 3.0) * u_luce * 0.5;
+  }
+  col = mix(col, u_flashCol, u_flash);
+  col = mix(col, u_fadeCol, u_fade);
+  if (u_bande > 0.0) {
+    float b = u_bande * max(0.0, (1.0 - asp / 2.39) * 0.5);
+    if (v_uv.y < b || v_uv.y > 1.0 - b) col = vec3(0.0);
+  }
+  o = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
 export const FS_COMBINE = `#version 300 es
@@ -468,7 +535,9 @@ export class Compositore {
   private pLayer: WebGLProgram;
   private pComb: WebGLProgram;
   private pMaster: WebGLProgram;
+  private pFx: WebGLProgram;
   private uM: Record<string, WebGLUniformLocation | null> = {};
+  private uF: Record<string, WebGLUniformLocation | null> = {};
   /** prima/dopo: a sinistra di questa frazione si vede l'originale (0 = tutto col colore finale) */
   prima = 0;
   private uL: Record<string, WebGLUniformLocation | null> = {};
@@ -481,7 +550,7 @@ export class Compositore {
   private used = new Set<string>();
   private blank: WebGLTexture;
   private fornitore: Fornitore | undefined;
-  /** il buffer con l'ultima uscita (2 = senza colore finale, 3 = con) */
+  /** il buffer con l'ultima uscita (2 = il mix, 4 = con gli effetti a tempo, 3 = col colore finale) */
   private uscita = 2;
   perso = false;
 
@@ -492,6 +561,9 @@ export class Compositore {
     this.pLayer = this.prog(VS_LAYER, FS_LAYER);
     this.pComb = this.prog(VS_FULL, FS_COMBINE);
     this.pMaster = this.prog(VS_FULL, FS_MASTER);
+    this.pFx = this.prog(VS_FULL, FS_FX);
+    for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol'])
+      this.uF[n] = gl.getUniformLocation(this.pFx, n);
     for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv',
       'u_mirror', 'u_temp', 'u_vignette', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
       this.uL[n] = gl.getUniformLocation(this.pLayer, n);
@@ -503,7 +575,7 @@ export class Compositore {
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
-    for (const p of [this.pLayer, this.pComb, this.pMaster]) {
+    for (const p of [this.pLayer, this.pComb, this.pMaster, this.pFx]) {
       const loc = gl.getAttribLocation(p, 'a_pos');
       gl.enableVertexAttribArray(loc);
       gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
@@ -535,7 +607,7 @@ export class Compositore {
     if (this.fbW === w && this.fbH === h && this.fbo.length) return;
     for (const f of this.fbo) { gl.deleteFramebuffer(f.fb); gl.deleteTexture(f.tex); }
     this.fbo = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const tex = this.newTex();
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       const fb = gl.createFramebuffer()!;
@@ -596,9 +668,13 @@ export class Compositore {
       }
       this.combine(s.tr, s.prog, s.opacity, okA);
     }
+    // gli effetti a tempo della corsia FX su tutto il quadro
+    let mix = 2;
+    const fx = statoEffetti(p, frame);
+    if (fx) { this.effetti(fx, frame, cw, ch); mix = 4; }
     // il colore finale (pagina Finale) su tutto il quadro, poi sulla tela; resta nel buffer per gli strumenti
     const g = gradeDi(masterDi(p));
-    const uscita = gradeNeutro(g) && this.prima <= 0 ? 2 : 3;
+    const uscita = gradeNeutro(g) && this.prima <= 0 ? mix : 3;
     if (uscita === 3) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[3].fb);
       gl.viewport(0, 0, cw, ch);
@@ -606,7 +682,7 @@ export class Compositore {
       gl.useProgram(this.pMaster);
       const u = this.uM;
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.fbo[2].tex);
+      gl.bindTexture(gl.TEXTURE_2D, this.fbo[mix].tex);
       gl.uniform1i(u.u_src, 0);
       gl.uniform3f(u.u_lift, ...g.lift);
       gl.uniform3f(u.u_gamma, ...g.gamma);
@@ -622,6 +698,9 @@ export class Compositore {
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     this.uscita = uscita;
+    // il logo e i sottotitoli, sopra a tutto
+    const firma = firmaSovr(p, frame, cw, ch);
+    if (firma) this.sovrimpressione(p, frame, cw, ch, firma, uscita);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo[uscita].fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     gl.blitFramebuffer(0, 0, cw, ch, 0, 0, cw, ch, gl.COLOR_BUFFER_BIT, gl.NEAREST);
@@ -630,6 +709,82 @@ export class Compositore {
     for (const [k, t] of this.texs) {
       if (!this.used.has(k) && !k.startsWith('img:')) { gl.deleteTexture(t.tex); this.texs.delete(k); }
     }
+  }
+
+  private sovr: { firma: string; tela: HTMLCanvasElement | OffscreenCanvas } | null = null;
+
+  /** appoggia la sovrimpressione (logo e sottotitoli) sul buffer d'uscita */
+  private sovrimpressione(p: Project, frame: number, cw: number, ch: number, firma: string, uscita: number) {
+    const gl = this.gl;
+    if (!this.sovr || this.sovr.firma !== firma) {
+      const tela = this.sovr && this.sovr.tela.width === cw && this.sovr.tela.height === ch ? this.sovr.tela : nuovaTela(cw, ch);
+      disegnaSovr(tela.getContext('2d') as CanvasRenderingContext2D, p, frame, cw, ch);
+      this.sovr = { firma, tela };
+    }
+    const t = this.upload('img:sovr', this.sovr.tela as TexImageSource, cw, ch, firma);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[uscita].fb);
+    gl.viewport(0, 0, cw, ch);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(this.pLayer);
+    const u = this.uL;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, t.tex);
+    gl.uniform1i(u.u_tex, 0);
+    gl.uniform2f(u.u_res, cw, ch);
+    gl.uniform2f(u.u_size, cw, ch);
+    gl.uniform4f(u.u_crop, 0, 0, 0, 0);
+    gl.uniform2f(u.u_off, 0, 0);
+    gl.uniform1f(u.u_scale, 1);
+    gl.uniform1f(u.u_rot, 0);
+    gl.uniform1i(u.u_src, 0);
+    gl.uniform1i(u.u_orient, 0);
+    gl.uniform1f(u.u_bright, 0);
+    gl.uniform1f(u.u_contrast, 1);
+    gl.uniform1f(u.u_sat, 1);
+    gl.uniform1f(u.u_hue, 0);
+    gl.uniform1i(u.u_look, 0);
+    gl.uniform1i(u.u_key, 0);
+    gl.uniform1i(u.u_mirror, 0);
+    gl.uniform1f(u.u_temp, 0);
+    gl.uniform1f(u.u_vignette, 0);
+    gl.uniform1i(u.u_auto, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
+  }
+
+  /** il passaggio degli effetti a tempo: dal mix (buffer 2) al buffer 4 */
+  private effetti(st: StatoFx, frame: number, cw: number, ch: number) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[4].fb);
+    gl.viewport(0, 0, cw, ch);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.pFx);
+    const u = this.uF;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.fbo[2].tex);
+    gl.uniform1i(u.u_src, 0);
+    gl.uniform2f(u.u_res, cw, ch);
+    gl.uniform2f(u.u_off, st.dx, st.dy);
+    gl.uniform1f(u.u_zoom, st.zoom);
+    gl.uniform1f(u.u_rot, st.rot);
+    gl.uniform1f(u.u_blur, st.blur);
+    gl.uniform1f(u.u_pixel, st.pixel);
+    gl.uniform1f(u.u_rgb, st.rgb);
+    gl.uniform1f(u.u_glitch, st.glitch);
+    gl.uniform1f(u.u_seme, st.seme % 1000);
+    gl.uniform1f(u.u_desat, st.desat);
+    gl.uniform1f(u.u_invert, st.invert);
+    gl.uniform1f(u.u_flash, st.flash);
+    gl.uniform1f(u.u_fade, st.fade);
+    gl.uniform1f(u.u_luce, st.luce);
+    gl.uniform1f(u.u_lucePh, st.lucePh);
+    gl.uniform1f(u.u_bande, st.bande);
+    gl.uniform1f(u.u_vhs, st.vhs);
+    gl.uniform1f(u.u_time, (frame % 10000) / 25);
+    gl.uniform3f(u.u_flashCol, ...st.flashCol);
+    gl.uniform3f(u.u_fadeCol, ...st.fadeCol);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
   /** disegna una sorgente nel buffer i (0 = A, 1 = B). Ritorna false se non c'è ancora niente da mostrare */
@@ -645,7 +800,7 @@ export class Compositore {
     if (c.kind === 'media' && c.media) {
       const m = mediaOf(p, c);
       if (!m) return false;
-      const f = this.fornitore ? this.fornitore(s) : fotogramma(c.id, c.media, s.t, playing);
+      const f = this.fornitore ? this.fornitore(s) : fotogramma(c.id, c.media, s.t, playing, this.canvas.width * Math.min(1, c.tf.scale));
       if (!f) return false;
       if (f instanceof ImageBitmap) {
         const t = this.upload('img:' + c.media, f, f.width, f.height, f);
