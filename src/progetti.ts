@@ -4,7 +4,7 @@
 import { store } from './core/store';
 import type { MediaItem, Project } from './core/tipi';
 import { FORMATI } from './core/tipi';
-import { newProject } from './core/progetto';
+import { ALTEZZA, MASTER0, newProject } from './core/progetto';
 import { apri as apriMedia, chiudi as chiudiMedia, importa, mediaRT } from './media/libreria';
 import { dimenticaMedia } from './media/fotogrammi';
 import { apriProgetto, invoke, isTauri, nomeDaPercorso, salvaTesto, scegliMedia, type FileScelto } from './platform';
@@ -151,6 +151,12 @@ function valida(o: unknown): Project | null {
   if (!p || p.format !== 'daprod-video' || !Array.isArray(p.tracks) || !Array.isArray(p.clips)) return null;
   for (const m of p.media) { m.t0 ??= 0; m.markIn ??= null; m.markOut ??= null; }
   for (const c of p.clips) { c.opKeys ??= []; c.gainKeys ??= []; c.speed ??= 1; }
+  // le versioni di prima: tracce audio basse e niente ritocchi finali
+  for (const t of p.tracks) {
+    if (t.kind === 'audio' && t.height === 46) t.height = ALTEZZA.audio;
+    if (t.kind === 'video' && t.height === 58) t.height = ALTEZZA.video;
+  }
+  p.master = { ...MASTER0, ...(p.master ?? {}) };
   return p;
 }
 

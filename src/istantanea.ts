@@ -34,8 +34,8 @@ async function fotogrammaSorgente(mediaId: string, t: number): Promise<Blob | nu
 }
 
 /** lampo bianco sul monitor, come il flash di una macchina fotografica */
-function lampo(quale: 'player' | 'recorder') {
-  const el = document.querySelector(`.monitor.${quale} .schermo`);
+function lampo(_quale: 'player' | 'recorder') {
+  const el = document.querySelector('.monitor .schermo');
   if (!el) return;
   el.classList.remove('lampo');
   void (el as HTMLElement).offsetWidth;

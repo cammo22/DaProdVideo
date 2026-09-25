@@ -1,5 +1,5 @@
-// La pulsantiera: la centralina di montaggio sotto i monitor. Tasti grandi con il numero stampato sopra,
-// modi con la spia accesa, patch delle tracce, attacco/stacco, solleva/estrai, rivedi, zoom.
+// La pulsantiera: la centralina di montaggio sotto il monitor. Tasti grandi con il numero stampato sopra,
+// modi con la spia accesa, attacco/stacco, solleva/estrai, rivedi, zoom.
 import { store } from '../core/store';
 import { esegui, modi } from '../azioni';
 import { h, icona } from './dom';
@@ -18,25 +18,27 @@ export class Pulsantiera {
       return el;
     };
     const piccolo = (nome: string, az: string, title: string, ic?: string) => h('button', { class: 'tasto-piccolo', title, on: { click: () => esegui(az) } }, ic ? icona(ic, 15) : null, nome ? h('span', null, nome) : null);
-    const insSovr = h('button', { class: 'tasto-modo largo', title: 'Modo inserisci / sovrascrivi (Ins)', on: { click: () => esegui('modoInserisci') } }, h('span', { class: 'led' }), h('span', { class: 'etichetta-modo' }, 'SOVRASCRIVI'));
+    const insSovr = h('button', { class: 'tasto-modo largo', title: 'Quando sposti o lasci una clip: LIBERO non copre niente (si ferma contro le altre), INSERISCI fa spazio spostando avanti il resto (Ins)', on: { click: () => esegui('modoInserisci') } }, h('span', { class: 'led' }), h('span', { class: 'etichetta-modo' }, 'LIBERO'));
     this.spie.push({ el: insSovr, on: () => modi.inserisci });
     this.el = h('div', { class: 'pulsantiera' },
       h('div', { class: 'gruppo-tasti numeri' },
         tasto('1', 'forbici', 'TAGLIA', 'taglia', 'Taglia al cursore (1)'),
         tasto('2', 'cestino', 'ELIMINA', 'elimina', 'Elimina la clip selezionata (2)', 'rosso'),
         tasto('3', 'chiudi', 'CHIUDI', 'eliminaChiudi', 'Elimina e chiudi il buco (3)'),
-        tasto('4', 'catena', 'SEPARA', 'separa', 'Separa / unisci audio e video (4)'),
-        tasto('5', 'dissolvenza', 'MIX', 'dissolvenza', 'Dissolvenza sul taglio (5)')),
+        tasto('S', 'catena', 'SEPARA', 'separa', 'Separa o unisci i gruppi di clip (S o 4)'),
+        tasto('5', 'dissolvenza', 'MIX', 'dissolvenza', 'Dissolvenza sul taglio più vicino (5)'),
+        tasto('Q', 'segnaIn', 'SCARTO ⇤', 'eliminaSinistra', 'Via lo scarto a sinistra del cursore (Q)'),
+        tasto('W', 'segnaOut', 'SCARTO ⇥', 'eliminaDestra', 'Via lo scarto a destra del cursore (W)')),
       h('div', { class: 'gruppo-tasti' },
         insSovr,
         modo('RIPPLE', 'ripple', () => modi.ripple, 'Ripple: eliminare e accorciare chiude i buchi (R)', 'ripple'),
         modo('CALAMITA', 'snap', () => modi.snap, 'Aggancio ai tagli e al cursore (N)', 'calamita'),
-        modo('ELASTICO', 'elastico', () => modi.elastico, 'Linee elastiche: trasparenza e volume nel tempo (B)', 'elastico')),
+        modo('ELASTICO', 'elastico', () => modi.elastico, 'Linee elastiche della trasparenza sul video (B). Il volume sull\'audio si vede sempre', 'elastico')),
       h('div', { class: 'gruppo-tasti' },
         piccolo('IN', 'segnaIn', 'Attacco (I)', 'segnaIn'),
         piccolo('OUT', 'segnaOut', 'Stacco (O)', 'segnaOut'),
-        piccolo('INS', 'inserisci', 'Inserisci dal Player (,)'),
-        piccolo('SOVR', 'sovrascrivi', 'Sovrascrivi dal Player (.)'),
+        piccolo('INS', 'inserisci', 'Inserisci la sorgente al cursore (,)'),
+        piccolo('SOVR', 'sovrascrivi', 'Sovrascrivi con la sorgente al cursore (.)'),
         piccolo('LIFT', 'solleva', 'Solleva attacco-stacco (Z)'),
         piccolo('EXTRACT', 'estrai', 'Estrai attacco-stacco (X)'),
         piccolo('REVIEW', 'rivedi', 'Rivedi l\'ultimo montaggio con preroll (Shift+R)'),
@@ -54,6 +56,6 @@ export class Pulsantiera {
   aggiorna() {
     for (const s of this.spie) s.el.classList.toggle('acceso', s.on());
     const e = this.el.querySelector('.etichetta-modo');
-    if (e) e.textContent = modi.inserisci ? 'INSERISCI' : 'SOVRASCRIVI';
+    if (e) e.textContent = modi.inserisci ? 'INSERISCI' : 'LIBERO';
   }
 }

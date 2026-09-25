@@ -1,9 +1,12 @@
 // Il banco di montaggio: mette insieme menu, contenitore, monitor, pulsantiera, timeline e strumenti.
+// Due pagine: MONTAGGIO (contenitore, monitor, proprietà, timeline) e FINALE (monitor grande, ritocchi su
+// tutto, esporta). Ogni bordo fra i pannelli si trascina: il banco lo sistemi come vuoi, e se lo ricorda.
 import { store } from '../core/store';
 import { motore } from '../motore';
 import { azioni, esegui, modi } from '../azioni';
 import { Timeline } from './timeline';
 import { PannelloMonitor } from './monitor';
+import { Finale } from './finale';
 import { Contenitore } from './contenitore';
 import { Pulsantiera } from './pulsantiera';
 import { Ispettore } from './ispettore';
@@ -21,8 +24,8 @@ import { banco } from '../media/audio';
 
 export function avvia(radice: HTMLElement) {
   const tl = new Timeline();
-  const player = new PannelloMonitor('player');
-  const recorder = new PannelloMonitor('recorder');
+  const monitor = new PannelloMonitor();
+  const finale = new Finale();
   const bin = new Contenitore();
   const puls = new Pulsantiera(tl);
   const isp = new Ispettore();
@@ -40,11 +43,27 @@ export function avvia(radice: HTMLElement) {
     radice.querySelectorAll('.lato .scheda').forEach((b) => b.classList.toggle('attiva', (b as HTMLElement).dataset.s === s));
   };
   const tab = (s: Lato, n: string) => h('button', { class: 'scheda' + (s === 'clip' ? ' attiva' : ''), 'data-s': s, on: { click: () => mostraLato(s) } }, n);
+  const vuCornice = h('div', { class: 'vu-cornice' }, vu.el);
   const pannelloLato = h('section', { class: 'pannello lato' },
-    h('div', { class: 'vu-cornice' }, vu.el),
+    vuCornice,
     h('header', { class: 'schede' }, tab('clip', 'Proprietà'), tab('mixer', 'Mixer'), tab('scopi', 'Strumenti')),
     latoCorpo);
-  document.addEventListener('dpv:ispettore', () => { mostraLato('clip'); apriFoglio('lato'); });
+  document.addEventListener('dpv:ispettore', () => { pagina('montaggio'); mostraLato('clip'); apriFoglio('lato'); });
+
+  // ——— le due pagine: Montaggio e Finale ———
+  type Pagina = 'montaggio' | 'finale';
+  const pagina = (pg: Pagina) => {
+    if (radice.dataset.pagina === pg) return;
+    radice.dataset.pagina = pg;
+    // i VU vanno dove si guarda: nelle proprietà durante il montaggio, nel Finale alla fine
+    if (pg === 'finale') finale.el.insertBefore(vuCornice, finale.el.children[1] ?? null);
+    else pannelloLato.insertBefore(vuCornice, pannelloLato.firstChild);
+    radice.querySelectorAll('.pagina-btn').forEach((b) => b.classList.toggle('attiva', (b as HTMLElement).dataset.p === pg));
+    motore.setMonitor('recorder');
+    if (pg === 'finale' && radice.classList.contains('stretto')) radice.dataset.foglio = 'finale';
+    setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 80);
+  };
+  const tastoPagina = (pg: Pagina, nome: string, ic: string, title: string) => h('button', { class: 'pagina-btn' + (pg === 'montaggio' ? ' attiva' : ''), 'data-p': pg, title, on: { click: () => pagina(pg) } }, icona(ic, 16), h('span', null, nome));
 
   // ——— menu ———
   const voce = (id: string, extra: Partial<VoceMenu> = {}): VoceMenu => {
@@ -83,13 +102,21 @@ export function avvia(radice: HTMLElement) {
     ]],
     ['Generatori', () => [voce('genBarre'), voce('genCountdown'), voce('genNero'), voce('genColore'), voce('genTitolo')]],
     ['Vista', () => [
-      { nome: 'Monitor singolo', spunta: radice.classList.contains('singolo'), fn: () => { radice.classList.toggle('singolo'); setTimeout(() => { player.adatta(); recorder.adatta(); }, 50); } },
-      { nome: 'Zone di sicurezza', spunta: modi.zoneSicure, fn: () => { modi.zoneSicure = !modi.zoneSicure; recorder.disegnaSopra(); } },
-      { nome: 'Tutto il montaggio nella finestra', tasto: '\\', fn: () => tl.adattaTutto() },
-      { nome: 'Schermo intero', tasto: 'F11', fn: () => void schermoIntero() },
+      { nome: 'Pagina Montaggio', spunta: radice.dataset.pagina !== 'finale', tasto: 'F9', fn: () => pagina('montaggio') },
+      { nome: 'Pagina Finale (colore, audio, esporta)', spunta: radice.dataset.pagina === 'finale', tasto: 'F9', fn: () => pagina('finale') },
       { sep: true },
-      { nome: 'Strumenti di misura', fn: () => mostraLato('scopi') },
-      { nome: 'Mixer', fn: () => mostraLato('mixer') },
+      { nome: 'Contenitore', spunta: !radice.classList.contains('senza-bin'), fn: () => { radice.classList.toggle('senza-bin'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
+      { nome: 'Proprietà', spunta: !radice.classList.contains('senza-lato'), fn: () => { radice.classList.toggle('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
+      { nome: 'Pulsantiera', spunta: !radice.classList.contains('senza-puls'), fn: () => { radice.classList.toggle('senza-puls'); salvaBanco(); } },
+      { nome: 'Rimetti il banco come all\'inizio', fn: () => rimettiBanco() },
+      { sep: true },
+      { nome: 'Monitor a schermo intero (con la timeline)', fn: () => monitor.pieno() },
+      { nome: 'Zone di sicurezza', spunta: modi.zoneSicure, fn: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); } },
+      { nome: 'Tutto il montaggio nella finestra', tasto: '\\', fn: () => tl.adattaTutto() },
+      { nome: 'Finestra a schermo intero', tasto: 'F11', fn: () => void schermoIntero() },
+      { sep: true },
+      { nome: 'Strumenti di misura', fn: () => { pagina('montaggio'); mostraLato('scopi'); } },
+      { nome: 'Mixer', fn: () => { pagina('montaggio'); mostraLato('mixer'); } },
     ]],
     ['Aiuto', () => [
       { nome: 'Tasti della centralina', tasto: 'F1', fn: () => finestraTasti() },
@@ -136,6 +163,9 @@ export function avvia(radice: HTMLElement) {
     h('button', { class: 'marchio', title: 'DaProd Video', on: { click: () => finestraInfo() } },
       h('span', { class: 'moneta' }, 'D'), h('span', { class: 'scritta' }, 'Da', h('b', null, 'Prod'), h('i', null, ' VIDEO'))),
     barraMenu,
+    h('div', { class: 'pagine' },
+      tastoPagina('montaggio', 'MONTAGGIO', 'montaggio', 'Il banco di montaggio (F9)'),
+      tastoPagina('finale', 'FINALE', 'finale', 'Colore e audio su tutto il montaggio, poi esporta (F9)')),
     h('div', { class: 'testata-destra' },
       nomeProgetto, formato,
       h('span', { class: 'badge edizione' + (isTauri ? '' : ' prova') }, isTauri ? edizione : 'VERSIONE PROVA · WEB'),
@@ -144,7 +174,7 @@ export function avvia(radice: HTMLElement) {
       h('button', { class: 'btn primario piccolo', title: 'Esporta il master (Ctrl+M)', on: { click: () => finestraEsporta() } }, icona('esporta', 15), 'Esporta')));
 
   // ——— barra di stato ———
-  const msg = h('span', { class: 'stato-msg' }, 'Pronto. 1 = taglia · 2 = elimina · Spazio = play · J K L = shuttle · I/O = attacco/stacco · F1 = tutti i tasti');
+  const msg = h('span', { class: 'stato-msg' }, 'Pronto. 1 taglia · 2 elimina · S separa/unisci · rotella = un fotogramma · Q/W scarto a sinistra/destra · F9 Finale · F1 tutti i tasti');
   const dec = h('span', { class: 'stato-dec' });
   const statoBar = h('footer', { class: 'stato' }, msg, dec, h('span', { class: 'stato-ver' }, `DaProd Video ${VERSIONE}`));
   motore.ogniGiro(() => {
@@ -154,39 +184,69 @@ export function avvia(radice: HTMLElement) {
   });
 
   // ——— fogli per il telefono ———
-  const apriFoglio = (f: 'bin' | 'lato' | 'nessuno') => {
+  const apriFoglio = (f: 'bin' | 'lato' | 'finale' | 'nessuno') => {
     if (!radice.classList.contains('stretto')) return;
     radice.dataset.foglio = radice.dataset.foglio === f ? 'nessuno' : f;
   };
   const barraTel = h('nav', { class: 'barra-tel' },
     h('button', { on: { click: () => apriFoglio('bin') } }, icona('apri', 18), h('span', null, 'Contenitore')),
-    h('button', { on: { click: () => { motore.setMonitor(motore.attivo === 'player' ? 'recorder' : 'player'); } } }, icona('schermo', 18), h('span', null, 'Player/Rec')),
     h('button', { on: { click: () => apriFoglio('lato') } }, icona('ingranaggio', 18), h('span', null, 'Proprietà')),
+    h('button', { on: { click: () => { pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'); } } }, icona('finale', 18), h('span', null, 'Finale')),
     h('button', { on: { click: () => finestraEsporta() } }, icona('esporta', 18), h('span', null, 'Esporta')));
 
-  const monitor = h('div', { class: 'monitor-zona' }, player.el, recorder.el);
-  const divisore = h('div', { class: 'divisore', title: 'Trascina per dare più spazio ai monitor o alla timeline' });
-  radice.append(testa, bin.el, monitor, pannelloLato, puls.el, divisore, tl.el, statoBar, barraTel);
+  // ——— i bordi fra i pannelli si trascinano (doppio clic: chiude o riapre il pannello accanto) ———
+  const divisore = h('div', { class: 'divisore', title: 'Trascina per dare più spazio al monitor o alla timeline' });
+  const bordoBin = h('div', { class: 'bordo bordo-bin', title: 'Trascina per allargare il contenitore · doppio clic per chiuderlo/riaprirlo' });
+  const bordoLato = h('div', { class: 'bordo bordo-lato', title: 'Trascina per allargare il pannello · doppio clic per chiuderlo/riaprirlo' });
+  radice.dataset.pagina = 'montaggio';
+  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, puls.el, divisore, tl.el, statoBar, barraTel);
 
-  divisore.addEventListener('pointerdown', (e) => {
-    const y0 = e.clientY;
-    const h0 = monitor.getBoundingClientRect().height;
-    divisore.setPointerCapture(e.pointerId);
-    const mv = (ev: PointerEvent) => { radice.style.setProperty('--alto', Math.max(160, Math.min(innerHeight - 260, h0 + ev.clientY - y0)) + 'px'); };
-    const up = () => { divisore.removeEventListener('pointermove', mv); divisore.removeEventListener('pointerup', up); try { localStorage.setItem('dpv-alto', radice.style.getPropertyValue('--alto')); } catch { /* niente */ } };
-    divisore.addEventListener('pointermove', mv);
-    divisore.addEventListener('pointerup', up);
-  });
-  try { const a = localStorage.getItem('dpv-alto'); if (a) radice.style.setProperty('--alto', a); } catch { /* niente */ }
-
-  // il monitor attivo si vede anche nella vista singola
-  store.on('status', () => { radice.dataset.monitor = motore.attivo; });
-  radice.dataset.monitor = motore.attivo;
+  const VARI = ['--alto', '--bin', '--lato', '--fin', '--tlfin'];
+  const salvaBanco = () => {
+    try {
+      const o: Record<string, string> = {};
+      for (const v of VARI) { const x = radice.style.getPropertyValue(v); if (x) o[v] = x; }
+      localStorage.setItem('dpv-banco', JSON.stringify({ o, cls: ['senza-bin', 'senza-lato', 'senza-puls'].filter((c) => radice.classList.contains(c)) }));
+    } catch { /* niente */ }
+  };
+  const rimettiBanco = () => {
+    for (const v of VARI) radice.style.removeProperty(v);
+    radice.classList.remove('senza-bin', 'senza-lato', 'senza-puls');
+    salvaBanco();
+    setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
+  };
+  try {
+    const b = JSON.parse(localStorage.getItem('dpv-banco') ?? 'null') as { o: Record<string, string>; cls: string[] } | null;
+    if (b) { for (const [k, v] of Object.entries(b.o)) radice.style.setProperty(k, v); for (const c of b.cls) radice.classList.add(c); }
+  } catch { /* niente */ }
+  /** un bordo trascinabile: cambia una variabile del banco (in pixel) */
+  const trascinaBordo = (el: HTMLElement, calcola: (dx: number, dy: number, r0: DOMRect) => [string, number] | null, misura: () => DOMRect, chiudi?: string) => {
+    el.addEventListener('pointerdown', (e) => {
+      const x0 = e.clientX, y0 = e.clientY;
+      const r0 = misura();
+      el.setPointerCapture(e.pointerId);
+      el.classList.add('preso');
+      const mv = (ev: PointerEvent) => {
+        const r = calcola(ev.clientX - x0, ev.clientY - y0, r0);
+        if (r) radice.style.setProperty(r[0], Math.round(r[1]) + 'px');
+      };
+      const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.classList.remove('preso'); salvaBanco(); monitor.adatta(); };
+      el.addEventListener('pointermove', mv);
+      el.addEventListener('pointerup', up);
+    });
+    if (chiudi) el.addEventListener('dblclick', () => { radice.classList.toggle(chiudi); salvaBanco(); setTimeout(() => monitor.adatta(), 50); });
+  };
+  trascinaBordo(bordoBin, (dx, _dy, r0) => ['--bin', Math.max(180, Math.min(innerWidth * 0.5, r0.width + dx))], () => bin.el.getBoundingClientRect(), 'senza-bin');
+  trascinaBordo(bordoLato, (dx, _dy, r0) => radice.dataset.pagina === 'finale'
+    ? ['--fin', Math.max(280, Math.min(innerWidth * 0.55, r0.width - dx))]
+    : ['--lato', Math.max(230, Math.min(innerWidth * 0.45, r0.width - dx))], () => (radice.dataset.pagina === 'finale' ? finale.el : pannelloLato).getBoundingClientRect(), 'senza-lato');
+  trascinaBordo(divisore, (_dx, dy, r0) => radice.dataset.pagina === 'finale'
+    ? ['--tlfin', Math.max(90, Math.min(innerHeight - 220, r0.height - dy))]
+    : ['--alto', Math.max(160, Math.min(innerHeight - 220, r0.height + dy))], () => (radice.dataset.pagina === 'finale' ? tl.el : monitor.el).getBoundingClientRect());
 
   const larghezza = () => {
     const stretto = innerWidth < 900;
     radice.classList.toggle('stretto', stretto);
-    if (stretto) radice.classList.add('singolo');
   };
   addEventListener('resize', larghezza);
   larghezza();
@@ -196,8 +256,8 @@ export function avvia(radice: HTMLElement) {
   const extra: Record<string, () => void> = {
     'ctrl+s': () => salva(), 'ctrl+shift+s': () => salva(true), 'ctrl+o': () => apri(), 'ctrl+i': () => importaDialogo(),
     'ctrl+m': () => finestraEsporta(), 'ctrl+n': () => nuovo(), f1: () => finestraTasti(), '+': () => tl.zoom(1.5), '-': () => tl.zoom(1 / 1.5),
-    '\\': () => tl.adattaTutto(), g: () => { modi.zoneSicure = !modi.zoneSicure; recorder.disegnaSopra(); },
-    f11: () => void schermoIntero(),
+    '\\': () => tl.adattaTutto(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
+    f11: () => void schermoIntero(), f9: () => pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'),
   };
   addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
@@ -236,12 +296,12 @@ export function avvia(radice: HTMLElement) {
   // messaggi nella barra di stato per le azioni
   store.on('sel', () => {
     const n = store.sel.size;
-    if (n) msg.textContent = `${n} clip selezionat${n === 1 ? 'a' : 'e'} · 1 taglia · 2 elimina · 3 elimina e chiudi · 4 separa audio · Alt ↑↓ trasparenza · trascina per spostare`;
+    if (n) msg.textContent = `${n} clip scelt${n === 1 ? 'a' : 'e'} · 2 elimina · 3 elimina e chiudi · S separa/unisci · fx in fondo alla clip = effetti · trascina per spostare (non copre niente)`;
   });
 
   aggTesta();
   void riprendi().then((ok) => { if (ok) setTimeout(() => tl.adattaTutto(), 200); });
-  setTimeout(() => { player.adatta(); recorder.adatta(); tl.adattaTutto(); }, 60);
+  setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   void esegui;
-  return { tl, player, recorder };
+  return { tl, monitor, finale };
 }

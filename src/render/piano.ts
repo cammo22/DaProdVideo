@@ -18,7 +18,8 @@ export interface Sorgente {
 export interface Strato {
   trackId: string;
   a: Sorgente | null;
-  b: Sorgente;
+  /** null quando la clip esce con una transizione in coda e sotto non c'è niente della stessa traccia */
+  b: Sorgente | null;
   tr: Transition | null;
   /** avanzamento della transizione 0..1 */
   prog: number;
@@ -45,14 +46,21 @@ export function pianoVideo(p: Project, f: number): Strato[] {
     if (!c) continue;
     const opacity = clipOpacity(c, f) * t.opacity;
     let a: Sorgente | null = null, tr: Transition | null = null, prog = 1;
+    let b: Sorgente | null = sorgente(p, c, f);
     if (c.trIn && f < c.start + c.trIn.len) {
       tr = c.trIn;
       prog = (f - c.start + 0.5) / c.trIn.len;
       const prev = prevAdjacent(p, c);
       if (prev && VISIBILI.has(prev.kind)) a = sorgente(p, prev, f);
+    } else if (c.trOut && f >= end(c) - c.trOut.len) {
+      // in coda: la clip è la A che se ne va, la B è il vuoto (si vede quello che sta sotto)
+      tr = c.trOut;
+      prog = (f - (end(c) - c.trOut.len) + 0.5) / c.trOut.len;
+      a = b;
+      b = null;
     }
     if (opacity <= 0 && !tr) continue;
-    out.push({ trackId: t.id, a, b: sorgente(p, c, f), tr, prog, opacity });
+    out.push({ trackId: t.id, a, b, tr, prog, opacity });
   }
   return out;
 }

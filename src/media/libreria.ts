@@ -26,6 +26,16 @@ export interface MediaRT {
   errore?: string;
   vDecodable: boolean;
   aDecodable: boolean;
+  /** misura del colore per il colore automatico (livelli, bianco, luce) */
+  colore?: Analisi;
+}
+
+export interface Analisi {
+  lo: [number, number, number];
+  hi: [number, number, number];
+  wb: [number, number, number];
+  /** esponente per le mezzetinte: < 1 schiarisce le riprese buie */
+  gamma: number;
 }
 
 const rt = new Map<string, MediaRT>();
@@ -74,6 +84,7 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
       r.poster = r.image;
       r.vDecodable = true;
       r.stato = 'ok';
+      r.colore = analizza([r.image]);
       return r;
     }
     r.input = new Input({ source: sorgente(r), formats: ALL_FORMATS });
@@ -88,6 +99,7 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
       const cs = new CanvasSink(r.v, { width: 320, fit: 'contain' });
       const w = await cs.getCanvas(Math.min(dur * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
       if (w) r.poster = w.canvas;
+      void misuraColore(r, dur);
     }
     if (r.a && r.aDecodable) void calcolaPicchi(r, item.duration);
   } catch (e) {
@@ -172,6 +184,7 @@ export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: M
       const cs = new CanvasSink(v, { width: 320, fit: 'contain' });
       const w = await cs.getCanvas(Math.min(base.duration * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
       if (w) r.poster = w.canvas;
+      void misuraColore(r, base.duration);
     }
     if (a && r.aDecodable) void calcolaPicchi(r, base.duration);
     return { item: base, rt: r };
@@ -187,6 +200,55 @@ export function chiudi(id: string) {
   if (r?.path && isTauri) void invoke('media_chiudi', { path: r.path }).catch(() => {});
   r?.image?.close();
   rt.delete(id);
+}
+
+// ——— colore automatico ———
+const onAnalisi = new Set<() => void>();
+/** chi disegna si iscrive qui: il colore automatico di una ripresa è pronto */
+export const quandoAnalisi = (fn: () => void) => { onAnalisi.add(fn); return () => onAnalisi.delete(fn); };
+
+/** livelli, bianco e luce misurati su qualche fotogramma in piccolo: bastano pochi millisecondi */
+export function analizza(immagini: CanvasImageSource[]): Analisi {
+  const W = 64, H = 36;
+  const tela = new OffscreenCanvas(W, H);
+  const ctx = tela.getContext('2d', { willReadFrequently: true })!;
+  const ist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  let n = 0;
+  for (const im of immagini) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(im, 0, 0, W, H);
+    const d = ctx.getImageData(0, 0, W, H).data;
+    for (let i = 0; i < d.length; i += 4) { ist[0][d[i]]++; ist[1][d[i + 1]]++; ist[2][d[i + 2]]++; n++; }
+  }
+  const perc = (h: Uint32Array, q: number) => { let s = 0; const lim = q * n; for (let i = 0; i < 256; i++) { s += h[i]; if (s >= lim) return i / 255; } return 1; };
+  const lo = [0, 1, 2].map((c) => Math.min(perc(ist[c], 0.004), 0.12)) as [number, number, number];
+  const hi = [0, 1, 2].map((c) => Math.max(perc(ist[c], 0.996), 0.7)) as [number, number, number];
+  // medie dopo i livelli: il grigio medio dice quanto è sbilanciato il bianco e quanto è buia la ripresa
+  const media = [0, 1, 2].map((c) => {
+    let s = 0;
+    for (let i = 0; i < 256; i++) s += Math.max(0, Math.min(1, (i / 255 - lo[c]) / Math.max(0.05, hi[c] - lo[c]))) * ist[c][i];
+    return s / Math.max(1, n);
+  });
+  const grigio = (media[0] + media[1] + media[2]) / 3;
+  const wb = media.map((m) => 1 + (Math.max(0.86, Math.min(1.16, grigio / Math.max(0.02, m))) - 1) * 0.7) as [number, number, number];
+  const luce = Math.max(0.02, Math.min(0.98, grigio));
+  const gamma = Math.max(0.72, Math.min(1.25, Math.log(0.45) / Math.log(luce)));
+  return { lo, hi, wb, gamma };
+}
+
+async function misuraColore(r: MediaRT, durata: number) {
+  if (!r.v) return;
+  try {
+    // prima il monitor: la misura aspetta che il decoder sia libero
+    for (let attese = 0; decoderOccupato() && attese < 100; attese++) await new Promise((ok) => setTimeout(ok, 50));
+    const cs = new CanvasSink(r.v, { width: 96, fit: 'contain' });
+    const d = Math.max(0.1, durata);
+    const ts = [0.08, 0.3, 0.5, 0.7, 0.92].map((k) => (r.v ? k * d : 0));
+    const tele: CanvasImageSource[] = [];
+    for await (const w of cs.canvasesAtTimestamps(ts)) if (w) tele.push(w.canvas);
+    if (tele.length) r.colore = analizza(tele);
+    for (const fn of onAnalisi) fn();
+  } catch { /* niente colore automatico per questa ripresa */ }
 }
 
 // ——— forma d'onda ———

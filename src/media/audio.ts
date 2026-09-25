@@ -2,7 +2,7 @@
 // incroci; il tono di riferimento. Lo stesso grafo serve la riproduzione e l'export (OfflineAudioContext).
 import { AudioBufferSink } from 'mediabunny';
 import type { Clip, Project } from '../core/tipi';
-import { dbToGain, end, keyValue, mediaOf } from '../core/progetto';
+import { dbToGain, end, keyValue, masterDi, mediaOf } from '../core/progetto';
 import { f2s } from '../core/timecode';
 import { mediaRT } from './libreria';
 
@@ -14,14 +14,19 @@ function codaIncrocio(p: Project, c: Clip): number {
   return n?.trIn ? n.trIn.len : 0;
 }
 
-/** guadagno lineare della clip al fotogramma locale lf (linea elastica × dissolvenze × incroci) */
+/**
+ * Guadagno lineare della clip al fotogramma locale lf (linea elastica × dissolvenze × incroci).
+ * Attenzione al fotogramma della fine (lf = len): vale ancora il volume pieno. Prima qui c'era lo zero, e la
+ * rampa lineare verso quel punto abbassava piano piano tutta la clip: il "fade out automatico" che non si voleva.
+ */
 export function guadagnoClip(c: Clip, lf: number, coda: number): number {
   const db = c.gainKeys.length ? keyValue(c.gainKeys, lf, c.gain) : c.gain;
   let g = dbToGain(db);
   if (c.fadeIn > 0 && lf < c.fadeIn) g *= Math.max(0, lf / c.fadeIn);
   if (c.fadeOut > 0 && lf > c.len - c.fadeOut) g *= Math.max(0, (c.len - lf) / c.fadeOut);
   if (c.trIn && lf < c.trIn.len) g *= Math.max(0, lf / c.trIn.len);
-  if (lf >= c.len) g *= coda > 0 ? Math.max(0, 1 - (lf - c.len) / coda) : 0;
+  if (c.trOut && lf > c.len - c.trOut.len) g *= Math.max(0, (c.len - lf) / c.trOut.len);
+  if (lf > c.len) g *= coda > 0 ? Math.max(0, 1 - (lf - c.len) / coda) : 0;
   if (lf < 0) g = 0;
   return g;
 }
@@ -33,6 +38,7 @@ function puntiInviluppo(c: Clip, coda: number): number[] {
   if (c.fadeIn) add(0, c.fadeIn);
   if (c.fadeOut) add(c.len - c.fadeOut, c.len);
   if (c.trIn) add(0, c.trIn.len);
+  if (c.trOut) add(c.len - c.trOut.len, c.len);
   if (coda) add(c.len, c.len + coda);
   for (let i = 0; i < c.gainKeys.length; i++) {
     s.add(c.gainKeys[i].f);
@@ -56,6 +62,42 @@ function applicaInviluppo(g: GainNode, p: Project, c: Clip, coda: number, t0: nu
   }
 }
 
+/**
+ * Gli effetti audio della clip come catena di filtri: si inserisce fra le sorgenti e il guadagno della voce.
+ * Ritorna il nodo in cui far entrare l'audio (o il guadagno stesso se non ci sono effetti).
+ */
+function catenaEffetti(ctx: BaseAudioContext, c: Clip, uscita: AudioNode): AudioNode {
+  const fx = c.afx;
+  if (!fx || (!fx.voce && !fx.bassi && !fx.radio)) return uscita;
+  const nodi: BiquadFilterNode[] = [];
+  const f = (type: BiquadFilterType, freq: number, gain = 0, q = 0.707) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = freq; b.gain.value = gain; b.Q.value = q; nodi.push(b); };
+  if (fx.bassi || fx.voce) f('highpass', fx.voce ? 110 : 90);
+  if (fx.voce) { f('peaking', 3200, 4, 0.9); f('lowshelf', 220, -2.5); }
+  if (fx.radio) { f('highpass', 450, 0, 0.9); f('lowpass', 3200, 0, 0.9); f('peaking', 1600, 5, 1.2); }
+  for (let i = 0; i < nodi.length - 1; i++) nodi[i].connect(nodi[i + 1]);
+  nodi[nodi.length - 1].connect(uscita);
+  return nodi[0];
+}
+
+/** l'uscita finale: volume del Finale e limitatore (niente distorsione quando le tracce si sommano) */
+function uscitaFinale(ctx: BaseAudioContext, p: Project, dest: AudioNode): AudioNode[] {
+  const m = masterDi(p);
+  const g = ctx.createGain();
+  g.gain.value = dbToGain(m.volume);
+  if (m.limiter) {
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -1.5;
+    lim.knee.value = 0;
+    lim.ratio.value = 20;
+    lim.attack.value = 0.002;
+    lim.release.value = 0.12;
+    g.connect(lim).connect(dest);
+    return [g, lim];
+  }
+  g.connect(dest);
+  return [g];
+}
+
 interface Voce {
   clip: Clip;
   gain: GainNode;
@@ -65,6 +107,8 @@ interface Voce {
   until: number;
   finita: boolean;
   pumping: boolean;
+  /** dove entrano le sorgenti: i filtri della clip, o direttamente il guadagno */
+  ingresso?: AudioNode;
 }
 
 export interface Misure { l: number; r: number; lPeak: number; rPeak: number }
@@ -86,6 +130,10 @@ class Banco {
   private p: Project | null = null;
   private modo: 'timeline' | 'player' = 'timeline';
   private playerMedia: string | null = null;
+  /** volume e limitatore del Finale, fra il master e l'uscita */
+  private finale: AudioNode[] = [];
+  private uscita!: GainNode;
+  private firmaFinale = '';
   volumeMaster = 1;
 
   sveglia() {
@@ -97,13 +145,29 @@ class Banco {
       this.anL = ctx.createAnalyser();
       this.anR = ctx.createAnalyser();
       this.anL.fftSize = this.anR.fftSize = 2048;
-      this.master.connect(split);
+      // master → (volume e limitatore del Finale) → uscita → casse e VU: i VU misurano quello che esce davvero
+      this.uscita = ctx.createGain();
+      this.uscita.connect(split);
       split.connect(this.anL, 0);
       split.connect(this.anR, 1);
-      this.master.connect(ctx.destination);
+      this.uscita.connect(ctx.destination);
+      this.collegaFinale(this.p);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     return this.ctx;
+  }
+
+  /** il volume e il limitatore del Finale: si ricollega solo quando cambiano */
+  private collegaFinale(p: Project | null) {
+    if (!this.ctx) return;
+    const m = p ? masterDi(p) : null;
+    const firma = m ? `${m.volume}|${m.limiter}` : '-';
+    if (firma === this.firmaFinale && this.finale.length) return;
+    this.firmaFinale = firma;
+    try { this.master.disconnect(); } catch { /* non era collegato */ }
+    for (const n of this.finale) n.disconnect();
+    if (p) { this.finale = uscitaFinale(this.ctx, p, this.uscita); this.master.connect(this.finale[0]); }
+    else { this.finale = []; this.master.connect(this.uscita); }
   }
 
   /** secondi di timeline adesso (l'orologio è quello della scheda audio: il video lo segue) */
@@ -141,6 +205,7 @@ class Banco {
       b.pan.pan.setTargetAtTime(t.pan, this.ctx.currentTime, 0.015);
     }
     this.master.gain.setTargetAtTime(this.volumeMaster, this.ctx.currentTime, 0.015);
+    this.collegaFinale(p);
   }
 
   /** parte dalla timeline al secondo startSec */
@@ -233,14 +298,14 @@ class Banco {
       gain.connect(pan);
       pan.connect(this.bus(c.track).gain);
       applicaInviluppo(gain, p, c, coda, this.t0, this.startSec, now);
-      const v: Voce = { clip: c, gain, pan, nodes: [], until: now, finita: false, pumping: false };
+      const v: Voce = { clip: c, gain, pan, nodes: [], until: now, finita: false, pumping: false, ingresso: catenaEffetti(ctx, c, gain) };
       this.voci.set(c.id, v);
       if (c.kind === 'tone' || c.kind === 'beep') {
         const o = ctx.createOscillator();
         o.frequency.value = c.gen?.freq ?? 1000;
         const lv = ctx.createGain();
         lv.gain.value = dbToGain(c.gen?.level ?? -18);
-        o.connect(lv).connect(gain);
+        o.connect(lv).connect(v.ingresso ?? gain);
         const a = this.t0 + cs - this.startSec, b = this.t0 + ce - this.startSec;
         o.start(Math.max(now, a));
         o.stop(Math.max(now + 0.01, b));
@@ -299,13 +364,99 @@ class Banco {
         if (dur <= 0.0005) { if (when >= clipEnd) v.finita = true; continue; }
         const s = ctx.createBufferSource();
         s.buffer = buffer;
-        s.connect(v.gain);
+        s.connect(v.ingresso ?? v.gain);
         s.start(when, offset, dur);
         s.onended = () => { const i = v.nodes.indexOf(s); if (i >= 0) v.nodes.splice(i, 1); s.disconnect(); };
         v.nodes.push(s);
       }
     } catch { v.finita = true; }
     v.pumping = false;
+  }
+
+  // ——— scrub: un colpetto d'audio a ogni fotogramma (rotella, frecce, jog), per tagliare sulla parola ———
+  private scrubGiro = 0;
+  private scrubNodi: AudioScheduledSourceNode[] = [];
+  private scrubSinks = new Map<string, AudioBufferSink>();
+
+  private sinkAudio(mediaId: string): AudioBufferSink | null {
+    const r = mediaRT(mediaId);
+    if (!r?.a || !r.aDecodable) return null;
+    let s = this.scrubSinks.get(mediaId);
+    if (!s) { s = new AudioBufferSink(r.a); this.scrubSinks.set(mediaId, s); }
+    return s;
+  }
+
+  private async colpo(voci: { mediaId?: string; srcT: number; livello: number; bus: AudioNode; clip?: Clip; freq?: number }[], durata: number) {
+    const ctx = this.sveglia();
+    const giro = ++this.scrubGiro;
+    for (const n of this.scrubNodi) { try { n.stop(); } catch { /* già fermo */ } }
+    this.scrubNodi = [];
+    await Promise.all(voci.map(async (v) => {
+      if (v.livello <= 0.0005) return;
+      const pezzi: { buffer: AudioBuffer; timestamp: number }[] = [];
+      if (v.mediaId) {
+        const sink = this.sinkAudio(v.mediaId);
+        if (!sink) return;
+        try { for await (const b of sink.buffers(Math.max(0, v.srcT), v.srcT + durata)) { if (giro !== this.scrubGiro) return; pezzi.push(b); } } catch { return; }
+      }
+      if (giro !== this.scrubGiro || this.attivo) return;
+      const t0 = ctx.currentTime + 0.008;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(v.livello, t0 + 0.006);
+      g.gain.setValueAtTime(v.livello, t0 + durata - 0.014);
+      g.gain.linearRampToValueAtTime(0, t0 + durata);
+      g.connect(v.bus);
+      const ingresso = v.clip ? catenaEffetti(ctx, v.clip, g) : g;
+      if (v.freq) {
+        const o = ctx.createOscillator();
+        o.frequency.value = v.freq;
+        o.connect(ingresso);
+        o.start(t0);
+        o.stop(t0 + durata);
+        this.scrubNodi.push(o);
+      }
+      for (const { buffer, timestamp } of pezzi) {
+        let off = v.srcT - timestamp, when = t0;
+        if (off < 0) { when = t0 - off; off = 0; }
+        const dur = Math.min(buffer.duration - off, t0 + durata - when);
+        if (dur <= 0.001) continue;
+        const s = ctx.createBufferSource();
+        s.buffer = buffer;
+        s.connect(ingresso);
+        s.start(when, off, dur);
+        this.scrubNodi.push(s);
+      }
+      setTimeout(() => g.disconnect(), (durata + 0.3) * 1000);
+    }));
+  }
+
+  /** il suono della timeline al secondo sec, per un attimo (non mentre suona) */
+  scrub(p: Project, sec: number, durata = 0.085) {
+    if (this.attivo) return;
+    this.sveglia();
+    this.p = p;
+    this.aggiornaTracce(p);
+    const fr = p.rate;
+    const voci = [];
+    for (const c of p.clips) {
+      if (!SUONA.has(c.kind)) continue;
+      const t = p.tracks.find((x) => x.id === c.track);
+      if (!t || t.kind !== 'audio') continue;
+      const cs = f2s(c.start, fr);
+      if (sec < cs || sec >= f2s(end(c), fr)) continue;
+      const lf = (sec - cs) * fr.num / fr.den;
+      const livello = guadagnoClip(c, lf, 0) * (c.kind === 'media' ? 1 : dbToGain(c.gen?.level ?? -18));
+      voci.push({ mediaId: c.kind === 'media' ? c.media : undefined, srcT: c.srcIn + (sec - cs) * c.speed, livello, bus: this.bus(c.track).gain, clip: c, freq: c.kind === 'media' ? undefined : c.gen?.freq ?? 1000 });
+    }
+    void this.colpo(voci, durata);
+  }
+
+  /** il suono della sorgente nel monitor (modo sorgente) al secondo t */
+  scrubSorgente(mediaId: string, t: number, durata = 0.085) {
+    if (this.attivo) return;
+    this.sveglia();
+    void this.colpo([{ mediaId, srcT: t, livello: 1, bus: this.master }], durata);
   }
 
   /** livelli per i VU: rms (per la lancetta) e picco (per il led) dei due canali, 0..1 */
@@ -350,7 +501,7 @@ export async function* mixaggio(p: Project, fromSec: number, toSec: number): Asy
     const len = Math.max(1, Math.round((b - a) * SR));
     const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: len, sampleRate: SR });
     const master = ctx.createGain();
-    master.connect(ctx.destination);
+    master.connect(uscitaFinale(ctx, p, ctx.destination)[0]);
     const bus = new Map<string, GainNode>();
     for (const t of p.tracks) {
       if (t.kind !== 'audio') continue;
@@ -372,12 +523,13 @@ export async function* mixaggio(p: Project, fromSec: number, toSec: number): Asy
       pn.pan.value = c.pan;
       g.connect(pn).connect(tb);
       applicaInviluppo(g, p, c, coda, 0, a, 0);
+      const ingresso = catenaEffetti(ctx, c, g);
       if (c.kind === 'tone' || c.kind === 'beep') {
         const o = ctx.createOscillator();
         o.frequency.value = c.gen?.freq ?? 1000;
         const lv = ctx.createGain();
         lv.gain.value = dbToGain(c.gen?.level ?? -18);
-        o.connect(lv).connect(g);
+        o.connect(lv).connect(ingresso);
         o.start(Math.max(0, cs - a));
         o.stop(Math.max(0.001, Math.min(b, ce) - a));
         continue;
@@ -398,7 +550,7 @@ export async function* mixaggio(p: Project, fromSec: number, toSec: number): Asy
           if (dur <= 0) continue;
           const s = ctx.createBufferSource();
           s.buffer = buffer;
-          s.connect(g);
+          s.connect(ingresso);
           s.start(when, offset, dur);
         }
       })());

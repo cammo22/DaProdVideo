@@ -5,7 +5,7 @@ import { fps, f2s } from './core/timecode';
 import { projectEnd } from './core/progetto';
 import { banco } from './media/audio';
 import { fermaFlussi, fotogramma, prepara, pulisci, quandoFotogramma } from './media/fotogrammi';
-import { mediaRT } from './media/libreria';
+import { mediaRT, quandoAnalisi } from './media/libreria';
 import { Compositore } from './render/compositore';
 import { inArrivo, pianoVideo } from './render/piano';
 
@@ -37,6 +37,7 @@ class Motore {
 
   constructor() {
     quandoFotogramma(() => { this.sporcoRec = true; this.sporcoPlayer = true; });
+    quandoAnalisi(() => { this.sporcoRec = true; });
     store.on('doc', () => {
       this.sporcoRec = true;
       if (this.speed === 1 && this.attivo === 'recorder') banco.rimescola(store.doc);
@@ -138,15 +139,18 @@ class Motore {
     store.emit('status');
   }
 
-  /** passo di n fotogrammi sul monitor attivo */
-  passo(n: number) {
+  /** passo di n fotogrammi sul monitor attivo, con un colpetto d'audio per sentire dove si è */
+  passo(n: number, suono = true) {
     this.stop();
-    if (this.attivo === 'recorder') store.setHead(Math.max(0, Math.round(store.head) + n));
-    else {
+    if (this.attivo === 'recorder') {
+      store.setHead(Math.max(0, Math.round(store.head) + n));
+      if (suono) banco.scrub(store.doc, f2s(Math.round(store.head), store.doc.rate));
+    } else {
       const m = store.doc.media.find((x) => x.id === this.playerMedia);
       if (!m) return;
       const r = m.fps || fps(store.doc.rate);
       this.playerT = Math.max(m.t0 || 0, Math.min(m.duration || 0, this.playerT + n / r));
+      if (suono && m.hasAudio) banco.scrubSorgente(m.id, this.playerT);
       this.sporcoPlayer = true;
       store.emit('status');
     }

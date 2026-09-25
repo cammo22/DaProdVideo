@@ -13,7 +13,8 @@ import { motore } from '../motore';
 declare const __VERSIONE__: string;
 export const VERSIONE = __VERSIONE__;
 
-export function finestraEsporta() {
+/** la finestra dell'export; dalla pagina Finale arriva già con formato, qualità e misura scelti */
+export function finestraEsporta(preset: { formato?: string; qualita?: string; misura?: string } = {}) {
   const p = store.doc;
   motore.stop();
   const fine = projectEnd(p);
@@ -36,6 +37,9 @@ export function finestraEsporta() {
     h('option', { value: 'altissima' }, 'Altissima (master)'),
     h('option', { value: 'bassa' }, 'Bassa (anteprima)')) as HTMLSelectElement;
   const haInOut = p.inF !== null && p.outF !== null;
+  if (preset.formato) formato.value = preset.formato;
+  if (preset.qualita) qualita.value = preset.qualita;
+  if (preset.misura && [...misura.options].some((o) => o.value === preset.misura)) misura.value = preset.misura;
   const soloInOut = h('input', { type: 'checkbox', checked: haInOut, disabled: !haInOut }) as HTMLInputElement;
   const codec = h('span', { class: 'nota' }, 'controllo i codec…');
   const aggCodec = async () => {

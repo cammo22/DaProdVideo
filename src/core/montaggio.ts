@@ -2,10 +2,12 @@
 // I nomi sono quelli della centralina: taglia, elimina, elimina e chiudi, solleva (lift), estrai (extract),
 // inserisci, sovrascrivi, trim, roll, slip.
 import type { Clip, Key, Project, Transition } from './tipi';
-import { clipsOn, end, handles, keyValue, mediaOf, newClip, srcTimeAt, trackOf, uid, isVideoClip } from './progetto';
+import { clipsOn, end, handles, keyValue, mediaOf, newClip, newTrack, nextTrackName, srcTimeAt, trackOf, uid, isVideoClip } from './progetto';
 import { f2s } from './timecode';
 
-export type EditMode = 'insert' | 'overwrite';
+/** insert = fa spazio spostando avanti il resto · overwrite = copre (solo il montaggio a tre punti) ·
+ *  libero = non tocca nessun'altra clip: si ferma contro le vicine o cerca una traccia libera */
+export type EditMode = 'insert' | 'overwrite' | 'libero';
 
 /** divide una linea elastica al fotogramma locale cut */
 function splitKeys(keys: Key[], cut: number, base: number): [Key[], Key[]] {
@@ -52,17 +54,11 @@ export function withLinked(p: Project, ids: Iterable<string>): Set<string> {
 const unlocked = (p: Project, c: Clip) => !trackOf(p, c.track).lock;
 
 /**
- * Tasto 1: taglia sotto il cursore. Se ci sono clip selezionate sotto il cursore taglia quelle (e le legate),
- * altrimenti tutte le clip attraversate dal cursore sulle tracce non bloccate.
- * Ritorna gli id dei pezzi di destra.
+ * Tasto 1: taglia sotto il cursore. Taglia solo le tracce accese (se ce ne sono), altrimenti tutte quelle
+ * non bloccate: le altre restano intatte. Ritorna gli id dei pezzi di destra.
  */
-export function splitAt(p: Project, f: number, selected: Set<string>): string[] {
-  let targets = p.clips.filter((c) => c.start < f && end(c) > f && unlocked(p, c));
-  const sel = targets.filter((c) => selected.has(c.id));
-  if (sel.length) {
-    const ids = withLinked(p, sel.map((c) => c.id));
-    targets = targets.filter((c) => ids.has(c.id));
-  }
+export function splitAt(p: Project, f: number, tracce?: Set<string> | null): string[] {
+  const targets = p.clips.filter((c) => c.start < f && end(c) > f && unlocked(p, c) && (!tracce?.size || tracce.has(c.track)));
   const linkMap = new Map<string, string>();
   const out: string[] = [];
   for (const c of targets) {
@@ -75,6 +71,24 @@ export function splitAt(p: Project, f: number, selected: Set<string>): string[] 
     if (r) out.push(r.id);
   }
   return out;
+}
+
+/** la clip che viene dopo c sulla stessa traccia (per selezionarla dopo un'eliminazione) */
+export function clipDopo(p: Project, track: string, f: number, esclusi?: Set<string>): Clip | undefined {
+  return p.clips.filter((c) => c.track === track && c.start >= f && !esclusi?.has(c.id)).sort((a, b) => a.start - b.start)[0];
+}
+
+/**
+ * Elimina lo scarto da un lato del punto f (clic destro o Q/W): la clip resta solo dall'altra parte.
+ * Con il ripple il buco si chiude sulle tracce delle clip toccate.
+ */
+export function eliminaLato(p: Project, ids: Set<string>, f: number, lato: 'sinistra' | 'destra', ripple: boolean): number {
+  let n = 0;
+  for (const c of p.clips.filter((x) => ids.has(x.id) && x.start < f && end(x) > f && unlocked(p, x))) {
+    const d = lato === 'sinistra' ? f - c.start : f - end(c);
+    if (trimClip(p, c.id, lato === 'sinistra' ? 'in' : 'out', d, { ripple, linked: false })) n++;
+  }
+  return n;
 }
 
 /** toglie dal progetto le clip; con ripple chiude i buchi sulle stesse tracce */
@@ -151,13 +165,58 @@ export function extract(p: Project, a: number, b: number) {
   for (const c of p.clips) if (!trackOf(p, c.track).lock && c.start >= b) c.start -= b - a;
 }
 
+/** c'è già una clip (fuori da except) sulla traccia fra a e b? */
+export function occupato(p: Project, trackId: string, a: number, b: number, except?: Set<string>): boolean {
+  return p.clips.some((c) => c.track === trackId && !except?.has(c.id) && c.start < b && end(c) > a);
+}
+
+/**
+ * Una traccia del tipo giusto libera fra a e b: prima quella preferita, poi le vicine (il video sale,
+ * l'audio scende), e se sono tutte piene se ne apre una nuova. Così niente viene mai coperto.
+ */
+export function tracciaLibera(p: Project, kind: 'video' | 'audio', preferita: string | null, a: number, b: number, except?: Set<string>, evita?: Set<string>): string {
+  const list = p.tracks.filter((t) => t.kind === kind && !t.lock);
+  const i0 = Math.max(0, list.findIndex((t) => t.id === preferita));
+  const ordine = kind === 'video'
+    ? [...list.slice(0, i0 + 1).reverse(), ...list.slice(i0 + 1)]
+    : [...list.slice(i0), ...list.slice(0, i0).reverse()];
+  const t = ordine.find((x) => !evita?.has(x.id) && !occupato(p, x.id, a, b, except));
+  if (t) return t.id;
+  const nt = newTrack(kind, nextTrackName(p, kind));
+  if (kind === 'video') p.tracks.unshift(nt); else p.tracks.push(nt);
+  return nt.id;
+}
+
+/**
+ * Di quanto si può spostare il gruppo senza coprire nessuna clip ferma: se dove lo vuoi c'è posto va lì,
+ * altrimenti si ferma attaccato alla clip più vicina (come due mattoncini che si toccano).
+ */
+function spostamentoLibero(moving: { c: Clip; track: string }[], df: number, fermi: Map<string, Clip[]>): number | null {
+  const valido = (d: number) => moving.every(({ c, track }) => {
+    if (c.start + d < 0) return false;
+    const a = c.start + d, b = end(c) + d;
+    return !(fermi.get(track) ?? []).some((x) => x.start < b && end(x) > a);
+  });
+  if (valido(df)) return df;
+  const cand = new Set<number>([-Math.min(...moving.map((m) => m.c.start))]);
+  for (const { c, track } of moving) for (const x of fermi.get(track) ?? []) { cand.add(end(x) - c.start); cand.add(x.start - end(c)); }
+  let best: number | null = null, bd = Infinity;
+  for (const d of cand) {
+    const dd = Math.abs(d - df);
+    if (dd < bd && valido(d)) { bd = dd; best = d; }
+  }
+  return best;
+}
+
 /**
  * Sposta le clip (già comprese le legate) di df fotogrammi e, per quelle del tipo trascinato, di dt tracce.
- * Sovrascrivi: le clip sotto vengono tagliate. Inserisci: le clip dopo il punto d'arrivo scorrono avanti.
+ * Libero (normale): non si mangia niente, la clip si ferma contro le vicine. Inserisci: le clip dopo il
+ * punto d'arrivo scorrono avanti. Sovrascrivi resta solo per chi lo chiede apposta.
+ * Ritorna lo spostamento davvero fatto.
  */
-export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, dragKind: 'video' | 'audio', mode: EditMode) {
+export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, dragKind: 'video' | 'audio', mode: EditMode): { df: number; dt: number } {
   const moving = p.clips.filter((c) => ids.has(c.id) && unlocked(p, c));
-  if (!moving.length) return;
+  if (!moving.length) return { df: 0, dt: 0 };
   const minStart = Math.min(...moving.map((c) => c.start));
   if (minStart + df < 0) df = -minStart;
   const kinds = { video: p.tracks.filter((t) => t.kind === 'video'), audio: p.tracks.filter((t) => t.kind === 'audio') };
@@ -165,28 +224,43 @@ export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, 
   if (dt !== 0) {
     const list = kinds[dragKind];
     const idx = moving.filter((c) => trackOf(p, c.track).kind === dragKind).map((c) => list.findIndex((t) => t.id === c.track));
-    const lo = Math.min(...idx), hi = Math.max(...idx);
-    if (lo + dt < 0) dt = -lo;
-    if (hi + dt > list.length - 1) dt = list.length - 1 - hi;
-  }
-  for (const c of moving) {
-    c.start += df;
-    const t = trackOf(p, c.track);
-    if (dt && t.kind === dragKind) {
-      const list = kinds[dragKind];
-      const nt = list[list.findIndex((x) => x.id === c.track) + dt];
-      if (nt && !nt.lock) c.track = nt.id;
+    if (idx.length) {
+      const lo = Math.min(...idx), hi = Math.max(...idx);
+      if (lo + dt < 0) dt = -lo;
+      if (hi + dt > list.length - 1) dt = list.length - 1 - hi;
     }
   }
+  const destinazione = (c: Clip, d: number) => {
+    const t = trackOf(p, c.track);
+    if (!d || t.kind !== dragKind) return c.track;
+    const list = kinds[dragKind];
+    const nt = list[list.findIndex((x) => x.id === c.track) + d];
+    return nt && !nt.lock ? nt.id : c.track;
+  };
   const moved = new Set(moving.map((c) => c.id));
+  if (mode === 'libero') {
+    const fermi = new Map<string, Clip[]>();
+    for (const c of p.clips) if (!moved.has(c.id)) { if (!fermi.has(c.track)) fermi.set(c.track, []); fermi.get(c.track)!.push(c); }
+    const prova = (d: number) => spostamentoLibero(moving.map((c) => ({ c, track: destinazione(c, d) })), df, fermi);
+    let dfOk = prova(dt);
+    if (dfOk === null && dt) { dt = 0; dfOk = prova(0); }
+    if (dfOk === null) return { df: 0, dt: 0 };
+    df = dfOk;
+  }
+  for (const c of moving) {
+    const nt = destinazione(c, dt);
+    c.start += df;
+    c.track = nt;
+  }
   if (mode === 'overwrite') {
     for (const c of moving) clearRange(p, c.track, c.start, end(c), moved);
-  } else {
+  } else if (mode === 'insert') {
     const a = Math.min(...moving.map((c) => c.start));
     const b = Math.max(...moving.map((c) => end(c)));
     insertSpace(p, a, b - a, new Set(moving.map((c) => c.track)), moved);
   }
   fixTransitions(p);
+  return { df, dt };
 }
 
 export interface TrimOpts { ripple: boolean; linked: boolean }
@@ -267,16 +341,23 @@ export function slipClip(p: Project, ids: Set<string>, d: number) {
   }
 }
 
-/** separa (o riunisce) video e audio */
-export function toggleLink(p: Project, ids: Set<string>): 'separati' | 'uniti' {
+/**
+ * Tasto S (o 4): separa o unisce. Se le clip scelte sono un gruppo solo, il gruppo si scioglie e ognuna va
+ * per conto suo; se sono più gruppi o clip sciolte, diventano un gruppo solo che si muove insieme.
+ */
+export function toggleLink(p: Project, ids: Set<string>): 'separati' | 'uniti' | 'niente' {
   const cs = p.clips.filter((c) => ids.has(c.id));
-  if (cs.some((c) => c.link)) {
-    const links = new Set(cs.map((c) => c.link).filter(Boolean));
-    for (const c of p.clips) if (c.link && links.has(c.link)) c.link = undefined;
+  if (!cs.length) return 'niente';
+  const links = new Set(cs.map((c) => c.link ?? '∅' + c.id));
+  if (links.size === 1 && cs[0].link) {
+    const l = cs[0].link;
+    for (const c of p.clips) if (c.link === l) c.link = undefined;
     return 'separati';
   }
+  if (cs.length < 2) return 'niente';
   const l = uid('l');
-  for (const c of cs) c.link = l;
+  const vecchi = new Set(cs.map((c) => c.link).filter(Boolean));
+  for (const c of p.clips) if (ids.has(c.id) || (c.link && vecchi.has(c.link))) c.link = l;
   return 'uniti';
 }
 
@@ -289,18 +370,24 @@ export function prevAdjacent(p: Project, c: Clip): Clip | undefined {
 export function fixTransitions(p: Project) {
   for (const c of p.clips) {
     if (c.trIn) c.trIn.len = Math.max(1, Math.min(c.trIn.len, c.len));
+    if (c.trOut) c.trOut.len = Math.max(1, Math.min(c.trOut.len, c.len));
+    // la transizione in coda vale solo se dopo la clip non c'è niente di attaccato
+    if (c.trOut && p.clips.some((x) => x.track === c.track && x.id !== c.id && x.start === end(c))) c.trOut = undefined;
   }
 }
 
-/** mette una transizione in testa alla clip (e alla sua audio legata come dissolvenza incrociata) */
-export function setTransition(p: Project, ids: Set<string>, tr: Transition | null) {
+/**
+ * Mette una transizione in testa alla clip (lato 'in') o in coda ('out'), e alla sua audio legata come
+ * dissolvenza. Le clip non si allungano e non si accorciano: la transizione vive dentro la loro durata.
+ */
+export function setTransition(p: Project, ids: Set<string>, tr: Transition | null, lato: 'in' | 'out' = 'in') {
   for (const c of p.clips) {
     if (!ids.has(c.id)) continue;
-    if (!tr) { c.trIn = undefined; continue; }
+    if (!tr) { if (lato === 'in') c.trIn = undefined; else c.trOut = undefined; continue; }
     const t = structuredClone(tr);
-    if (!isVideoClip(c)) { t.type = 'mix'; }
+    if (!isVideoClip(c, p)) { t.type = 'mix'; }
     t.len = Math.max(1, Math.min(t.len, c.len));
-    c.trIn = t;
+    if (lato === 'in') c.trIn = t; else c.trOut = t;
   }
 }
 
@@ -322,21 +409,28 @@ export function placeSource(p: Project, src: SourceRange, recIn: number, recOut:
   const ta = m.hasAudio ? tg.audio.slice(0, m.channels > 2 ? 2 : 1) : [];
   if (!tv && !ta.length) return [];
   const involved = new Set<string>([...(tv ? [tv] : []), ...ta]);
+  let tvOk = tv, taOk = ta;
   if (mode === 'insert') {
     const all = new Set(p.tracks.filter((t) => !t.lock).map((t) => t.id));
     insertSpace(p, recIn, len, all);
-  } else {
+  } else if (mode === 'overwrite') {
     for (const t of involved) clearRange(p, t, recIn, recIn + len);
+  } else {
+    // libero: se la traccia è occupata si va su una libera (o se ne apre una), niente viene coperto
+    if (tv) tvOk = tracciaLibera(p, 'video', tv, recIn, recIn + len);
+    taOk = [];
+    // due canali sulla stessa traccia no: ognuno cerca la sua
+    for (const t of ta) taOk.push(tracciaLibera(p, 'audio', t, recIn, recIn + len, undefined, new Set(taOk)));
   }
-  const link = tv && ta.length ? uid('l') : undefined;
+  const link = tvOk && taOk.length ? uid('l') : undefined;
   const out: string[] = [];
   const base = { media: m.id, name: m.name, srcIn: src.srcIn, link };
-  if (tv) {
-    const c = newClip('media', tv, recIn, len, base);
+  if (tvOk) {
+    const c = newClip('media', tvOk, recIn, len, base);
     p.clips.push(c);
     out.push(c.id);
   }
-  for (const t of ta) {
+  for (const t of taOk) {
     const c = newClip('media', t, recIn, len, base);
     p.clips.push(c);
     out.push(c.id);

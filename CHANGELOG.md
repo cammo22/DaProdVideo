@@ -4,6 +4,64 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.3] — 2026-09-25 · Un monitor solo, il contenitore nuovo e la pagina Finale 🎬
+
+### Il banco rifatto
+- **Un monitor solo**: mostra il montaggio (PROGRAMMA). Doppio clic su un file del contenitore e mostra la **SORGENTE**, con attacco, stacco e i tasti INS/SOVR; **Tab** o "⟵ MONTAGGIO" torna al programma.
+- **Tutto si ridimensiona**: trascina i bordi fra contenitore, monitor, proprietà e timeline (doppio clic sul bordo chiude o riapre il pannello). Il banco si ricorda come l'hai sistemato; *Vista → Rimetti il banco come all'inizio* torna com'era.
+- **Doppio clic sull'immagine = schermo intero**, con sotto la **timeline in piccolo** (clic per andare in un punto), il timecode, il play e i **VU a barre**.
+
+### Il contenitore nuovo
+- **Tutto in un posto, in ordine**: Tutto · Video · Musica · Immagini · Transizioni · Titoli · Effetti.
+- Schede grandi con la locandina, la durata e quante volte la usi. **Passa il mouse su un video e scorre avanti e indietro** col puntatore: vedi al volo se è quello giusto.
+- **"+" sulla scheda** la mette al cursore e porta il cursore alla fine: "+", "+", "+" e hai la scaletta.
+
+### La timeline
+- **Tracce più spesse**: l'audio più alto (si vede bene l'onda), il video più basso. I progetti di prima si aggiornano da soli.
+- **Via i cursori a sinistra**: testate nuove con il nome grande, i tasti occhio/muto/solo/lucchetto e una **manopola** per trasparenza o volume della traccia (trascina su e giù, doppio clic = zero). Sulle tracce audio c'è la lucina del livello.
+- **Tracce accese**: clic sul nome di una o più tracce e **il taglio (1) tocca solo quelle**, le altre restano intatte. Le tracce accese ricevono anche il montaggio dal monitor. Alt+clic = solo quella.
+- **Il volume sempre in vista** sulle clip audio: la **linea gialla**. Trascinala su e giù; **doppio clic** mette un punto (doppio clic sul punto lo toglie); tasto destro → **"Abbassa qui"** o **"Alza qui"** fa la conca per due secondi e poi torna normale; "Volume normale" toglie tutto.
+- **"fx" in fondo a ogni clip**: gli effetti al volo con la spunta, e un puntino per ogni effetto acceso.
+- **Rotella = un fotogramma per scatto, col suono** (per tagliare sulla sillaba). **Ctrl+rotella** zoom, **Shift+rotella** scorre, **Alt+rotella** su e giù fra le tracce. Anche le frecce e il cursore trascinato fanno sentire l'audio.
+
+### Il montaggio non mangia più niente
+- **Spostare una clip non copre le altre**: si ferma attaccata alla vicina, come due mattoncini. La calamita resta. Anche i bordi (trim) si fermano contro la clip accanto.
+- **Una ripresa lasciata dove è occupato va su una traccia libera** (o su una nuova, se servono): niente viene tagliato. Lo stesso per titoli, generatori e incolla. Solo **SOVR** dal monitor copre, come sulle centraline.
+- Il modo della pulsantiera ora è **LIBERO / INSERISCI** (Ins).
+
+### I tasti
+- **S separa o unisce**: un gruppo scelto si separa (audio e video per conto loro); più clip o più gruppi scelti diventano **un gruppo solo** che si muove insieme. Anche **4** come prima.
+- **1 taglia e sceglie il pezzo più corto** (quasi sempre lo scarto): premi **2** e sparisce.
+- **2 elimina e passa alla clip dopo**: 2, 2, 2 pulisce di seguito.
+- **Q** e **W**: via lo **scarto a sinistra** o **a destra** del cursore. Anche col tasto destro sulla clip, proprio nel punto dove clicchi.
+- **F9**: pagina Montaggio ↔ pagina Finale. **Shift+Q** segna attacco e stacco sulla clip (prima era Q). Le frecce ↑↓ e PagSu/PagGiù vanno ai tagli (A e S non più).
+
+### Transizioni che si mettono come i generatori
+- **Clic sulla transizione** e va sul taglio più vicino al cursore, anche se non ci sei proprio sopra.
+- **Trascinala** su un taglio, **su una clip** (va sul bordo più vicino) o **sul bordo libero** di una clip: all'inizio entra da quello che c'è sotto, alla fine **esce** (transizione in coda, nuova). Mentre la trascini si accende il punto dove cadrà.
+- **Le clip non cambiano durata**: la transizione vive dentro la clip.
+
+### Proprietà semplici
+- In alto il **riassunto** (tipo, dove sta, quanto dura, da che file viene). Poi gli **effetti al volo** come interruttori: colore automatico, vivace, più luce, caldo, freddo, bianco e nero, seppia, pellicola, VHS, tubo catodico, vignetta, **zoom lento**, specchia, entra ed esce. Per l'audio: **livella il volume**, **voce chiara**, taglia bassi, radio/telefono, entra ed esce, muto.
+- Poche regolazioni: opacità, zoom, luce, contrasto, saturazione, temperatura, volume, durata, transizioni in testa e in coda (½ s, 1 s, 2 s). Posizione, ritaglio e chiave sono in "Avanzate", chiuse.
+- Gli stessi effetti sono nel contenitore (sezione Effetti): clic sulle clip scelte o **trascinali sopra una clip**.
+
+### La pagina Finale
+- Il montaggio intero nel monitor grande, la timeline sotto, e a destra i ritocchi che valgono per **tutto**:
+  - **Riepilogo**: durata, quante clip, e cosa non va (file da ricollegare, **buchi neri**: clic e ci vai).
+  - **Colore automatico** su tutte le riprese (acceso di serie): ogni ripresa viene misurata e nero, bianco e luce si sistemano da soli, così le clip si somigliano. Con la forza regolabile; una clip può fare eccezione dal suo "fx".
+  - **Look**: naturale, cinema, caldo, freddo, vivace, vintage, bianco e nero, pellicola, notte, con l'intensità.
+  - **Ritocchi**: luce, contrasto, saturazione, temperatura, tinta, vignetta, grana.
+  - **PRIMA | DOPO**: a sinistra com'era, a destra col colore finale.
+  - **Audio finale**: volume e **limitatore** (niente distorsione), e "Livella il volume di tutte le clip".
+  - **Esporta**: formato, qualità e misura con un clic, poi ESPORTA IL MASTER. EDL e fotogramma PNG a portata di mano.
+- Il colore finale e l'audio finale escono uguali nei monitor e nel file esportato.
+
+### Correzioni
+- **L'audio si abbassava piano piano fino alla fine della clip** (il "fade out automatico"): era un errore nell'inviluppo del volume, sistemato sia in riproduzione sia nell'export.
+- Le clip audio non vengono più scambiate per video (nelle proprietà di un audio uscivano i comandi del video).
+- Il fotogramma dell'anteprima nel contenitore si libera appena togli il mouse.
+
 ## [1.0.2] — 2026-09-24 · Istantanee e transizioni da regia digitale 📸
 
 ### Istantanea del fotogramma
