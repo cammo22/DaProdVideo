@@ -698,7 +698,10 @@ try {
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
     prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
     const b = await suona(300);
-    prova('col proxy il play parte subito anche dal mezzo', b.diversi >= 4 && b.nati <= 3, JSON.stringify(b));
+    // col proxy (un fotogramma chiave ogni mezzo secondo), su una macchina lenta il flusso rimasto indietro riparte dal
+    // fotogramma chiave dopo per restare a tempo con l'audio: qualche ripartenza va bene, a raffica no (il vecchio
+    // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
+    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.diversi >= 4 && b.nati <= 6, JSON.stringify(b));
     await pg.close();
   }
 
