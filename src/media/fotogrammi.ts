@@ -233,7 +233,9 @@ function flussoDi(k: string, l: Lettore, t: number): Flusso {
     const indietro = t < f.from - 0.05 || (!!f.current && t < f.current.timestamp - 0.05);
     const finito = f.done && !f.queue.length && !!f.current && t > f.current.timestamp + 1;
     if (indietro || finito || f.ripartire) { f.close(); flussi.delete(k); f = undefined; }
-    else if (f.ahead(t) < -0.6) f.valuta(t);
+    // indietro, ma solo dopo il primo fotogramma: un flusso appena ripartito va lasciato lavorare (se no si
+    // ricomincia di continuo e si butta via la decodifica già fatta)
+    else if (f.partito && f.ahead(t) < -0.6) f.valuta(t);
   }
   if (!f) { f = new Flusso(l, t); flussi.set(k, f); }
   return f;
