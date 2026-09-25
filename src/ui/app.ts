@@ -17,6 +17,7 @@ import { installaTastiera } from './tastiera';
 import { finestraEsporta, finestraInfo, finestraProgetto, finestraTasti, esportaEdl, esportaFotogramma, VERSIONE } from './dialoghi';
 import { apri, autosalva, importaDaDrop, importaDialogo, importaFile, nuovo, ricollega, riprendi, salva } from '../progetti';
 import { edizione, isAndroid, isTauri, apriLink, schermoIntero } from '../platform';
+import { finestraAggiornamenti, finestraNovita, novitaDopoAggiornamento, tastoAggiornamenti } from './aggiornamenti';
 import { montaggioDimostrativo } from '../demo';
 import { FORMATI } from '../core/tipi';
 import { statoDecoder } from '../media/fotogrammi';
@@ -110,6 +111,7 @@ export function avvia(radice: HTMLElement) {
       { nome: 'Contenitore', spunta: !radice.classList.contains('senza-bin'), fn: () => { radice.classList.toggle('senza-bin'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
       { nome: 'Proprietà', spunta: !radice.classList.contains('senza-lato'), fn: () => { radice.classList.toggle('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
       { nome: 'Pulsantiera', spunta: !radice.classList.contains('senza-puls'), fn: () => { radice.classList.toggle('senza-puls'); salvaBanco(); } },
+      { nome: 'Timeline stretta (proprietà e VU fino in fondo)', tasto: 'V', spunta: radice.classList.contains('lato-lungo'), fn: () => vistaStretta() },
       { nome: 'Rimetti il banco come all\'inizio', fn: () => rimettiBanco() },
       { sep: true },
       { nome: 'Monitor a schermo intero (con la timeline)', fn: () => monitor.pieno() },
@@ -122,7 +124,8 @@ export function avvia(radice: HTMLElement) {
     ]],
     ['Aiuto', () => [
       { nome: 'Tasti della centralina', tasto: 'F1', fn: () => finestraTasti() },
-      { nome: 'Novità (changelog)', fn: () => apriLink('https://github.com/cammo22/DaProdVideo/blob/main/CHANGELOG.md') },
+      { nome: `Novità della ${VERSIONE}`, fn: () => finestraNovita() },
+      ...(isTauri ? [{ nome: 'Aggiornamenti…', fn: () => void finestraAggiornamenti() }] : []),
       { nome: 'Scarica le app (Windows, Mac, Android)', fn: () => apriLink('https://github.com/cammo22/DaProdVideo/releases/latest') },
       { nome: 'Informazioni su DaProd Video', fn: () => finestraInfo() },
     ]],
@@ -171,6 +174,7 @@ export function avvia(radice: HTMLElement) {
     h('div', { class: 'testata-destra' },
       nomeProgetto, formato,
       h('span', { class: 'badge edizione' + (isTauri ? '' : ' prova') }, isTauri ? edizione : 'VERSIONE PROVA · WEB'),
+      tastoAggiornamenti(icona),
       h('button', { class: 'btn-icona', title: 'Importa (Ctrl+I)', on: { click: () => importaDialogo() } }, icona('importa', 18)),
       h('button', { class: 'btn-icona', title: 'Salva (Ctrl+S)', on: { click: () => salva() } }, icona('salva', 18)),
       h('button', { class: 'btn primario piccolo', title: 'Esporta il master (Ctrl+M)', on: { click: () => finestraEsporta() } }, icona('esporta', 15), 'Esporta')));
@@ -210,12 +214,12 @@ export function avvia(radice: HTMLElement) {
     try {
       const o: Record<string, string> = {};
       for (const v of VARI) { const x = radice.style.getPropertyValue(v); if (x) o[v] = x; }
-      localStorage.setItem('dpv-banco', JSON.stringify({ o, cls: ['senza-bin', 'senza-lato', 'senza-puls'].filter((c) => radice.classList.contains(c)) }));
+      localStorage.setItem('dpv-banco', JSON.stringify({ o, cls: ['senza-bin', 'senza-lato', 'senza-puls', 'lato-lungo'].filter((c) => radice.classList.contains(c)) }));
     } catch { /* niente */ }
   };
   const rimettiBanco = () => {
     for (const v of VARI) radice.style.removeProperty(v);
-    radice.classList.remove('senza-bin', 'senza-lato', 'senza-puls');
+    radice.classList.remove('senza-bin', 'senza-lato', 'senza-puls', 'lato-lungo');
     salvaBanco();
     setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   };
@@ -248,6 +252,16 @@ export function avvia(radice: HTMLElement) {
     ? ['--tlfin', Math.max(90, Math.min(innerHeight - 220, r0.height - dy))]
     : ['--alto', Math.max(160, Math.min(innerHeight - 220, r0.height + dy))], () => (radice.dataset.pagina === 'finale' ? tl.el : monitor.el).getBoundingClientRect());
 
+  /** tasto V: la timeline si stringe e la colonna di destra (VU, proprietà, mixer) scende fino in fondo, o torna larga */
+  const vistaStretta = () => {
+    const on = radice.classList.toggle('lato-lungo');
+    if (on) radice.classList.remove('senza-lato');
+    salvaBanco();
+    setTimeout(() => { monitor.adatta(); }, 60);
+    avviso(on ? 'Timeline stretta: proprietà, mixer e VU fino in fondo (V per tornare)' : 'Timeline larga (V per stringerla)', 'info', 1400);
+  };
+  document.addEventListener('dpv:vista', vistaStretta);
+
   const larghezza = () => {
     const stretto = innerWidth < 900;
     radice.classList.toggle('stretto', stretto);
@@ -260,7 +274,7 @@ export function avvia(radice: HTMLElement) {
   const extra: Record<string, () => void> = {
     'ctrl+s': () => salva(), 'ctrl+shift+s': () => salva(true), 'ctrl+o': () => apri(), 'ctrl+i': () => importaDialogo(),
     'ctrl+m': () => finestraEsporta(), 'ctrl+n': () => nuovo(), f1: () => finestraTasti(), '+': () => tl.zoom(1.5), '-': () => tl.zoom(1 / 1.5),
-    '\\': () => tl.adattaTutto(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
+    '\\': () => tl.adattaTutto(), v: () => vistaStretta(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
     f11: () => void schermoIntero(), f9: () => pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'),
   };
   addEventListener('keydown', (e) => {
@@ -304,6 +318,7 @@ export function avvia(radice: HTMLElement) {
   });
 
   aggTesta();
+  novitaDopoAggiornamento();
   void riprendi().then((ok) => { if (ok) setTimeout(() => tl.adattaTutto(), 200); });
   setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   void esegui;

@@ -4,6 +4,10 @@
 import type { Clip, Key, Project, TrackKind, Transition } from './tipi';
 import { clipsOn, end, handles, keyValue, mediaOf, newClip, newTrack, nextTrackName, srcTimeAt, trackOf, uid, isVideoClip } from './progetto';
 import { f2s } from './timecode';
+import { blocchiDi, centro } from './blocchi';
+
+/** una clip "vera" (occupa posto sulla traccia): i blocchetti FX no, stanno sopra le clip */
+export const solida = (c: Clip) => c.kind !== 'fx';
 
 /** insert = fa spazio spostando avanti il resto · overwrite = copre (solo il montaggio a tre punti) ·
  *  libero = non tocca nessun'altra clip: si ferma contro le vicine o cerca una traccia libera */
@@ -58,9 +62,9 @@ const unlocked = (p: Project, c: Clip) => !trackOf(p, c.track).lock;
  * non bloccate: le altre restano intatte. Ritorna gli id dei pezzi di destra.
  */
 export function splitAt(p: Project, f: number, tracce?: Set<string> | null): string[] {
-  // i blocchetti della corsia FX si tagliano solo se la corsia è accesa apposta
-  const targets = p.clips.filter((c) => c.start < f && end(c) > f && unlocked(p, c)
-    && (tracce?.size ? tracce.has(c.track) : trackOf(p, c.track).kind !== 'fx'));
+  // i blocchetti FX non si tagliano: si allungano e si accorciano dai bordi
+  const targets = p.clips.filter((c) => c.start < f && end(c) > f && unlocked(p, c) && solida(c)
+    && (tracce?.size ? tracce.has(c.track) : true));
   const linkMap = new Map<string, string>();
   const out: string[] = [];
   for (const c of targets) {
@@ -77,7 +81,7 @@ export function splitAt(p: Project, f: number, tracce?: Set<string> | null): str
 
 /** la clip che viene dopo c sulla stessa traccia (per selezionarla dopo un'eliminazione) */
 export function clipDopo(p: Project, track: string, f: number, esclusi?: Set<string>): Clip | undefined {
-  return p.clips.filter((c) => c.track === track && c.start >= f && !esclusi?.has(c.id)).sort((a, b) => a.start - b.start)[0];
+  return p.clips.filter((c) => c.track === track && solida(c) && c.start >= f && !esclusi?.has(c.id)).sort((a, b) => a.start - b.start)[0];
 }
 
 /**
@@ -93,15 +97,17 @@ export function eliminaLato(p: Project, ids: Set<string>, f: number, lato: 'sini
   return n;
 }
 
-/** toglie dal progetto le clip; con ripple chiude i buchi sulle stesse tracce */
+/** toglie dal progetto le clip (e i blocchetti FX che ci stavano sopra); con ripple chiude i buchi sulle stesse tracce */
 export function deleteClips(p: Project, ids: Set<string>, ripple: boolean) {
   const removed = p.clips.filter((c) => ids.has(c.id) && unlocked(p, c));
   if (!removed.length) return 0;
   const gone = new Set(removed.map((c) => c.id));
+  for (const c of removed) for (const b of blocchiDi(p, c)) gone.add(b.id);
   p.clips = p.clips.filter((c) => !gone.has(c.id));
   if (ripple) {
     const byTrack = new Map<string, [number, number][]>();
-    for (const c of removed) {
+    // un blocchetto tolto non lascia buchi da chiudere
+    for (const c of removed.filter(solida)) {
       if (!byTrack.has(c.track)) byTrack.set(c.track, []);
       byTrack.get(c.track)!.push([c.start, end(c)]);
     }
@@ -135,24 +141,27 @@ function mergeIntervals(iv: [number, number][]): [number, number][] {
 /** svuota l'intervallo [a,b) di una traccia tagliando le clip ai bordi (sovrascrittura) */
 export function clearRange(p: Project, trackId: string, a: number, b: number, except?: Set<string>) {
   if (b <= a) return;
-  const on = p.clips.filter((c) => c.track === trackId && !(except?.has(c.id)) && c.start < b && end(c) > a);
+  // i blocchetti FX restano dove sono (stanno sopra, non si coprono)
+  const qui = (c: Clip) => c.track === trackId && solida(c) && !(except?.has(c.id));
+  const on = p.clips.filter((c) => qui(c) && c.start < b && end(c) > a);
   for (const c of on) {
     if (c.start < a) splitClip(p, c, a, c.link);
   }
-  const on2 = p.clips.filter((c) => c.track === trackId && !(except?.has(c.id)) && c.start < b && end(c) > b);
+  const on2 = p.clips.filter((c) => qui(c) && c.start < b && end(c) > b);
   for (const c of on2) splitClip(p, c, b, c.link);
-  p.clips = p.clips.filter((c) => !(c.track === trackId && !(except?.has(c.id)) && c.start >= a && end(c) <= b));
+  p.clips = p.clips.filter((c) => !(qui(c) && c.start >= a && end(c) <= b));
 }
 
 /** apre uno spazio di len fotogrammi al fotogramma f sulle tracce indicate (inserimento) */
 export function insertSpace(p: Project, f: number, len: number, trackIds: Set<string>, except?: Set<string>) {
   for (const c of p.clips.slice()) {
-    if (!trackIds.has(c.track) || except?.has(c.id)) continue;
+    if (!trackIds.has(c.track) || except?.has(c.id) || !solida(c)) continue;
     if (c.start < f && end(c) > f) splitClip(p, c, f, c.link);
   }
   for (const c of p.clips) {
     if (!trackIds.has(c.track) || except?.has(c.id)) continue;
-    if (c.start >= f) c.start += len;
+    // un blocchetto a cavallo va con la clip che ha sotto il centro
+    if (solida(c) ? c.start >= f : centro(c) >= f) c.start += len;
   }
 }
 
@@ -169,7 +178,7 @@ export function extract(p: Project, a: number, b: number) {
 
 /** c'è già una clip (fuori da except) sulla traccia fra a e b? */
 export function occupato(p: Project, trackId: string, a: number, b: number, except?: Set<string>): boolean {
-  return p.clips.some((c) => c.track === trackId && !except?.has(c.id) && c.start < b && end(c) > a);
+  return p.clips.some((c) => c.track === trackId && solida(c) && !except?.has(c.id) && c.start < b && end(c) > a);
 }
 
 /**
@@ -186,9 +195,8 @@ export function tracciaLibera(p: Project, kind: TrackKind, preferita: string | n
   if (t) return t.id;
   const nt = newTrack(kind, nextTrackName(p, kind));
   if (kind === 'audio') p.tracks.push(nt);
-  else if (kind === 'fx') p.tracks.unshift(nt);
-  // una traccia video nuova va sopra le altre video, ma sotto la corsia FX
-  else p.tracks.splice(p.tracks.findIndex((t) => t.kind !== 'fx'), 0, nt);
+  // una traccia video nuova va sopra le altre
+  else p.tracks.unshift(nt);
   return nt.id;
 }
 
@@ -196,7 +204,10 @@ export function tracciaLibera(p: Project, kind: TrackKind, preferita: string | n
  * Di quanto si può spostare il gruppo senza coprire nessuna clip ferma: se dove lo vuoi c'è posto va lì,
  * altrimenti si ferma attaccato alla clip più vicina (come due mattoncini che si toccano).
  */
-function spostamentoLibero(moving: { c: Clip; track: string }[], df: number, fermi: Map<string, Clip[]>): number | null {
+function spostamentoLibero(tutte: { c: Clip; track: string }[], df: number, fermi: Map<string, Clip[]>): number | null {
+  // i blocchetti FX non urtano niente: conta solo dove vanno le clip vere
+  const moving = tutte.filter((m) => solida(m.c));
+  if (!moving.length) return Math.max(df, -Math.min(...tutte.map((m) => m.c.start)));
   const valido = (d: number) => moving.every(({ c, track }) => {
     if (c.start + d < 0) return false;
     const a = c.start + d, b = end(c) + d;
@@ -219,12 +230,15 @@ function spostamentoLibero(moving: { c: Clip; track: string }[], df: number, fer
  * punto d'arrivo scorrono avanti. Sovrascrivi resta solo per chi lo chiede apposta.
  * Ritorna lo spostamento davvero fatto.
  */
-export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, dragKind: TrackKind, mode: EditMode): { df: number; dt: number } {
+export function moveClips(p: Project, ids0: Set<string>, df: number, dt: number, dragKind: TrackKind, mode: EditMode): { df: number; dt: number } {
+  // i blocchetti FX seguono la clip su cui stanno
+  const ids = new Set(ids0);
+  for (const c of p.clips) if (ids0.has(c.id) && solida(c)) for (const b of blocchiDi(p, c)) ids.add(b.id);
   const moving = p.clips.filter((c) => ids.has(c.id) && unlocked(p, c));
   if (!moving.length) return { df: 0, dt: 0 };
   const minStart = Math.min(...moving.map((c) => c.start));
   if (minStart + df < 0) df = -minStart;
-  const kinds = { video: p.tracks.filter((t) => t.kind === 'video'), audio: p.tracks.filter((t) => t.kind === 'audio'), fx: p.tracks.filter((t) => t.kind === 'fx') };
+  const kinds = { video: p.tracks.filter((t) => t.kind === 'video'), audio: p.tracks.filter((t) => t.kind === 'audio'), fx: [] as typeof p.tracks };
   // tracce di destinazione: le video in alto hanno indice basso, quindi dt>0 = verso il basso
   if (dt !== 0) {
     const list = kinds[dragKind];
@@ -245,7 +259,7 @@ export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, 
   const moved = new Set(moving.map((c) => c.id));
   if (mode === 'libero') {
     const fermi = new Map<string, Clip[]>();
-    for (const c of p.clips) if (!moved.has(c.id)) { if (!fermi.has(c.track)) fermi.set(c.track, []); fermi.get(c.track)!.push(c); }
+    for (const c of p.clips) if (!moved.has(c.id) && solida(c)) { if (!fermi.has(c.track)) fermi.set(c.track, []); fermi.get(c.track)!.push(c); }
     const prova = (d: number) => spostamentoLibero(moving.map((c) => ({ c, track: destinazione(c, d) })), df, fermi);
     let dfOk = prova(dt);
     if (dfOk === null && dt) { dt = 0; dfOk = prova(0); }
@@ -259,9 +273,9 @@ export function moveClips(p: Project, ids: Set<string>, df: number, dt: number, 
   }
   if (mode === 'overwrite') {
     for (const c of moving) clearRange(p, c.track, c.start, end(c), moved);
-  } else if (mode === 'insert') {
-    const a = Math.min(...moving.map((c) => c.start));
-    const b = Math.max(...moving.map((c) => end(c)));
+  } else if (mode === 'insert' && moving.some(solida)) {
+    const a = Math.min(...moving.filter(solida).map((c) => c.start));
+    const b = Math.max(...moving.filter(solida).map((c) => end(c)));
     insertSpace(p, a, b - a, new Set(moving.map((c) => c.track)), moved);
   }
   fixTransitions(p);
@@ -272,8 +286,10 @@ export interface TrimOpts { ripple: boolean; linked: boolean }
 
 /** limiti di un trim: quanto si può muovere il bordo prima di finire le maniglie o urtare le vicine */
 function trimLimits(p: Project, c: Clip, edge: 'in' | 'out', ripple: boolean): [number, number] {
+  // un blocchetto FX si allunga libero (sta sopra le clip), almeno due fotogrammi
+  if (!solida(c)) return edge === 'in' ? [-c.start, c.len - 2] : [2 - c.len, Infinity];
   const h = handles(p, c);
-  const neigh = clipsOn(p, c.track);
+  const neigh = clipsOn(p, c.track).filter(solida);
   if (edge === 'in') {
     const prev = neigh.filter((x) => end(x) <= c.start && x.id !== c.id).pop();
     const minD = ripple ? -h.head : Math.max(-h.head, (prev ? end(prev) : 0) - c.start);
@@ -288,6 +304,8 @@ function trimLimits(p: Project, c: Clip, edge: 'in' | 'out', ripple: boolean): [
 export function trimClip(p: Project, id: string, edge: 'in' | 'out', d: number, o: TrimOpts): number {
   const c = p.clips.find((x) => x.id === id);
   if (!c || !unlocked(p, c)) return 0;
+  // i blocchetti FX non fanno ripple (non spingono le clip)
+  if (!solida(c)) o = { ripple: false, linked: false };
   const group = o.linked && c.link
     ? p.clips.filter((x) => x.link === c.link && (edge === 'in' ? x.start === c.start : end(x) === end(c)) && unlocked(p, x))
     : [c];
@@ -300,17 +318,23 @@ export function trimClip(p: Project, id: string, edge: 'in' | 'out', d: number, 
   d = Math.max(lo, Math.min(hi, d));
   if (!d) return 0;
   for (const g of group) {
-    const oldEnd = end(g);
+    const oldEnd = end(g), oldStart = g.start;
+    // i blocchetti attaccati al bordo che si muove lo seguono (il "dal nero" resta all'inizio, il lampo sul taglio)
+    const alBordo = solida(g) ? blocchiDi(p, g).filter((b) => edge === 'in'
+      ? Math.abs(b.start - oldStart) <= 1 || Math.abs(centro(b) - oldStart) <= 1
+      : Math.abs(end(b) - oldEnd) <= 1) : [];
+    const segui = edge === 'in' ? (o.ripple ? 0 : d) : d;
+    for (const b of alBordo) b.start = Math.max(0, b.start + segui);
     if (edge === 'in') {
       g.srcIn = Math.max(0, g.srcIn + f2s(d, p.rate) * g.speed);
       g.len -= d;
       if (!o.ripple) g.start += d;
       g.opKeys = g.opKeys.map((k) => ({ f: k.f - d, v: k.v }));
       g.gainKeys = g.gainKeys.map((k) => ({ f: k.f - d, v: k.v }));
-      if (o.ripple) for (const x of p.clips) if (x.track === g.track && x.id !== g.id && x.start >= oldEnd && !group.includes(x)) x.start -= d;
+      if (o.ripple) for (const x of p.clips) if (x.track === g.track && x.id !== g.id && (solida(x) ? x.start >= oldEnd : centro(x) >= oldEnd && !alBordo.includes(x)) && !group.includes(x)) x.start -= d;
     } else {
       g.len += d;
-      if (o.ripple) for (const x of p.clips) if (x.track === g.track && x.id !== g.id && x.start >= oldEnd && !group.includes(x)) x.start += d;
+      if (o.ripple) for (const x of p.clips) if (x.track === g.track && x.id !== g.id && (solida(x) ? x.start >= oldEnd : centro(x) >= oldEnd && !alBordo.includes(x)) && !group.includes(x)) x.start += d;
     }
     if (g.trIn && g.trIn.len > g.len) g.trIn.len = g.len;
     g.fadeIn = Math.min(g.fadeIn, g.len);
@@ -327,6 +351,8 @@ export function rollEdit(p: Project, leftId: string, rightId: string, d: number)
   const hl = handles(p, L), hr = handles(p, R);
   d = Math.max(-(L.len - 1), -hr.head, Math.min(R.len - 1, hl.tail, d));
   if (!d) return 0;
+  // la transizione sul taglio (e gli effetti centrati lì) seguono il taglio
+  for (const b of p.clips) if (b.kind === 'fx' && b.track === L.track && Math.abs(centro(b) - R.start) <= 1) b.start += d;
   L.len += d;
   R.start += d;
   R.len -= d;
@@ -368,7 +394,7 @@ export function toggleLink(p: Project, ids: Set<string>): 'separati' | 'uniti' |
 
 /** clip immediatamente prima (attaccata) sulla stessa traccia */
 export function prevAdjacent(p: Project, c: Clip): Clip | undefined {
-  return p.clips.find((x) => x.track === c.track && x.id !== c.id && end(x) === c.start);
+  return p.clips.find((x) => x.track === c.track && solida(x) && x.id !== c.id && end(x) === c.start);
 }
 
 /** tiene le transizioni dentro la durata delle clip */
@@ -377,7 +403,7 @@ export function fixTransitions(p: Project) {
     if (c.trIn) c.trIn.len = Math.max(1, Math.min(c.trIn.len, c.len));
     if (c.trOut) c.trOut.len = Math.max(1, Math.min(c.trOut.len, c.len));
     // la transizione in coda vale solo se dopo la clip non c'è niente di attaccato
-    if (c.trOut && p.clips.some((x) => x.track === c.track && x.id !== c.id && x.start === end(c))) c.trOut = undefined;
+    if (c.trOut && p.clips.some((x) => x.track === c.track && solida(x) && x.id !== c.id && x.start === end(c))) c.trOut = undefined;
   }
 }
 
@@ -463,7 +489,7 @@ export function editPoints(p: Project): number[] {
   const s = new Set<number>([0]);
   for (const c of p.clips) {
     const t = trackOf(p, c.track);
-    if ((t.mute && t.kind === 'audio') || t.kind === 'fx') continue;
+    if ((t.mute && t.kind === 'audio') || t.kind === 'fx' || !solida(c)) continue;
     s.add(c.start);
     s.add(end(c));
   }
@@ -475,7 +501,7 @@ export function topClipAt(p: Project, f: number, kind: 'video' | 'audio' | 'any'
   for (const t of p.tracks) {
     if ((kind !== 'any' && t.kind !== kind) || t.kind === 'fx') continue;
     if (t.lock) continue;
-    const c = p.clips.find((x) => x.track === t.id && x.start <= f && end(x) > f);
+    const c = p.clips.find((x) => x.track === t.id && solida(x) && x.start <= f && end(x) > f);
     if (c) return c;
   }
   return undefined;

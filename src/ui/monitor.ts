@@ -364,11 +364,14 @@ class MiniTimeline {
       const y = i * lane;
       ctx.fillStyle = t.kind === 'video' ? 'rgba(255,255,255,.04)' : 'rgba(93,255,180,.03)';
       ctx.fillRect(0, y + 1, W, lane - 2);
-      for (const cl of p.clips) {
-        if (cl.track !== t.id) continue;
+      // prima le clip, poi gli FX: una striscia sottile in basso, come nella timeline
+      const qui = p.clips.filter((cl) => cl.track === t.id).sort((a2, b2) => Number(a2.kind === 'fx') - Number(b2.kind === 'fx'));
+      for (const cl of qui) {
         const x0 = (cl.start / e) * W, x1 = (end(cl) / e) * W;
-        ctx.fillStyle = cl.kind === 'fx' ? (cl.fxb?.tipo === 'transizione' ? '#22c4d4' : '#d44bd9') : isVideoClip(cl) ? (cl.kind === 'title' ? '#8448d6' : '#3565c7') : '#2a8a5e';
-        ctx.fillRect(x0 + 0.5, y + 2, Math.max(1, x1 - x0 - 1), lane - 4);
+        const fx = cl.kind === 'fx';
+        ctx.fillStyle = fx ? (cl.fxb?.tipo === 'transizione' ? '#22c4d4' : '#d44bd9') : isVideoClip(cl) ? (cl.kind === 'title' ? '#8448d6' : '#3565c7') : '#2a8a5e';
+        const hh = fx ? Math.max(2, (lane - 4) * 0.4) : lane - 4;
+        ctx.fillRect(x0 + 0.5, y + 2 + (lane - 4 - hh), Math.max(1, x1 - x0 - 1), hh);
       }
     });
     if (p.inF !== null || p.outF !== null) {

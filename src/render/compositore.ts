@@ -200,7 +200,7 @@ void main() {
   o = vec4(clamp(r, 0.0, 1.0), 1.0);
 }`;
 
-/** gli effetti a tempo della corsia FX (lampo, scossa, zoom, glitch…) su tutto il quadro, prima del colore finale */
+/** gli effetti a tempo dei blocchetti FX (lampo, scossa, zoom, glitch…) sulla loro traccia e su tutto quello sotto */
 const FS_FX = `#version 300 es
 precision highp float;
 in vec2 v_uv;
@@ -656,22 +656,33 @@ export class Compositore {
     gl.disable(gl.BLEND);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    for (const s of strati) {
-      const hasA = !!s.a && !!s.tr;
-      const okB = s.b ? this.layer(p, s.b, 1, playing, frame) : false;
-      const okA = hasA ? this.layer(p, s.a!, 0, playing, frame) : false;
-      if (!okB && !okA) continue;
-      if (!okB) { // la sorgente B non è pronta: pulisce il suo buffer
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[1].fb);
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
+    // dal basso: ogni traccia video si appoggia su quelle sotto, poi i suoi FX a tempo valgono per tutto il mucchio
+    const video = p.tracks.filter((t) => t.kind === 'video');
+    for (let i = video.length - 1; i >= 0; i--) {
+      const tid = video[i].id;
+      for (const s of strati) {
+        if (s.trackId !== tid) continue;
+        const hasA = !!s.a && !!s.tr;
+        const okB = s.b ? this.layer(p, s.b, 1, playing, frame) : false;
+        const okA = hasA ? this.layer(p, s.a!, 0, playing, frame) : false;
+        if (!okB && !okA) continue;
+        if (!okB) { // la sorgente B non è pronta: pulisce il suo buffer
+          gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[1].fb);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+        this.combine(s.tr, s.prog, s.opacity, okA);
       }
-      this.combine(s.tr, s.prog, s.opacity, okA);
+      const fx = statoEffetti(p, frame, tid);
+      if (fx) {
+        this.effetti(fx, frame, cw, ch);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.fbo[4].fb);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.fbo[2].fb);
+        gl.blitFramebuffer(0, 0, cw, ch, 0, 0, cw, ch, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[2].fb);
+      }
     }
-    // gli effetti a tempo della corsia FX su tutto il quadro
-    let mix = 2;
-    const fx = statoEffetti(p, frame);
-    if (fx) { this.effetti(fx, frame, cw, ch); mix = 4; }
+    const mix = 2;
     // il colore finale (pagina Finale) su tutto il quadro, poi sulla tela; resta nel buffer per gli strumenti
     const g = gradeDi(masterDi(p));
     const uscita = gradeNeutro(g) && this.prima <= 0 ? mix : 3;

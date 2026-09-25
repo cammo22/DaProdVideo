@@ -31,6 +31,10 @@ const doc = () => page.evaluate(() => window.__dpv.doc);
 const conta = () => page.evaluate(() => window.__dpv.doc.clips.length);
 /** il blocchetto transizione che sta sul fotogramma f */
 const bloccoSul = (d, f) => d.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= f && c.start + c.len >= f);
+/** le clip vere di una traccia (i blocchetti FX stanno sopra, non contano) */
+const solide = (d, track) => d.clips.filter((c) => c.track === track && c.kind !== 'fx');
+/** due clip vere si coprono? */
+const coperte = (d) => d.clips.some((x) => x.kind !== 'fx' && d.clips.some((y) => y !== x && y.kind !== 'fx' && x.track === y.track && x.start < y.start + y.len && y.start < x.start + x.len));
 const tasto = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(120); };
 
 try {
@@ -67,7 +71,8 @@ try {
   prova('tre riprese nel contenitore', d.media.length === 3, d.media.length);
   prova('otto clip nella timeline', d.clips.filter((c) => c.kind !== 'fx').length === 8, d.clips.length);
   prova('video e audio legati', d.clips.filter((c) => c.link).length === 6);
-  prova('la corsia FX sta in cima, alta la metà del video', d.tracks[0].kind === 'fx' && d.tracks[0].height * 2 === d.tracks.find((t) => t.kind === 'video').height);
+  prova('due tracce video e due audio, niente corsia FX a parte', d.tracks.map((t) => t.kind).join(',') === 'video,video,audio,audio', d.tracks.map((t) => t.name).join(','));
+  prova('gli FX stanno sulle tracce video', d.clips.filter((c) => c.kind === 'fx').every((c) => d.tracks.find((t) => t.id === c.track).kind === 'video'));
   prova('una dissolvenza e una tendina a iride in blocchetti sul taglio', d.clips.some((c) => c.fxb?.id === 'mix') && d.clips.some((c) => c.fxb?.id === 'wipe:119'));
   prova('un lampo e uno zoom lento nella corsia FX', d.clips.some((c) => c.fxb?.id === 'flash') && d.clips.some((c) => c.fxb?.id === 'zoomLento'));
   await page.screenshot({ path: path.join(OUT, 'demo.png') });
@@ -135,7 +140,7 @@ try {
   prova('2 elimina la clip selezionata e la sua audio', d.clips.length === prima + 1 && !d.clips.some((c) => c.id === sx.id), d.clips.length);
   {
     const sel = await page.evaluate(() => [...window.__dpv.sel]);
-    const dopoV = d.clips.filter((c) => d.tracks.find((t) => t.id === c.track).name === 'V1' && c.start >= 60).sort((a, b) => a.start - b.start)[0];
+    const dopoV = d.clips.filter((c) => c.kind !== 'fx' && d.tracks.find((t) => t.id === c.track).name === 'V1' && c.start >= 60).sort((a, b) => a.start - b.start)[0];
     prova('dopo il 2 è scelta la clip che viene dopo', !!dopoV && sel.includes(dopoV.id), sel.join(','));
   }
   prova('senza ripple resta il buco', !d.clips.some((c) => c.start === 60 && d.tracks.find((t) => t.id === c.track).name === 'V1'));
@@ -148,8 +153,8 @@ try {
   console.log('▶ Tasto 3: elimina e chiudi');
   d = await doc();
   const v1 = d.tracks.find((t) => t.name === 'V1').id;
-  const primoV = d.clips.filter((c) => c.track === v1).sort((a, b) => a.start - b.start)[0];
-  const secondoV = d.clips.filter((c) => c.track === v1).sort((a, b) => a.start - b.start)[1];
+  const primoV = solide(d, v1).sort((a, b) => a.start - b.start)[0];
+  const secondoV = solide(d, v1).sort((a, b) => a.start - b.start)[1];
   await page.evaluate((id) => window.__dpv.select([id]), primoV.id);
   await tasto('3');
   d = await doc();
@@ -177,13 +182,13 @@ try {
 
   console.log('▶ Tasto 5: dissolvenza');
   d = await doc();
-  const taglio = d.clips.filter((c) => c.track === v1).sort((a, b) => a.start - b.start).find((c) => c.start > 0 && !bloccoSul(d, c.start) && d.clips.some((x) => x.track === v1 && x.start + x.len === c.start));
+  const taglio = solide(d, v1).sort((a, b) => a.start - b.start).find((c) => c.start > 0 && !bloccoSul(d, c.start) && solide(d, v1).some((x) => x.start + x.len === c.start));
   await page.evaluate(() => window.__dpv.select([]));
   await page.evaluate((f) => window.__motore.vaiA(f), taglio.start);
   await tasto('5');
   d = await doc();
   const b5 = bloccoSul(d, taglio.start);
-  prova('5 mette la dissolvenza sul taglio sotto il cursore (centrata)', b5?.fxb.id === 'mix' && Math.abs(b5.start + b5.len / 2 - taglio.start) <= 1, JSON.stringify(b5 && { s: b5.start, l: b5.len, t: taglio.start }));
+  prova('5 mette la dissolvenza sul taglio sotto il cursore (centrata, sul girato)', b5?.fxb.id === 'mix' && b5.track === v1 && Math.abs(b5.start + b5.len / 2 - taglio.start) <= 1, JSON.stringify(b5 && { s: b5.start, l: b5.len, t: taglio.start }));
   prova('la dissolvenza non cambia la durata delle clip', d.clips.find((c) => c.id === taglio.id).len === taglio.len);
   const strati5 = await page.evaluate((f) => window.__dpvTest.pianoVideo(window.__dpv.doc, f).map((s) => ({ a: s.a?.clip.id, b: s.b?.clip.id, tr: !!s.tr })), taglio.start - 2);
   prova('prima del taglio si vedono tutte e due le clip', strati5.some((s) => s.tr && s.a && s.b === taglio.id), JSON.stringify(strati5));
@@ -361,14 +366,13 @@ try {
   {
     let dd = await doc();
     const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
-    const [c1, c2] = dd.clips.filter((c) => c.track === tv1).sort((x, y) => x.start - y.start);
+    const [c1, c2] = solide(dd, tv1).sort((x, y) => x.start - y.start);
     const n0 = dd.clips.length;
     // c2 spostata di 40 fotogrammi indietro, dentro c1: si ferma attaccata a c1
     await page.evaluate(({ id }) => window.__dpv.edit('prova libero', (p) => window.__dpvTest.M.moveClips(p, window.__dpvTest.M.withLinked(p, [id]), -40, 0, 'video', 'libero')), { id: c2.id });
     dd = await doc();
     const c2b = dd.clips.find((c) => c.id === c2.id);
-    const sovrapposte = dd.clips.some((x) => dd.clips.some((y) => x !== y && x.track === y.track && x.start < y.start + y.len && y.start < x.start + x.len));
-    prova('spostando una clip sopra un\'altra non si mangia niente', dd.clips.length === n0 && !sovrapposte && c2b.start === c1.start + c1.len, `start ${c2b.start}`);
+    prova('spostando una clip sopra un\'altra non si mangia niente', dd.clips.length === n0 && !coperte(dd) && c2b.start === c1.start + c1.len, `start ${c2b.start}`);
     await tasto('Control+z');
     // una ripresa lasciata dove è occupato va su una traccia libera
     const m = dd.media[0];
@@ -376,7 +380,7 @@ try {
     await page.evaluate(({ id, f }) => { window.__dpv.edit('prova posa', (p) => window.__dpvTest.M.placeSource(p, { mediaId: id, srcIn: 0, srcOut: 2 }, f, null, { video: p.tracks.find((t) => t.name === 'V1').id, audio: [p.tracks.find((t) => t.name === 'A1').id] }, 'libero')); }, { id: m.id, f: 10 });
     dd = await doc();
     const nuoveV = dd.clips.filter((c) => c.start === 10 && c.media === m.id);
-    const sovr2 = dd.clips.some((x) => dd.clips.some((y) => x !== y && x.track === y.track && x.start < y.start + y.len && y.start < x.start + x.len));
+    const sovr2 = coperte(dd);
     prova('una ripresa lasciata su una traccia occupata va su una libera', nuoveV.length === 2 && !sovr2 && nuoveV.every((c) => c.track !== tv1), `${nuoveV.length} clip, tracce ${dd.tracks.length - nt} nuove`);
     await tasto('Control+z');
     // l'audio non si abbassa da solo verso la fine (il vecchio "fade out automatico")
@@ -425,7 +429,7 @@ try {
       const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc;
       const v1 = d.tracks.find((t) => t.name === 'V1').id;
       const r = tl.riga(v1);
-      const c = d.clips.filter((x) => x.track === v1).sort((a, b) => b.start - a.start)[0];
+      const c = d.clips.filter((x) => x.track === v1 && x.kind !== 'fx').sort((a, b) => b.start - a.start)[0];
       return { x: (c.start + c.len * 0.97 - tl.scrollF) * tl.ppf, y: r.y + r.h / 2, id: c.id, fine: c.start + c.len, len: c.len };
     });
     await page.mouse.move(carta.x + carta.width / 2, carta.y + carta.height / 2);
@@ -447,7 +451,7 @@ try {
   {
     let dd = await doc();
     const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
-    const ultima = dd.clips.filter((c) => c.track === tv1).sort((x, y) => y.start - x.start)[0];
+    const ultima = solide(dd, tv1).sort((x, y) => y.start - x.start)[0];
     const len0 = ultima.len;
     await page.evaluate((f) => { window.__dpv.select([]); window.__dpvTest.Z.mettiBlocco('transizione', 'dve:301', f); }, ultima.start + ultima.len);
     dd = await doc();
@@ -470,7 +474,7 @@ try {
   }
 
 
-  console.log('▶ Corsia FX: effetti a tempo trascinati');
+  console.log('▶ FX sulle clip: effetti a tempo trascinati, suoni, Alt+Shift');
   {
     await page.evaluate(() => { window.__dpv.select([]); document.dispatchEvent(new CustomEvent('dpv:adatta')); });
     await page.waitForTimeout(300);
@@ -480,6 +484,7 @@ try {
     const box = await page.locator('.tl-tela').boundingBox();
     const xy = (f, nome) => page.evaluate(({ f, nome }) => { const tl = window.__dpvTest.ui().tl, d = window.__dpv.doc; const r = tl.riga(d.tracks.find((t) => t.name === nome).id); return { x: (f - tl.scrollF) * tl.ppf, y: r.y + r.h / 2 }; }, { f, nome });
     const trascina = async (sel, q) => {
+      await page.locator(sel).first().scrollIntoViewIfNeeded();
       const c = await page.locator(sel).first().boundingBox();
       await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
       await page.mouse.down();
@@ -499,26 +504,97 @@ try {
     });
     await trascina('.carta.fxt[data-fx=scossa]', await xy(lontano, 'V1'));
     let dd = await doc();
-    const scossa = dd.clips.find((c) => c.fxb?.id === 'scossa');
-    prova('la scossa trascinata sulla clip diventa un blocchetto nella corsia FX', !!scossa && dd.tracks.find((t) => t.id === scossa.track).kind === 'fx' && Math.abs(scossa.start - lontano) <= 3 && scossa.len === 13 && dd.clips.length === n0 + 1, JSON.stringify(scossa && { s: scossa.start, l: scossa.len, f: lontano }));
-    const st = await page.evaluate((f) => { const s = window.__dpvTest.B.statoEffetti(window.__dpv.doc, f); return s && { zoom: s.zoom, dx: s.dx }; }, scossa.start + 2);
-    prova('sotto la scossa l\'immagine trema (e zooma per non mostrare i bordi)', !!st && st.zoom > 1 && st.dx !== 0, JSON.stringify(st));
-    // un lampo vicino al taglio dove c'è già la tendina: si centra sul taglio, su una corsia nuova (niente si copre)
-    const fx0 = dd.tracks.filter((t) => t.kind === 'fx').length;
     const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
-    const terza = dd.clips.filter((c) => c.track === tv1).sort((a, b) => a.start - b.start)[2];
+    const scossa = dd.clips.find((c) => c.fxb?.id === 'scossa');
+    prova('la scossa trascinata sulla clip diventa un blocchetto sopra la clip (sulla V1)', !!scossa && scossa.track === tv1 && Math.abs(scossa.start - lontano) <= 3 && scossa.len === 13 && dd.clips.length === n0 + 1, JSON.stringify(scossa && { s: scossa.start, l: scossa.len, f: lontano }));
+    prova('la scossa ha il suo suono (impatto) acceso', scossa?.fxb.suono === 'impatto' && scossa.fxb.audio === true, JSON.stringify(scossa?.fxb));
+    const st = await page.evaluate((f) => { const s = window.__dpvTest.B.statoEffetti(window.__dpv.doc, f, window.__dpv.doc.tracks.find((t) => t.name === 'V1').id); return s && { zoom: s.zoom, dx: s.dx }; }, scossa.start + 2);
+    prova('sotto la scossa l\'immagine trema (e zooma per non mostrare i bordi)', !!st && st.zoom > 1 && st.dx !== 0, JSON.stringify(st));
+    // l'altoparlante sul blocco: un clic lo spegne, un altro lo riaccende
+    {
+      const rb = await page.evaluate((id) => window.__dpvTest.ui().tl.rettBlocco(id), scossa.id);
+      prova('il blocchetto sta in basso sulla riga, con l\'altoparlante', !!rb?.sp, JSON.stringify(rb));
+      if (rb?.sp) {
+        await page.mouse.click(box.x + rb.sp.x + rb.sp.s / 2, box.y + rb.sp.y + rb.sp.s / 2);
+        await page.waitForTimeout(150);
+        dd = await doc();
+        const spento = dd.clips.find((c) => c.id === scossa.id).fxb.audio === false;
+        await page.mouse.click(box.x + rb.sp.x + rb.sp.s / 2, box.y + rb.sp.y + rb.sp.s / 2);
+        await page.waitForTimeout(150);
+        dd = await doc();
+        prova('un clic sull\'altoparlante spegne il suono dell\'FX, un altro lo riaccende', spento && dd.clips.find((c) => c.id === scossa.id).fxb.audio === true && dd.clips.find((c) => c.id === scossa.id).start === scossa.start);
+      }
+    }
+    // un lampo vicino al taglio dove c'è già la tendina: si centra sul taglio, sopra la tendina (non si coprono)
+    const terza = solide(dd, tv1).sort((a, b) => a.start - b.start)[2];
+    const fx0 = dd.clips.filter((c) => c.kind === 'fx').length;
     await trascina('.carta.fxt[data-fx=flash]', await xy(terza.start + 2, 'V1'));
     dd = await doc();
     const lampo = dd.clips.filter((c) => c.fxb?.id === 'flash').sort((a, b) => Math.abs(a.start + a.len / 2 - terza.start) - Math.abs(b.start + b.len / 2 - terza.start))[0];
-    prova('il lampo vicino a un taglio si centra proprio lì', !!lampo && Math.abs(lampo.start + lampo.len / 2 - terza.start) <= 1, JSON.stringify(lampo && { s: lampo.start, l: lampo.len, t: terza.start }));
-    prova('dove la corsia è occupata se ne apre un\'altra', dd.tracks.filter((t) => t.kind === 'fx').length === fx0 + 1 && !dd.clips.some((x) => x.kind === 'fx' && dd.clips.some((y) => y !== x && y.track === x.track && x.start < y.start + y.len && y.start < x.start + x.len)));
-    await tasto('Control+z'); await tasto('Control+z');
+    prova('il lampo vicino a un taglio si centra proprio lì', !!lampo && lampo.track === tv1 && Math.abs(lampo.start + lampo.len / 2 - terza.start) <= 1, JSON.stringify(lampo && { s: lampo.start, l: lampo.len, t: terza.start }));
+    prova('il lampo e la tendina stanno tutti e due sul taglio (uno sopra l\'altro)', dd.clips.filter((c) => c.kind === 'fx').length === fx0 + 1 && !!bloccoSul(dd, terza.start));
+    await tasto('Control+z');
+    // "Al nero" lasciato verso la fine di una clip: finisce proprio con lei
+    {
+      const cl = solide(dd, tv1).sort((a, b) => a.start - b.start)[0];
+      await trascina('.carta.fxt[data-fx=alNero]', await xy(cl.start + cl.len - 12, 'V1'));
+      dd = await doc();
+      const an = dd.clips.find((c) => c.fxb?.id === 'alNero');
+      prova('"Al nero" vicino alla fine di una clip si attacca alla fine', !!an && an.start + an.len === cl.start + cl.len, JSON.stringify(an && { s: an.start, l: an.len, fine: cl.start + cl.len }));
+      // spostando la clip il blocchetto la segue
+      await page.evaluate(({ id }) => window.__dpv.edit('prova segui', (p) => window.__dpvTest.M.moveClips(p, window.__dpvTest.M.withLinked(p, [id]), 0, -1, 'video', 'libero')), { id: cl.id });
+      dd = await doc();
+      const an2 = dd.clips.find((c) => c.id === an?.id), cl2 = dd.clips.find((c) => c.id === cl.id);
+      prova('spostando la clip su un\'altra traccia il suo FX la segue', !!an2 && an2.track === cl2.track && cl2.track !== tv1 && an2.start + an2.len === cl2.start + cl2.len, JSON.stringify({ an: an2 && [an2.track, an2.start], cl: [cl2.track, cl2.start] }));
+      await tasto('Control+z'); await tasto('Control+z');
+    }
+    // Alt+Shift+trascina: la clip e tutto quello che viene dopo, su tutte le tracce, insieme
+    {
+      await page.evaluate(() => window.__dpv.select([]));
+      dd = await doc();
+      const seconda = solide(dd, tv1).sort((a, b) => a.start - b.start)[1];
+      const dopo = dd.clips.filter((c) => (c.kind === 'fx' ? c.start + c.len / 2 : c.start) >= seconda.start).map((c) => [c.id, c.start]);
+      const primaDi = dd.clips.filter((c) => c.kind !== 'fx' && c.start + c.len <= seconda.start).map((c) => [c.id, c.start]);
+      const q = await xy(seconda.start + Math.round(seconda.len / 2), 'V1');
+      const rv = await page.evaluate((id) => window.__dpvTest.ui().tl.riga(id), tv1);
+      await page.keyboard.down('Alt'); await page.keyboard.down('Shift');
+      await page.mouse.move(box.x + q.x, box.y + rv.y + 8);
+      await page.mouse.down();
+      await page.mouse.move(box.x + q.x + 60, box.y + rv.y + 8, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift'); await page.keyboard.up('Alt');
+      dd = await doc();
+      const dfs = new Set(dopo.map(([id, s0]) => dd.clips.find((c) => c.id === id).start - s0));
+      const fermi = primaDi.every(([id, s0]) => dd.clips.find((c) => c.id === id).start === s0);
+      const df = [...dfs][0];
+      prova('Alt+Shift+trascina sposta la clip e tutto quello dopo, su tutte le tracce, insieme', dfs.size === 1 && df > 5 && fermi && dopo.length > 8, JSON.stringify({ dfs: [...dfs], n: dopo.length, fermi }));
+      await tasto('Control+z');
+    }
+    // i suoni degli FX: ci sono tutti, e nel mixaggio si sentono solo se accesi
+    {
+      const buf = await page.evaluate(() => window.__dpvTest.SU.tuttiISuoni().map((x) => { const d = x.buf?.getChannelData(0); let pk = 0; if (d) for (const v of d) pk = Math.max(pk, Math.abs(v)); return [x.id, Math.round(pk * 100) / 100, x.buf?.duration ?? 0]; }));
+      prova('tredici suoni per gli FX, tutti pronti e a −6 dB', buf.length === 13 && buf.every(([, pk, d]) => pk > 0.3 && pk <= 0.51 && d > 0.3), JSON.stringify(buf));
+      const mix = await page.evaluate(async () => {
+        const { SU, mixaggio } = window.__dpvTest;
+        const d = structuredClone(window.__dpv.doc);
+        for (const t of d.tracks) if (t.kind === 'audio') t.mute = true;
+        const r = d.rate.num / d.rate.den;
+        const fl = d.clips.find((c) => c.fxb?.id === 'flash');
+        const e = SU.suoniFx(d).find((x) => x.id === fl.id);
+        const rms = async (pp) => { let s = 0, n = 0; for await (const b of mixaggio(pp, Math.max(0, e.at), e.at + 0.5)) { const x = b.getChannelData(0); for (const v of x) { s += v * v; n++; } } return Math.sqrt(s / Math.max(1, n)); };
+        const on = await rms(d);
+        fl.fxb.audio = false;
+        const off = await rms(d);
+        return { on, off, at: e?.at, picco: (fl.start + fl.len * 0.06) / r };
+      });
+      prova('il suono del lampo finisce nel mixaggio (e spento non si sente)', mix.on > 0.02 && mix.off < 0.002, JSON.stringify(mix));
+    }
     // i chip della durata
     await page.click('.bin-durate .chip[data-d="2"]');
     await page.evaluate(() => { window.__dpv.select([]); window.__motore.vaiA(20); });
     await page.locator('.carta.fxt[data-fx=zoomLento]').click();
     dd = await doc();
-    prova('con il chip "2 s" il blocco dura due secondi', dd.clips.some((c) => c.fxb?.id === 'zoomLento' && c.start === 20 && c.len === 50));
+    prova('con il chip "2 s" il blocco dura due secondi', dd.clips.some((c) => c.fxb?.id === 'zoomLento' && c.start === 20 && c.len === 50), JSON.stringify(dd.clips.filter((c) => c.fxb?.id === 'zoomLento').map((c) => [c.start, c.len])));
     await tasto('Control+z');
     await page.click('.bin-durate .chip[data-d="0"]');
     // il lampo della demo si vede nel monitor
@@ -574,20 +650,24 @@ try {
     prova('"Fade out" trascinato sulla clip audio: esce piano (1 s)', dd.clips.find((c) => c.id === c2.id).fadeOut === 25, dd.clips.find((c) => c.id === c2.id).fadeOut);
     await tasto('Control+z');
     await page.click('.bin-cat[data-c=tutto]');
-    // i progetti di prima: le transizioni delle clip diventano blocchetti
+    // i progetti di prima: le transizioni delle clip diventano blocchetti, la corsia FX a parte sparisce
     const mig = await page.evaluate(() => {
       const { P, B } = window.__dpvTest;
       const p = P.newProject({ w: 1920, h: 1080, rate: { num: 25, den: 1 }, drop: false });
-      p.tracks = p.tracks.filter((t) => t.kind !== 'fx');
       const v1 = p.tracks.find((t) => t.name === 'V1');
       const a = P.newClip('color', v1.id, 0, 50), b = P.newClip('color', v1.id, 50, 50);
       b.trIn = P.newTransition('mix', 20);
       p.clips.push(a, b);
+      // la corsia FX della 1.0.4, con un lampo sopra il taglio
+      const fx = P.newTrack('fx', 'FX');
+      p.tracks.unshift(fx);
+      p.clips.push(P.newClip('fx', fx.id, 45, 10, { fxb: { tipo: 'effetto', id: 'flash', forza: 1, colore: '#ffffff' } }));
       B.migraBlocchi(p);
-      const bl = p.clips.find((c) => c.kind === 'fx');
-      return { fx: p.tracks[0].kind, bl: bl && [bl.start, bl.len, bl.fxb.id], trIn: !!b.trIn };
+      const tr = p.clips.find((c) => c.fxb?.tipo === 'transizione'), fl = p.clips.find((c) => c.fxb?.id === 'flash');
+      return { fx: p.tracks.some((t) => t.kind === 'fx'), tr: tr && [tr.start, tr.len, tr.fxb.id, tr.track === v1.id], fl: fl && [fl.track === v1.id, fl.fxb.suono, fl.fxb.audio], trIn: !!b.trIn };
     });
-    prova('i progetti di prima: la transizione della clip diventa un blocchetto', mig.fx === 'fx' && mig.bl?.[0] === 50 && mig.bl[1] === 20 && mig.bl[2] === 'mix' && !mig.trIn, JSON.stringify(mig));
+    prova('i progetti di prima: la transizione della clip diventa un blocchetto', !mig.trIn && mig.tr?.[0] === 50 && mig.tr[1] === 20 && mig.tr[2] === 'mix' && mig.tr[3], JSON.stringify(mig));
+    prova('i progetti di prima: la corsia FX sparisce, il lampo scende sulla V1 col suono pronto ma spento', !mig.fx && mig.fl?.[0] === true && mig.fl[1] === 'zap' && mig.fl[2] === false, JSON.stringify(mig));
   }
 
   console.log('▶ Pagina Finale');
@@ -628,6 +708,38 @@ try {
     prova('i tempi dai dialoghi preparano le righe dove si sente l\'audio', dd.sottotitoli.righe.length > 1, dd.sottotitoli.righe.length);
     await page.screenshot({ path: path.join(OUT, 'finale-sottotitoli.png') });
     await tasto('Control+z');
+    // i sottotitoli scritti dall'AI (qui con un Whisper finto: il modello vero si scarica da internet)
+    await page.evaluate(() => {
+      window.__sentito = [];
+      window.__dpvTest.V.impostaTrascrittore({
+        carica: async (modello, stato) => { stato('Scarico il modello: 1 di 2 MB', 0.5); window.__modello = modello; return 'wasm'; },
+        trascrivi: async (audio, lingua, traduci) => {
+          let e = 0; for (let i = 0; i < audio.length; i++) e += audio[i] * audio[i];
+          window.__sentito.push({ n: audio.length, rms: Math.sqrt(e / Math.max(1, audio.length)), lingua, traduci });
+          if (window.__sentito.length > 1) return [];
+          return [
+            { da: 0.5, a: 3, testo: ' Buonasera Napoli' },
+            { da: 3.2, a: 3.9, testo: '[Musica]' },
+            { da: 4, a: 14, testo: 'Questa è una frase lunga lunga che dura dieci secondi e non ci sta in una riga sola del sottotitolo, quindi va spezzata' },
+          ];
+        },
+      });
+    });
+    await page.click('text=Scrivi i sottotitoli con l\'AI');
+    await page.waitForTimeout(300);
+    if (await page.isVisible('.velo')) await page.click('.velo >> text=Rifalle');
+    await page.waitForFunction(() => (window.__dpv.doc.sottotitoli?.righe ?? []).some((r) => r.testo === 'Buonasera Napoli'), null, { timeout: 30000 }).catch(() => {});
+    {
+      dd = await doc();
+      const ai = await page.evaluate(() => ({ sentito: window.__sentito, modello: window.__modello, fine: window.__dpvTest.P.projectEnd(window.__dpv.doc) / 25 }));
+      const righe = dd.sottotitoli?.righe ?? [];
+      const n16 = ai.sentito.reduce((s, x) => s + x.n, 0) / 16000;
+      prova('l\'AI ascolta la presa diretta a 16 kHz (non muta, lunga quanto il montaggio)', ai.sentito.length >= 1 && Math.abs(n16 - ai.fine) < 0.6 && ai.sentito[0].rms > 0.005 && ai.sentito[0].lingua === 'it' && !ai.sentito[0].traduci && ai.modello === 'onnx-community/whisper-base', JSON.stringify({ ...ai, n16 }));
+      prova('le parole diventano righe coi tempi giusti', righe[0]?.testo === 'Buonasera Napoli' && righe[0].da === 13 && righe[0].a === 75, JSON.stringify(righe.slice(0, 2)));
+      prova('niente "[Musica]", e la frase lunga si spezza in più righe', !righe.some((r) => /musica/i.test(r.testo)) && righe.length >= 3 && righe.slice(1).every((r) => r.testo.length <= 90), righe.map((r) => r.testo).join(' | '));
+    }
+    await tasto('Control+z');
+    await page.evaluate(() => window.__dpvTest.V.impostaTrascrittore(null));
     // il logo: un'immagine del contenitore nell'angolo
     await page.click('.fin-voce[data-s=logo]');
     await page.evaluate(async () => {
@@ -650,7 +762,19 @@ try {
     prova('il titolo d\'apertura entra all\'inizio e sposta avanti il resto', fine1 === fine0 + 75 && dd.clips.some((c) => c.kind === 'title' && c.start === 0 && c.name.includes('apertura')), `${fine0} → ${fine1}`);
     await tasto('Control+z');
     await page.click('.fin-voce[data-s=lingue]');
-    prova('Lingue e AI: predisposto, coi tasti "presto"', (await page.locator('.fin-presto[disabled]').count()) === 3);
+    prova('Lingue e AI: i sottotitoli con l\'AI pronti (il doppiaggio arriverà)', (await page.locator('.fin-presto.pronto').count()) === 2 && (await page.locator('.fin-presto[disabled]').count()) === 1);
+    // le novità della versione (dal CHANGELOG dentro l'app) e il confronto fra versioni
+    {
+      const cmp = await page.evaluate(() => { const { AG } = window.__dpvTest; return [AG.piuNuova('1.0.10', '1.0.9'), AG.piuNuova('1.0.5', '1.0.5'), AG.piuNuova('1.0.4', '1.0.5'), /proxy/i.test(AG.noteDi('1.0.4')?.note ?? '')]; });
+      prova('le versioni si confrontano bene (1.0.10 dopo 1.0.9) e il CHANGELOG viaggia nell\'app', JSON.stringify(cmp) === '[true,false,false,true]', JSON.stringify(cmp));
+      await page.click('.voce-menu:has-text("Aiuto")');
+      await page.click('.tendina .voce:has-text("Novità della")');
+      await page.waitForSelector('.dialogo.novita');
+      const testo = await page.textContent('.dialogo.novita');
+      prova('Aiuto → Novità: le novità della versione dal CHANGELOG', testo.includes('FX') && (await page.locator('.dialogo.novita li').count()) > 5, testo.slice(0, 120));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+    }
     await page.click('.fin-voce[data-s=colore]');
     await page.click('.pagina-btn[data-p=montaggio]');
     await page.waitForTimeout(300);

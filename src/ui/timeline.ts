@@ -2,6 +2,8 @@
 // Clic sul righello = cursore · clic su una clip = selezione · trascina = sposta (senza coprire niente)
 // bordi = trim · Shift sul taglio = roll · Alt+trascina = slip · rotella = fotogramma per fotogramma col suono
 // linea gialla sulle clip audio = volume (trascina, doppio clic per un punto) · "fx" in fondo = effetti al volo.
+// Gli FX a blocchetti (effetti e transizioni) stanno in basso sulle clip video: si allungano dai bordi, l'altoparlante
+// accende e spegne il loro suono. Alt+Shift+trascina = sposta la clip e tutto quello che viene dopo, su tutte le tracce.
 import { store } from '../core/store';
 import { motore } from '../motore';
 import * as M from '../core/montaggio';
@@ -11,17 +13,19 @@ import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
 import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco } from '../azioni';
-import { durataBlocco, durataDelBlocco, inizioBlocco, corsiaLibera, nomeBlocco, sistemaCorsia, nuovoBlocco, piccoDi, posaBlocco, taglioDelBlocco, taglioVicino, transizioneDa, EFFETTI_TEMPO, type Taglio } from '../core/blocchi';
+import { cambiaModello, centro, durataBlocco, durataDelBlocco, nomeBlocco, nuovoBlocco, piccoDi, posaBlocco, postoBlocco, tagliFra, taglioDelBlocco, taglioVicino, tracciaPerBlocco, transizioneSul, EFFETTI_TEMPO, type Dove, type Taglio } from '../core/blocchi';
+import { SUONI, suono } from '../core/suoni';
+
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto, effettiAccesi, effetto } from '../effetti';
-import { banco } from '../media/audio';
+import { ascoltaSuono, banco } from '../media/audio';
 import { avviso, chiedi, clamp, h, icona, menuContesto, type VoceMenu } from './dom';
 import { registraBersaglio } from './trascina';
 import { EFFETTI as DVE, TENDINE, nomeModello } from '../render/transizioni';
 
 const RIGHELLO = 34;
 const SEP = 10;
-/** lo stacco fra la corsia FX e le tracce video */
-const SEP_FX = 4;
+/** la barra per scorrere su e giù, a destra (sempre lì, anche con poche tracce) */
+const VBAR = 14;
 /** l'altezza del navigatore in fondo (la barra per andare a destra e sinistra) */
 const NAV = 24;
 const BORDO = 8;
@@ -42,7 +46,7 @@ const COLORI: Record<string, [string, string]> = {
 
 type Presa =
   | { tipo: 'cursore' }
-  | { tipo: 'sposta'; ids: Set<string>; base: Clip[]; x0: number; y0: number; kind: TrackKind; df: number; dt: number; ancora: Clip }
+  | { tipo: 'sposta'; ids: Set<string>; base: Clip[]; x0: number; y0: number; kind: TrackKind; df: number; dt: number; ancora: Clip; tutto?: boolean }
   | { tipo: 'trim'; id: string; edge: 'in' | 'out'; base: Clip[]; x0: number; d: number; linked: boolean; ripple: boolean }
   | { tipo: 'roll'; l: string; r: string; base: Clip[]; x0: number; d: number }
   | { tipo: 'slip'; ids: Set<string>; base: Clip[]; x0: number; d: number }
@@ -54,7 +58,7 @@ type Presa =
 interface Colpo {
   track?: Track;
   clip?: Clip;
-  zona: 'righello' | 'corpo' | 'in' | 'out' | 'vuoto' | 'fuori' | 'fx' | 'volume' | 'punto' | 'fadeIn' | 'fadeOut';
+  zona: 'righello' | 'corpo' | 'in' | 'out' | 'vuoto' | 'fuori' | 'fx' | 'volume' | 'punto' | 'fadeIn' | 'fadeOut' | 'suono';
   f: number;
   taglio?: { l: Clip; r: Clip };
   /** indice del punto del volume sotto il puntatore */
@@ -68,6 +72,9 @@ export class Timeline {
   private testate: HTMLElement;
   /** il navigatore in fondo: tutto il montaggio in piccolo, la finestra che si vede si trascina e si allarga */
   private nav: HTMLCanvasElement;
+  /** la barra verticale a destra: la finestra che si vede, fra tutte le tracce */
+  private vbar: HTMLElement;
+  private vpollice: HTMLElement;
   private area: HTMLElement;
   ppf = 4; // pixel per fotogramma
   scrollF = 0;
@@ -80,7 +87,7 @@ export class Timeline {
   private snapLinea: number | null = null;
   private fantasma: { track: string; f: number; len: number; kind: TrackKind; nuova?: boolean }[] | null = null;
   /** dove andrebbe il blocchetto FX che si sta trascinando dal contenitore (e il taglio su cui cade) */
-  private fantasmaBlocco: { track: string; start: number; len: number; tipo: 'effetto' | 'transizione'; taglio: Taglio | null; nuova: boolean; nome: string } | null = null;
+  private fantasmaBlocco: { track: string; start: number; len: number; tipo: 'effetto' | 'transizione'; taglio: Taglio | null; dove: Dove; nome: string } | null = null;
   /** la clip su cui cadrebbe l'effetto che si sta trascinando */
   private bersaglioFx: string | null = null;
   private seguiCursore = true;
@@ -94,7 +101,10 @@ export class Timeline {
     this.ctx = this.cv.getContext('2d', { alpha: false })!;
     this.testate = h('div', { class: 'tl-testate' });
     this.nav = h('canvas', { class: 'tl-nav', title: 'Tutto il montaggio: trascina la finestra per scorrere, i suoi bordi per lo zoom, clic per andare lì' });
-    this.area = h('div', { class: 'tl-area' }, this.cv, this.nav);
+    this.vpollice = h('div', { class: 'tl-vpollice' });
+    this.vbar = h('div', { class: 'tl-vbar', title: 'Su e giù fra le tracce: trascina, o clic per saltare · rotella sulle testate' }, this.vpollice);
+    this.vbar.style.bottom = NAV + 'px';
+    this.area = h('div', { class: 'tl-area' }, this.cv, this.vbar, this.nav);
     this.el = h('div', { class: 'timeline' },
       h('div', { class: 'tl-angolo' },
         h('button', {
@@ -103,10 +113,13 @@ export class Timeline {
             click: (e: MouseEvent) => menuContesto(e.clientX, e.clientY, [
               { nome: 'Traccia video', tasto: 'Ctrl+Alt+V', fn: () => esegui('tracciaV') },
               { nome: 'Traccia audio', tasto: 'Ctrl+Alt+A', fn: () => esegui('tracciaA') },
-              { nome: 'Corsia FX (effetti e transizioni)', fn: () => store.edit('Corsia FX', (p) => { p.tracks.unshift(newTrack('fx', nextTrackName(p, 'fx'))); }) },
             ]),
           },
-        }, icona('piu', 13))),
+        }, icona('piu', 13)),
+        h('button', {
+          class: 'btn-mini tl-piu', title: 'Timeline stretta: proprietà, mixer e VU scendono fino in fondo (V) · di nuovo per tornare larga',
+          on: { click: () => document.dispatchEvent(new CustomEvent('dpv:vista')) },
+        }, icona('vista', 13))),
       this.testate, this.area);
     // le lucine dei livelli nelle testate audio
     motore.ogniGiro((suona) => {
@@ -136,15 +149,15 @@ export class Timeline {
   private adatta() {
     this.dpr = Math.min(2, devicePixelRatio || 1);
     const r = this.area.getBoundingClientRect();
-    this.W = Math.max(50, r.width);
+    this.W = Math.max(50, r.width - VBAR);
     this.H = Math.max(50, r.height - NAV);
     this.cv.width = Math.round(this.W * this.dpr);
     this.cv.height = Math.round(this.H * this.dpr);
     this.cv.style.width = this.W + 'px';
     this.cv.style.height = this.H + 'px';
-    this.nav.width = Math.round(this.W * this.dpr);
+    this.nav.width = Math.round((this.W + VBAR) * this.dpr);
     this.nav.height = Math.round(NAV * this.dpr);
-    this.nav.style.width = this.W + 'px';
+    this.nav.style.width = this.W + VBAR + 'px';
     this.nav.style.height = NAV + 'px';
     this.sporca();
   }
@@ -158,8 +171,7 @@ export class Timeline {
     let y = RIGHELLO - this.scrollY;
     let prima: Track | null = null;
     for (const t of p.tracks) {
-      if (prima && prima.kind === 'video' && t.kind === 'audio') y += SEP;
-      if (prima && prima.kind === 'fx' && t.kind !== 'fx') y += SEP_FX;
+      if (prima && prima.kind !== 'audio' && t.kind === 'audio') y += SEP;
       out.push({ t, y, h: t.height });
       y += t.height;
       prima = t;
@@ -167,12 +179,97 @@ export class Timeline {
     return out;
   }
 
+  /** dove sta un blocchetto FX sulla tela, e il suo altoparlante (per le prove automatiche) */
+  rettBlocco(id: string) {
+    const p = store.doc, c = clipById(p, id);
+    const riga = c && this.righe(p).find((r) => r.t.id === c.track);
+    if (!c || !riga) return null;
+    const { corsia, n } = this.corsie(p, c.track);
+    const { top, alt } = this.geoBlocco(riga.y, riga.h, corsia.get(c.id) ?? 0, n);
+    const x = this.fX(c.start), w = Math.max(3, c.len * this.ppf);
+    return { x, y: top, w, h: alt, sp: this.altoparlante(c, x, w, top, alt) };
+  }
+
   /** dove sta una traccia sulla tela: y e altezza (per le prove automatiche) */
   riga(trackId: string) { const r = this.righe(store.doc).find((x) => x.t.id === trackId); return r ? { y: r.y, h: r.h } : null; }
 
   private altezzaTotale() {
     const p = store.doc;
-    return p.tracks.reduce((s, t) => s + t.height, 0) + SEP + SEP_FX + RIGHELLO + 40;
+    return p.tracks.reduce((s, t) => s + t.height, 0) + SEP + RIGHELLO + 40;
+  }
+
+  /** scorre su e giù fra le tracce (la rotella sulle testate, la barra a destra, il dito) */
+  scorriY(y: number) {
+    const v = clamp(y, 0, Math.max(0, this.altezzaTotale() - this.H));
+    if (v === this.scrollY) return;
+    this.scrollY = v;
+    this.costruisciTestate();
+    this.sporca();
+  }
+
+  /** la barra verticale: il pollice è la parte che si vede */
+  private disegnaVbar() {
+    const tot = this.altezzaTotale(), vis = this.H;
+    const pieno = tot <= vis + 1;
+    const alto = this.H;
+    const hPoll = pieno ? alto - 4 : Math.max(28, (vis / tot) * (alto - 4));
+    const y = pieno ? 2 : 2 + (this.scrollY / Math.max(1, tot - vis)) * (alto - 4 - hPoll);
+    this.vpollice.style.height = hPoll + 'px';
+    this.vpollice.style.transform = `translateY(${y}px)`;
+    this.vbar.classList.toggle('pieno', pieno);
+  }
+
+  private eventiVbar() {
+    const bar = this.vbar;
+    bar.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const r = bar.getBoundingClientRect();
+      const tot = this.altezzaTotale(), vis = this.H;
+      if (tot <= vis + 1) return;
+      const pr = this.vpollice.getBoundingClientRect();
+      const corsa = r.height - 4 - pr.height;
+      if (e.clientY < pr.top || e.clientY > pr.bottom) {
+        // clic fuori dal pollice: salta lì (il pollice si centra sul punto)
+        this.scorriY(((e.clientY - r.top - pr.height / 2) / Math.max(1, corsa)) * (tot - vis));
+      }
+      const y0 = e.clientY, s0 = this.scrollY;
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add('preso');
+      const mv = (ev: PointerEvent) => this.scorriY(s0 + ((ev.clientY - y0) / Math.max(1, corsa)) * (tot - vis));
+      const up = () => { bar.removeEventListener('pointermove', mv); bar.removeEventListener('pointerup', up); bar.classList.remove('preso'); };
+      bar.addEventListener('pointermove', mv);
+      bar.addEventListener('pointerup', up);
+    });
+    bar.addEventListener('wheel', (e) => { e.preventDefault(); this.scorriY(this.scrollY + e.deltaY * 0.6); }, { passive: false });
+  }
+
+  /** i blocchetti FX di una traccia video, ognuno sulla sua corsia (se si sovrappongono si mettono uno sopra l'altro) */
+  private corsie(p: Project, trackId: string): { blocchi: Clip[]; corsia: Map<string, number>; n: number } {
+    const blocchi = p.clips.filter((c) => c.track === trackId && c.kind === 'fx').sort((a, b) => a.start - b.start || b.len - a.len);
+    const fini: number[] = [];
+    const corsia = new Map<string, number>();
+    for (const b of blocchi) {
+      let i = fini.findIndex((e) => e <= b.start);
+      if (i < 0) { i = fini.length; fini.push(0); }
+      fini[i] = end(b);
+      corsia.set(b.id, i);
+    }
+    return { blocchi, corsia, n: Math.max(1, fini.length) };
+  }
+
+  /** dove sta un blocchetto dentro la riga: una striscia sottile in basso (le corsie in più salgono) */
+  private geoBlocco(y: number, hh: number, i: number, n: number) {
+    const g = this.geo(y, hh);
+    const bh = clamp(Math.round(g.alt * 0.44), 12, 24);
+    const lh = n * bh <= g.corpoH ? bh : Math.max(7, g.corpoH / n);
+    return { top: g.top + g.alt - (i + 1) * lh, alt: lh - 1 };
+  }
+
+  /** il rettangolo dell'altoparlante di un blocchetto (se c'è posto) */
+  private altoparlante(c: Clip, x: number, w: number, top: number, alt: number) {
+    if (!c.fxb?.suono || w < 34 || alt < 10) return null;
+    const s = Math.min(14, alt - 2);
+    return { x: x + w - s - 5, y: top + (alt - s) / 2, s };
   }
 
   /** geometria di una clip dentro la sua riga: testa (nome) e corpo (miniature, onda, volume) */
@@ -201,22 +298,24 @@ export class Timeline {
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
     if (!riga) return { zona: 'fuori', f };
     const t = riga.t;
-    const on = p.clips.filter((c) => c.track === t.id);
+    const on = p.clips.filter((c) => c.track === t.id && c.kind !== 'fx');
     const bordo = BORDO / this.ppf;
-    if (t.kind === 'fx') {
-      // i blocchetti: dentro si prende il blocco (ai bordi si allunga), fuori il bordo più vicino
-      const dentro = on.find((x) => f >= x.start && f < end(x));
-      if (dentro) {
-        const b = Math.min(BORDO, (dentro.len * this.ppf) / 4) / this.ppf;
-        if (f - dentro.start <= b) return { track: t, clip: dentro, zona: 'in', f };
-        if (end(dentro) - f <= b) return { track: t, clip: dentro, zona: 'out', f };
-        return { track: t, clip: dentro, zona: 'corpo', f };
+    if (t.kind === 'video') {
+      // i blocchetti FX stanno sopra le clip: si prendono per primi (bordi = allunga, altoparlante = suono)
+      const { blocchi, corsia, n } = this.corsie(p, t.id);
+      for (let k = blocchi.length - 1; k >= 0; k--) {
+        const b = blocchi[k];
+        const { top, alt } = this.geoBlocco(riga.y, riga.h, corsia.get(b.id)!, n);
+        if (y < top || y > top + alt) continue;
+        const x0 = this.fX(b.start), w = Math.max(3, b.len * this.ppf);
+        if (x < x0 - 4 || x > x0 + w + 4) continue;
+        const sp = this.altoparlante(b, x0, w, top, alt);
+        if (sp && x >= sp.x - 2 && x <= sp.x + sp.s + 2) return { track: t, clip: b, zona: 'suono', f };
+        const bb = Math.min(BORDO, Math.max(3, w / 4));
+        if (x - x0 <= bb) return { track: t, clip: b, zona: 'in', f };
+        if (x0 + w - x <= bb) return { track: t, clip: b, zona: 'out', f };
+        return { track: t, clip: b, zona: 'corpo', f };
       }
-      for (const c of on) {
-        if (Math.abs(f - c.start) <= bordo) return { track: t, clip: c, zona: 'in', f };
-        if (Math.abs(f - end(c)) <= bordo) return { track: t, clip: c, zona: 'out', f };
-      }
-      return { track: t, zona: 'vuoto', f };
     }
     const g = this.geo(riga.y, riga.h);
     // il tasto fx in fondo alla testa della clip
@@ -317,12 +416,11 @@ export class Timeline {
     const cont = h('div', { class: 'tl-testate-in', style: `transform: translateY(${-this.scrollY}px)` });
     let prima: Track | null = null;
     for (const t of p.tracks) {
-      if (prima && prima.kind === 'video' && t.kind === 'audio') cont.appendChild(h('div', { class: 'tl-sep', style: `height:${SEP}px` }));
-      if (prima && prima.kind === 'fx' && t.kind !== 'fx') cont.appendChild(h('div', { class: 'tl-sep fx', style: `height:${SEP_FX}px` }));
+      if (prima && prima.kind !== 'audio' && t.kind === 'audio') cont.appendChild(h('div', { class: 'tl-sep', style: `height:${SEP}px` }));
       prima = t;
       const accesa = modi.attive.has(t.id);
       const cambia = (label: string, fn: (tr: Track) => void) => store.edit(label, (pp) => fn(pp.tracks.find((x) => x.id === t.id)!));
-      const video = t.kind === 'video', audio = t.kind === 'audio', fx = t.kind === 'fx';
+      const video = t.kind !== 'audio', audio = t.kind === 'audio';
       // solo il misuratore che si muove (niente manopole e niente numeri: il volume della traccia sta nel mixer)
       const misura = audio ? h('span', { class: 'tt-misura', title: 'Livello della traccia' }) : null;
       if (misura) this.misure.push({ el: misura, track: t.id });
@@ -330,10 +428,10 @@ export class Timeline {
         h('div', { class: 'tt-riga' },
           h('button', {
             class: 'tt-nome' + (accesa ? ' accesa' : ''),
-            title: fx ? 'Corsia FX: effetti a tempo e transizioni a blocchetti · clic = accendila per tagliare anche i blocchi' : 'Accendi/spegni la traccia: il taglio (1) tocca solo le tracce accese · Alt+clic = solo questa',
+            title: 'Accendi/spegni la traccia: il taglio (1) tocca solo le tracce accese · Alt+clic = solo questa',
             on: { click: (e: MouseEvent) => this.accendi(t, e.altKey) },
           }, h('span', { class: 'led' + (accesa ? ' acceso' : '') }), t.name),
-          h('button', { class: 'tt-btn' + (t.mute ? ' on-rosso' : ''), title: fx ? 'Accendi / spegni gli effetti di questa corsia' : video ? 'Mostra / nascondi la traccia' : 'Muto', on: { click: () => cambia(t.mute ? 'Accendi traccia' : 'Spegni traccia', (tr) => { tr.mute = !tr.mute; }) } }, icona(audio ? 'altoparlante' : 'occhio', 13)),
+          h('button', { class: 'tt-btn' + (t.mute ? ' on-rosso' : ''), title: video ? 'Mostra / nascondi la traccia (e i suoi FX)' : 'Muto', on: { click: () => cambia(t.mute ? 'Accendi traccia' : 'Spegni traccia', (tr) => { tr.mute = !tr.mute; }) } }, icona(audio ? 'altoparlante' : 'occhio', 13)),
           audio ? h('button', { class: 'tt-btn' + (t.solo ? ' on-oro' : ''), title: 'Solo', on: { click: () => cambia('Solo', (tr) => { tr.solo = !tr.solo; }) } }, 'S') : null,
           h('button', { class: 'tt-btn' + (t.lock ? ' on-oro' : ''), title: 'Blocca la traccia', on: { click: () => cambia(t.lock ? 'Sblocca' : 'Blocca', (tr) => { tr.lock = !tr.lock; }) } }, icona('lucchetto', 12))),
         misura,
@@ -344,7 +442,7 @@ export class Timeline {
               const y0 = e.clientY, h0 = t.height;
               const el = e.currentTarget as HTMLElement;
               el.setPointerCapture(e.pointerId);
-              const mv = (ev: PointerEvent) => { const tr = store.doc.tracks.find((x) => x.id === t.id)!; tr.height = clamp(h0 + ev.clientY - y0, fx ? 20 : 28, 200); riga.style.height = tr.height + 'px'; this.sporca(); };
+              const mv = (ev: PointerEvent) => { const tr = store.doc.tracks.find((x) => x.id === t.id)!; tr.height = clamp(h0 + ev.clientY - y0, 28, 200); riga.style.height = tr.height + 'px'; this.sporca(); };
               const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); this.costruisciTestate(); };
               el.addEventListener('pointermove', mv);
               el.addEventListener('pointerup', up);
@@ -359,12 +457,12 @@ export class Timeline {
           { nome: 'Spegni tutte (il taglio tocca tutto)', disattiva: !modi.attive.size, fn: () => { modi.attive.clear(); this.costruisciTestate(); this.sporca(); store.emit('status'); } },
           { sep: true },
           { nome: 'Rinomina traccia', fn: async () => { const n = await chiedi('Rinomina traccia', 'Nome', t.name); if (n) cambia('Rinomina', (tr) => { tr.name = n.slice(0, 12); }); } },
-          { nome: 'Aggiungi ' + (fx ? 'corsia FX sopra' : video ? 'traccia video sopra' : 'traccia audio sotto'), fn: () => store.edit('Aggiungi traccia', (pp) => { const i = pp.tracks.findIndex((x) => x.id === t.id); pp.tracks.splice(audio ? i + 1 : i, 0, newTrack(t.kind, nextTrackName(pp, t.kind))); }) },
-          { nome: 'Elimina traccia (e le sue clip)', disattiva: !fx && p.tracks.filter((x) => x.kind === t.kind).length <= 1, fn: () => store.edit('Elimina traccia', (pp) => { pp.tracks = pp.tracks.filter((x) => x.id !== t.id); pp.clips = pp.clips.filter((c) => c.track !== t.id); }) },
+          { nome: 'Aggiungi ' + (video ? 'traccia video sopra' : 'traccia audio sotto'), fn: () => store.edit('Aggiungi traccia', (pp) => { const i = pp.tracks.findIndex((x) => x.id === t.id); pp.tracks.splice(audio ? i + 1 : i, 0, newTrack(t.kind, nextTrackName(pp, t.kind))); }) },
+          { nome: 'Elimina traccia (e le sue clip)', disattiva: p.tracks.filter((x) => x.kind === t.kind).length <= 1, fn: () => store.edit('Elimina traccia', (pp) => { pp.tracks = pp.tracks.filter((x) => x.id !== t.id); pp.clips = pp.clips.filter((c) => c.track !== t.id); }) },
           { sep: true },
-          { nome: 'Altezza piccola', fn: () => cambia('Altezza', (tr) => { tr.height = fx ? 20 : 34; }) },
+          { nome: 'Altezza piccola', fn: () => cambia('Altezza', (tr) => { tr.height = 34; }) },
           { nome: 'Altezza normale', fn: () => cambia('Altezza', (tr) => { tr.height = ALTEZZA[t.kind]; }) },
-          { nome: 'Altezza grande', fn: () => cambia('Altezza', (tr) => { tr.height = fx ? 44 : 120; }) },
+          { nome: 'Altezza grande', fn: () => cambia('Altezza', (tr) => { tr.height = 120; }) },
         ]);
       });
       cont.appendChild(riga);
@@ -386,14 +484,8 @@ export class Timeline {
     // sfondo delle tracce
     for (const { t, y, h: hh } of righe) {
       if (y > H || y + hh < RIGHELLO) continue;
-      ctx.fillStyle = t.kind === 'video' ? '#16151e' : t.kind === 'fx' ? '#1b1522' : '#13161a';
+      ctx.fillStyle = t.kind === 'audio' ? '#13161a' : '#16151e';
       ctx.fillRect(0, y, W, hh);
-      if (t.kind === 'fx' && !p.clips.some((c) => c.track === t.id) && hh >= 16) {
-        ctx.fillStyle = 'rgba(212,75,217,.35)';
-        ctx.font = '600 10.5px Rajdhani, sans-serif';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('trascina qui effetti e transizioni dal contenitore (Effetti, Transizioni)', 10, y + hh / 2);
-      }
       if (modi.attive.has(t.id)) { ctx.fillStyle = 'rgba(255,213,74,.07)'; ctx.fillRect(0, y, W, hh); ctx.fillStyle = 'rgba(255,213,74,.5)'; ctx.fillRect(0, y, 3, hh); }
       ctx.fillStyle = 'rgba(255,255,255,.035)';
       ctx.fillRect(0, y + hh - 1, W, 1);
@@ -405,9 +497,6 @@ export class Timeline {
         ctx.restore();
       }
     }
-    // separatore fra la corsia FX e il video
-    const primoVideo = righe.find((x, i) => i > 0 && x.t.kind !== 'fx' && righe[i - 1].t.kind === 'fx');
-    if (primoVideo) { ctx.fillStyle = '#0a090d'; ctx.fillRect(0, primoVideo.y - SEP_FX, W, SEP_FX); }
     // separatore video/audio
     const primaAudio = righe.find((x) => x.t.kind === 'audio');
     if (primaAudio) {
@@ -422,14 +511,18 @@ export class Timeline {
       ctx.fillStyle = 'rgba(53,232,255,.07)';
       ctx.fillRect(this.fX(a), RIGHELLO, (b - a) * this.ppf, H);
     }
-    // clip
+    // clip, e sopra i blocchetti FX (in basso sulla riga, una corsia per ogni sovrapposizione)
     for (const { t, y, h: hh } of righe) {
       if (y > H || y + hh < RIGHELLO) continue;
       for (const c of p.clips) {
-        if (c.track !== t.id) continue;
+        if (c.track !== t.id || c.kind === 'fx') continue;
         if (end(c) < f0 - 1 || c.start > f1 + 1) continue;
-        if (c.kind === 'fx') this.disegnaBlocco(ctx, p, c, t, y, hh, r);
-        else this.disegnaClip(ctx, p, c, t, y, hh, r);
+        this.disegnaClip(ctx, p, c, t, y, hh, r);
+      }
+      const { blocchi, corsia, n } = this.corsie(p, t.id);
+      for (const c of blocchi) {
+        if (end(c) < f0 - 1 || c.start > f1 + 1) continue;
+        this.disegnaBlocco(ctx, p, c, t, y, hh, r, corsia.get(c.id)!, n);
       }
     }
     // fantasma del trascinamento dal contenitore
@@ -455,7 +548,7 @@ export class Timeline {
     // il blocchetto FX che si sta trascinando dal contenitore, e il taglio su cui cade
     if (this.fantasmaBlocco) {
       const g = this.fantasmaBlocco;
-      const row = righe.find((x) => x.t.id === g.track) ?? righe.find((x) => x.t.kind === 'fx');
+      const row = righe.find((x) => x.t.id === g.track);
       if (g.taglio) {
         const tx = Math.round(this.fX(g.taglio.f)) + 0.5;
         ctx.strokeStyle = g.tipo === 'transizione' ? '#35e8ff' : '#ff6bff';
@@ -468,20 +561,29 @@ export class Timeline {
       if (row) {
         const [c1] = COLORI[g.tipo];
         const x0 = this.fX(g.start), w = Math.max(6, g.len * this.ppf);
-        const yy = g.nuova ? row.y - row.h / 2 : row.y;
-        ctx.globalAlpha = 0.75;
+        const { top, alt } = this.geoBlocco(row.y, row.h, 0, 1);
+        // la riga su cui cade si accende appena
+        ctx.fillStyle = 'rgba(255,255,255,.05)';
+        ctx.fillRect(0, row.y, W, row.h);
+        ctx.globalAlpha = 0.8;
         ctx.fillStyle = c1;
-        ctx.beginPath(); ctx.roundRect(x0, yy + 2, w, row.h - 4, 6); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(x0, top, w, alt, 6); ctx.fill();
         ctx.globalAlpha = 1;
         ctx.strokeStyle = '#fff';
         ctx.setLineDash([4, 3]);
-        ctx.beginPath(); ctx.roundRect(x0 + 0.5, yy + 2.5, w - 1, row.h - 5, 6); ctx.stroke();
+        ctx.beginPath(); ctx.roundRect(x0 + 0.5, top + 0.5, w - 1, alt - 1, 6); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = '#fff';
+        const sec = (g.len / r).toFixed(1).replace('.', ',').replace(',0', '');
+        const dove = g.dove === 'taglio' ? ' · sul taglio' : g.dove === 'inizio' ? ' · all\'inizio della clip' : g.dove === 'fine' ? ' · alla fine della clip' : g.tipo === 'transizione' ? ' · qui non c\'è un taglio' : '';
+        const testo = `${g.nome} · ${sec} s${dove}`;
         ctx.font = '700 11px Rajdhani, sans-serif';
         ctx.textBaseline = 'middle';
-        const sec = (g.len / r).toFixed(1).replace('.', ',').replace(',0', '');
-        ctx.fillText(`${g.nome} · ${sec} s${g.taglio ? (g.tipo === 'transizione' ? ' · sul taglio' : ' · sul taglio') : g.tipo === 'transizione' ? ' · qui non c\'è un taglio' : ''}`, x0 + 6, yy + row.h / 2, Math.max(60, w + 180));
+        const tw = ctx.measureText(testo).width + 12;
+        const ty = top - 11 < row.y ? top + alt + 10 : top - 10;
+        ctx.fillStyle = 'rgba(8,7,12,.85)';
+        ctx.beginPath(); ctx.roundRect(x0, ty - 8, tw, 16, 5); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(testo, x0 + 6, ty + 0.5);
       }
     }
     if (this.bersaglioFx) {
@@ -521,6 +623,7 @@ export class Timeline {
       ctx.beginPath(); ctx.moveTo(hx - 6, RIGHELLO - 12); ctx.lineTo(hx + 6, RIGHELLO - 12); ctx.lineTo(hx + 6, RIGHELLO - 6); ctx.lineTo(hx, RIGHELLO); ctx.lineTo(hx - 6, RIGHELLO - 6); ctx.closePath(); ctx.fill();
     }
     this.disegnaNav();
+    this.disegnaVbar();
     const tcm = this.testate.querySelector('.tc-mini');
     if (tcm) tcm.textContent = frameToTc(Math.round(store.head), p.rate, p.drop);
   }
@@ -569,20 +672,24 @@ export class Timeline {
     void r;
   }
 
-  /** un blocchetto della corsia FX: magenta gli effetti, turchese le transizioni, col taglio su cui lavora */
-  private disegnaBlocco(ctx: CanvasRenderingContext2D, p: Project, c: Clip, t: Track, y: number, hh: number, r: number) {
+  /** un blocchetto FX sopra le clip: magenta gli effetti, turchese le transizioni, col taglio su cui lavora e
+   *  l'altoparlante del suono (acceso o spento) */
+  private disegnaBlocco(ctx: CanvasRenderingContext2D, p: Project, c: Clip, t: Track, y: number, hh: number, r: number, corsia: number, n: number) {
     const b = c.fxb;
     if (!b) return;
     const x = this.fX(c.start), w = Math.max(3, c.len * this.ppf);
-    const top = y + 2, alt = hh - 4;
+    const { top, alt } = this.geoBlocco(y, hh, corsia, n);
     const sel = store.sel.has(c.id);
     const tr = b.tipo === 'transizione';
     const tg = tr ? taglioDelBlocco(p, c) : null;
     const spento = tr && !tg;
     const [c1, c2] = COLORI[b.tipo];
-    const raggio = Math.min(7, alt / 2, w / 2);
+    const raggio = Math.min(6, alt / 2, w / 2);
     ctx.save();
-    ctx.globalAlpha = t.mute || spento ? 0.45 : 1;
+    // l'ombra sotto stacca il blocchetto dalle miniature
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.beginPath(); ctx.roundRect(x + 0.5, top + 1.5, w - 1, alt, raggio); ctx.fill();
+    ctx.globalAlpha = t.mute || spento ? 0.5 : 0.94;
     const g = ctx.createLinearGradient(0, top, 0, top + alt);
     g.addColorStop(0, c1); g.addColorStop(1, c2);
     ctx.fillStyle = g;
@@ -599,36 +706,64 @@ export class Timeline {
       ctx.beginPath(); ctx.moveTo(x, top + alt); ctx.lineTo(x + w, top); ctx.moveTo(x, top); ctx.lineTo(x + w, top + alt); ctx.stroke();
     }
     if (tg) {
-      // il taglio su cui lavora: due tacche bianche, sopra e sotto (non tagliano il nome)
+      // il taglio su cui lavora: due tacche bianche, sopra e sotto
       const tx = Math.round(this.fX(tg.f));
       ctx.fillStyle = '#fff';
       ctx.beginPath(); ctx.moveTo(tx - 4, top); ctx.lineTo(tx + 4, top); ctx.lineTo(tx, top + 5); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(tx - 4, top + alt); ctx.lineTo(tx + 4, top + alt); ctx.lineTo(tx, top + alt - 5); ctx.closePath(); ctx.fill();
     }
-    if (w > 22 && alt >= 11) {
+    const sp = this.altoparlante(c, x, w, top, alt);
+    if (w > 22 && alt >= 10) {
       const sec = (c.len / r).toFixed(1).replace('.', ',').replace(',0', '');
       const testo = (tr ? '✦ ' : '⚡ ') + nomeBlocco(b) + (w > 90 ? ` · ${sec} s` : '') + (spento && w > 170 ? ' · mettilo su un taglio' : '');
-      ctx.font = `700 ${alt >= 20 ? 11 : 10}px Rajdhani, sans-serif`;
+      ctx.font = `700 ${alt >= 18 ? 11 : 10}px Rajdhani, sans-serif`;
       ctx.textBaseline = 'middle';
       const tx = Math.max(x + 6, 4), ty = top + alt / 2 + 0.5;
+      const max = (sp ? sp.x - 3 : x + w - 4) - tx;
       ctx.fillStyle = 'rgba(0,0,0,.45)';
-      ctx.fillText(testo, tx + 1, ty + 1, w - 10);
+      ctx.fillText(testo, tx + 1, ty + 1, max);
       ctx.fillStyle = '#fff';
-      ctx.fillText(testo, tx, ty, w - 10);
+      ctx.fillText(testo, tx, ty, max);
     }
     ctx.restore();
+    if (sp) this.disegnaAltoparlante(ctx, sp.x, sp.y, sp.s, !!b.audio && !t.mute);
     ctx.lineWidth = sel ? 2 : 1;
-    ctx.strokeStyle = sel ? '#ffd54a' : spento ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.55)';
+    ctx.strokeStyle = sel ? '#ffd54a' : spento ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.6)';
     if (spento) ctx.setLineDash([4, 3]);
     ctx.beginPath(); ctx.roundRect(x + (sel ? 1 : 0.5), top + (sel ? 1 : 0.5), w - (sel ? 2 : 1), alt - (sel ? 2 : 1), raggio); ctx.stroke();
     ctx.setLineDash([]);
     // scelto: le due maniglie ai bordi dicono che si allunga e si accorcia
     if (sel && w > 18) {
       ctx.fillStyle = '#ffd54a';
-      ctx.fillRect(x + 2, top + alt / 2 - 5, 3, 10);
-      ctx.fillRect(x + w - 5, top + alt / 2 - 5, 3, 10);
+      ctx.fillRect(x + 2, top + alt / 2 - 4, 3, 8);
+      ctx.fillRect(x + w - 5, top + alt / 2 - 4, 3, 8);
     }
     ctx.lineWidth = 1;
+  }
+
+  /** l'altoparlante del suono dell'FX: pieno con le onde se acceso, spento con la croce */
+  private disegnaAltoparlante(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, acceso: boolean) {
+    ctx.save();
+    ctx.fillStyle = acceso ? 'rgba(10,8,16,.55)' : 'rgba(10,8,16,.35)';
+    ctx.beginPath(); ctx.roundRect(x - 1, y - 1, s + 2, s + 2, 4); ctx.fill();
+    ctx.fillStyle = acceso ? '#fff' : 'rgba(255,255,255,.45)';
+    ctx.strokeStyle = acceso ? '#fff' : 'rgba(255,255,255,.55)';
+    ctx.lineWidth = 1.3;
+    const k = s / 14;
+    ctx.beginPath();
+    ctx.moveTo(x + 2 * k, y + 5 * k); ctx.lineTo(x + 4.5 * k, y + 5 * k); ctx.lineTo(x + 7.5 * k, y + 2 * k);
+    ctx.lineTo(x + 7.5 * k, y + 12 * k); ctx.lineTo(x + 4.5 * k, y + 9 * k); ctx.lineTo(x + 2 * k, y + 9 * k); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    if (acceso) {
+      ctx.arc(x + 8 * k, y + 7 * k, 2.6 * k, -0.9, 0.9);
+      ctx.moveTo(x + 8 * k + 4.8 * k * Math.cos(-0.9), y + 7 * k + 4.8 * k * Math.sin(-0.9));
+      ctx.arc(x + 8 * k, y + 7 * k, 4.8 * k, -0.9, 0.9);
+    } else {
+      ctx.moveTo(x + 9.5 * k, y + 5 * k); ctx.lineTo(x + 13 * k, y + 9 * k);
+      ctx.moveTo(x + 13 * k, y + 5 * k); ctx.lineTo(x + 9.5 * k, y + 9 * k);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   private disegnaClip(ctx: CanvasRenderingContext2D, p: Project, c: Clip, t: Track, y: number, hh: number, r: number) {
@@ -883,7 +1018,7 @@ export class Timeline {
     const righe: Record<TrackKind, [number, number, string]> = { fx: [4, 3, '#c048c8'], video: [8, 6, '#3f71d6'], audio: [15, 5, '#2f9a69'] };
     const tipo = new Map(p.tracks.map((t) => [t.id, t.kind]));
     for (const c of p.clips) {
-      const [yy, hh, col] = righe[tipo.get(c.track) ?? 'video'];
+      const [yy, hh, col] = c.kind === 'fx' ? (c.fxb?.tipo === 'transizione' ? [4, 3, '#22b4c4'] : righe.fx) : righe[tipo.get(c.track) ?? 'video'];
       ctx.fillStyle = col;
       ctx.fillRect(2 + c.start * k, yy, Math.max(1, c.len * k), hh);
     }
@@ -967,7 +1102,7 @@ export class Timeline {
       let cur = 'default';
       if (c.zona === 'righello') cur = 'col-resize';
       else if (c.zona === 'in' || c.zona === 'out') cur = e.shiftKey && c.taglio ? 'ew-resize' : c.zona === 'in' ? 'w-resize' : 'e-resize';
-      else if (c.zona === 'fx') cur = 'pointer';
+      else if (c.zona === 'fx' || c.zona === 'suono') cur = 'pointer';
       else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cur = 'ew-resize';
       else if (c.zona === 'volume') cur = 'ns-resize';
       else if (c.zona === 'punto') cur = 'grab';
@@ -978,6 +1113,8 @@ export class Timeline {
         const db = c.zona === 'punto' ? cl.gainKeys[c.punto!].v : cl.gainKeys.length ? keyValue(cl.gainKeys, c.f - cl.start, cl.gain) : cl.gain;
         cv.title = `Volume ${db > 0 ? '+' : ''}${db} dB · trascina su/giù · doppio clic = un punto · Alt+clic sul punto = toglilo`;
       } else if (c.zona === 'fx') cv.title = 'Effetti al volo per questa clip';
+      else if (c.zona === 'suono') cv.title = `Suono dell'FX: ${suono(c.clip?.fxb?.suono)?.nome ?? ''} · clic = ${c.clip?.fxb?.audio ? 'spegnilo' : 'accendilo'} · tasto destro = scegli un altro suono`;
+      else if (c.clip?.kind === 'fx' && c.zona === 'corpo') cv.title = `${nomeBlocco(c.clip.fxb!)}: trascinalo dove vuoi (si attacca al taglio, all'inizio o alla fine della clip) · allungalo dai bordi · tasto destro = durata, suono, modello`;
       else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cv.title = c.zona === 'fadeIn' ? 'Dissolvenza in entrata: trascina verso destra' : 'Dissolvenza in uscita: trascina verso sinistra';
       else cv.title = '';
     });
@@ -1007,6 +1144,9 @@ export class Timeline {
         if (!store.sel.has(c.clip.id)) store.select(M.withLinked(store.doc, [c.clip.id]));
         this.menuEffetti(e.clientX, e.clientY, c.clip);
         return;
+      } else if (c.clip && c.zona === 'suono') {
+        this.alternaSuono(c.clip.id);
+        return;
       } else if (c.clip && (c.zona === 'fadeIn' || c.zona === 'fadeOut')) {
         if (trackOf(store.doc, c.clip.track).lock) return;
         if (!store.sel.has(c.clip.id)) store.select([c.clip.id]);
@@ -1034,7 +1174,15 @@ export class Timeline {
         store.focusTrack = clip.track;
         if (trackOf(store.doc, clip.track).lock) return;
         const base = structuredClone(store.doc.clips);
-        if (e.altKey) { store.begin('Slip'); this.presa = { tipo: 'slip', ids: M.withLinked(store.doc, [clip.id]), base, x0: x, d: 0 }; }
+        if (e.altKey && e.shiftKey && clip.kind !== 'fx') {
+          // Alt+Shift (come in EDIUS): la clip e tutto quello che viene dopo, su tutte le tracce non bloccate, insieme
+          const p0 = store.doc;
+          const ids = new Set(p0.clips.filter((z) => (z.kind === 'fx' ? centro(z) : z.start) >= clip.start && !trackOf(p0, z.track).lock).map((z) => z.id));
+          store.select(ids);
+          store.begin('Sposta tutto da qui');
+          this.presa = { tipo: 'sposta', ids, base, x0: x, y0: y, kind: trackOf(p0, clip.track).kind, df: 0, dt: 0, ancora: clip, tutto: true };
+          avviso(`⇆ Sposto ${ids.size} clip insieme: da qui in poi, su tutte le tracce`, 'info', 1600);
+        } else if (e.altKey) { store.begin('Slip'); this.presa = { tipo: 'slip', ids: M.withLinked(store.doc, [clip.id]), base, x0: x, d: 0 }; }
         else {
           const avvia = () => {
             store.begin('Sposta');
@@ -1071,8 +1219,7 @@ export class Timeline {
         if (!this.presa) {
           clearTimeout(lungo);
           this.scrollF = Math.max(0, this.scrollF - (x - prec.x) / this.ppf);
-          this.scrollY = clamp(this.scrollY - (y - prec.y), 0, Math.max(0, this.altezzaTotale() - this.H));
-          this.costruisciTestate();
+          this.scorriY(this.scrollY - (y - prec.y));
           this.sporca();
           return;
         }
@@ -1133,10 +1280,8 @@ export class Timeline {
       const { x } = pos(e);
       if (e.ctrlKey || e.metaKey) this.zoom(e.deltaY < 0 ? 1.18 : 1 / 1.18, x);
       else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) this.scrollF = Math.max(0, this.scrollF + (e.deltaX || e.deltaY) / this.ppf);
-      else if (e.altKey) {
-        this.scrollY = clamp(this.scrollY + e.deltaY * 0.6, 0, Math.max(0, this.altezzaTotale() - this.H));
-        this.costruisciTestate();
-      } else {
+      else if (e.altKey) this.scorriY(this.scrollY + e.deltaY * 0.6);
+      else {
         // la rotella muove il cursore di un fotogramma per scatto, col suono: per tagliare sulla sillaba
         const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
         let n = 0;
@@ -1146,13 +1291,9 @@ export class Timeline {
       }
       this.sporca();
     }, { passive: false });
-    this.testate.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      this.scrollY = clamp(this.scrollY + e.deltaY * 0.6, 0, Math.max(0, this.altezzaTotale() - this.H));
-      this.costruisciTestate();
-      this.sporca();
-    }, { passive: false });
+    this.testate.addEventListener('wheel', (e) => { e.preventDefault(); this.scorriY(this.scrollY + e.deltaY * 0.6); }, { passive: false });
     this.eventiNav();
+    this.eventiVbar();
     // trascinamento dal contenitore (col puntatore: vedi trascina.ts)
     registraBersaglio({
       el: this.area,
@@ -1209,11 +1350,14 @@ export class Timeline {
         if (this.snapLinea !== null) df = sa - a;
         else { const sb = this.aggancia(b + df, q.ids); if (this.snapLinea !== null) df = sb - b; }
       }
-      // un blocco transizione da solo si aggancia col centro sul taglio
-      if (modi.snap && moving.length === 1 && moving[0].kind === 'fx' && moving[0].fxb?.tipo === 'transizione') {
+      // un blocchetto FX da solo si attacca ai bordi della traccia su cui sta andando: centrato sul taglio,
+      // all'inizio o alla fine della clip (le transizioni solo centrate sul taglio)
+      if (modi.snap && moving.length === 1 && moving[0].kind === 'fx') {
         const b0 = moving[0];
-        const tg = taglioVicino(p, b0.start + df + b0.len / 2, 12 / this.ppf);
-        if (tg) { df = Math.round(tg.f - b0.len / 2) - b0.start; this.snapLinea = tg.f; }
+        const sotto = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
+        const tk = sotto?.t.kind === 'video' ? sotto.t.id : b0.track;
+        const aggancio = this.agganciaBlocco(p, b0, b0.start + df, tk);
+        if (aggancio) { df = aggancio.start - b0.start; this.snapLinea = aggancio.f; }
       }
       // tracce: quante righe si è scesi o saliti
       const righe = this.righe(p).filter((r) => r.t.kind === q.kind);
@@ -1225,6 +1369,8 @@ export class Timeline {
         const r2 = tutte.find((r) => y >= r.y && y < r.y + r.h);
         if (!r2) dt = y < RIGHELLO + 20 ? -riga0 : righe.length - 1 - riga0; else dt = q.dt;
       }
+      // "tutto da qui" si muove solo nel tempo
+      if (q.tutto) dt = 0;
       if (df === q.df && dt === q.dt) return;
       p.clips = structuredClone(q.base);
       // niente viene coperto: se lì c'è una clip, questa si ferma attaccata (o salta nel primo buco che la contiene)
@@ -1398,20 +1544,43 @@ export class Timeline {
     return { tipo: t === 't' ? 'transizione' : 'effetto', id: resto.join(':') };
   }
 
-  /** dove cadrebbe il blocchetto lasciato qui: sul taglio vicino (centrato), su una corsia FX libera */
+  /** dove cadrebbe il blocchetto lasciato qui: sulla traccia video sotto il puntatore (o la più in alto con una
+   *  clip lì), attaccato al bordo più vicino: centrato sul taglio, all'inizio o alla fine della clip */
   private anteprimaBlocco(x: number, y: number, dato: string) {
     const p = store.doc;
     const { tipo, id } = this.specBlocco(dato);
     const len = durataBlocco(p, tipo, id, modi.durataFx);
-    const { start, taglio } = inizioBlocco(p, tipo, this.xF(x), len, 16 / this.ppf);
+    const f = this.xF(x);
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
-    const pref = riga?.t.kind === 'fx' ? riga.t.id : null;
+    const track = riga?.t.kind === 'video' ? riga.t.id : tracciaPerBlocco(p, f, tipo === 'transizione' && tagliFra(p, f - 16 / this.ppf, f + 16 / this.ppf).length > 0);
+    const { start, taglio, dove } = postoBlocco(p, tipo, f, len, 16 / this.ppf, track);
     // la transizione che c'è già su quel taglio si cambia (non se ne mette un'altra sopra)
-    const gia = tipo === 'transizione' && taglio ? p.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= taglio.f && end(c) >= taglio.f) : undefined;
-    if (gia) return { track: gia.track, start: gia.start, len: gia.len, tipo, taglio, nuova: false, nome: nomeBlocco(nuovoBlocco(tipo, id)) + ' (al posto di ' + nomeBlocco(gia.fxb!) + ')', pref, gia: gia.id };
-    const prova = { ...p, tracks: p.tracks.slice() } as Project;
-    const track = corsiaLibera(prova, pref, start, start + len);
-    return { track, start, len, tipo, taglio, nuova: !p.tracks.some((t) => t.id === track), nome: nomeBlocco(nuovoBlocco(tipo, id)), pref, gia: undefined as string | undefined };
+    const gia = tipo === 'transizione' && taglio ? transizioneSul(p, taglio) : undefined;
+    if (gia) return { track: gia.track, start: gia.start, len: gia.len, tipo, taglio, dove, nome: nomeBlocco(nuovoBlocco(tipo, id)) + ' (al posto di ' + nomeBlocco(gia.fxb!) + ')', gia: gia.id };
+    return { track, start, len, tipo, taglio, dove, nome: nomeBlocco(nuovoBlocco(tipo, id)), gia: undefined as string | undefined };
+  }
+
+  /** un blocchetto che si sposta si attacca ai bordi vicini della traccia: inizio o fine sul bordo, o centro sul taglio */
+  private agganciaBlocco(p: Project, b: Clip, start: number, track: string): { start: number; f: number } | null {
+    const soglia = 12 / this.ppf;
+    const tr = b.fxb?.tipo === 'transizione';
+    let best: { start: number; f: number } | null = null, bd = soglia;
+    for (const tg of tagliFra(p, start - soglia, start + b.len + soglia, track)) {
+      const prove: [number, number][] = [[tg.f - b.len / 2, Math.abs(start + b.len / 2 - tg.f) * (tg.a && tg.b ? 0.8 : 1.2)]];
+      if (!tr || !(tg.a && tg.b)) prove.push([tg.f, Math.abs(start - tg.f)], [tg.f - b.len, Math.abs(start + b.len - tg.f)]);
+      for (const [st, d] of prove) if (d < bd) { bd = d; best = { start: Math.max(0, Math.round(st)), f: tg.f }; }
+    }
+    return best;
+  }
+
+  /** l'altoparlante del blocchetto: acceso/spento (acceso = lo fa sentire subito) */
+  alternaSuono(id: string) {
+    const c = clipById(store.doc, id);
+    if (!c?.fxb?.suono) return;
+    const on = !c.fxb.audio;
+    store.edit(on ? 'Suono dell\'FX acceso' : 'Suono dell\'FX spento', (pp) => { clipById(pp, id)!.fxb!.audio = on; });
+    if (on) ascoltaSuono(c.fxb.suono, c.fxb.volume ?? 0);
+    avviso(`${on ? '🔊' : '🔇'} ${suono(c.fxb.suono)?.nome ?? 'Suono'} ${on ? 'acceso' : 'spento'} su ${nomeBlocco(c.fxb)}`, 'tasto', 1200);
   }
 
   /** la clip su cui cade un effetto (se l'effetto è audio e la clip è video, la sua audio legata) */
@@ -1420,6 +1589,12 @@ export class Timeline {
     const c = this.colpo(x, y).clip;
     const e = effetto(id);
     if (!c || !e) return null;
+    // sopra un blocchetto FX: vale la clip che ci sta sotto
+    if (c.kind === 'fx') {
+      const f = this.xF(x);
+      const sotto = p.clips.find((z) => z.track === c.track && z.kind !== 'fx' && z.start <= f && end(z) > f);
+      return sotto && adatte(e, [sotto]).length ? sotto : null;
+    }
     if (adatte(e, [c]).length) return c;
     const altra = [...M.withLinked(p, [c.id])].map((i) => clipById(p, i)!).find((z) => adatte(e, [z]).length);
     return altra ?? null;
@@ -1526,15 +1701,16 @@ export class Timeline {
       const { tipo, id } = this.specBlocco(dato);
       const g = this.anteprimaBlocco(x, y, dato);
       if (g.gia) {
-        store.edit('Cambia transizione', (pp) => { const c = clipById(pp, g.gia!)!; c.fxb = { ...c.fxb!, id, tr: transizioneDa(id, c.len) }; c.name = nomeBlocco(c.fxb); });
+        store.edit('Cambia transizione', (pp) => { const c = clipById(pp, g.gia!)!; c.fxb = cambiaModello(c.fxb!, id); c.name = nomeBlocco(c.fxb); });
         store.select([g.gia]);
         avviso(`✦ ${nomeBlocco(clipById(store.doc, g.gia)!.fxb!)} sul taglio`, 'tasto', 1400);
         return;
       }
-      const b = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), g.start, g.len, g.pref));
+      const b = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), g.start, g.len, g.track));
       store.select([b.id]);
       const sec = (g.len / fps(p.rate)).toFixed(1).replace('.', ',').replace(',0', '');
-      avviso(`${tipo === 'effetto' ? '⚡' : '✦'} ${nomeBlocco(b.fxb!)} · ${sec} s${g.taglio ? ' sul taglio' : tipo === 'transizione' ? ' · mettila sopra un taglio per farla lavorare' : ''}`, g.taglio || tipo === 'effetto' ? 'tasto' : 'info', 1800);
+      const dove = g.dove === 'taglio' ? ' sul taglio' : g.dove === 'inizio' ? ' all\'inizio della clip' : g.dove === 'fine' ? ' alla fine della clip' : tipo === 'transizione' ? ' · mettila sopra un taglio per farla lavorare' : '';
+      avviso(`${tipo === 'effetto' ? '⚡' : '✦'} ${nomeBlocco(b.fxb!)} · ${sec} s${dove}`, g.taglio || tipo === 'effetto' ? 'tasto' : 'info', 1800);
     } else if (dato.startsWith('e:')) {
       const c = this.clipDrop(x, y, dato.slice(2));
       if (!c) { avviso('Lascia l\'effetto sopra una clip adatta', 'info'); return; }
@@ -1553,11 +1729,13 @@ export class Timeline {
       const t = trackOf(store.doc, clip.track);
       const dentro = f > clip.start && f < end(clip);
       if (clip.kind === 'fx') { this.menuBlocco(x, y, clip); return; }
-      // le transizioni vanno in blocchetti nella corsia FX, sul bordo scelto
+      // le transizioni sono blocchetti sopra il bordo scelto (sulla traccia video della clip)
+      const vt = isVideoClip(clip) ? clip.track : [...M.withLinked(store.doc, [clip.id])].map((id) => clipById(store.doc, id)!).find((z) => isVideoClip(z))?.track;
       const trVoci = (lato: 'in' | 'out'): VoceMenu[] => {
         const bordo = lato === 'in' ? clip.start : end(clip);
-        const metti = (id: string) => { store.select([]); mettiBlocco('transizione', id, bordo); };
-        const gia = store.doc.clips.find((z) => z.kind === 'fx' && z.fxb?.tipo === 'transizione' && z.start <= bordo && end(z) >= bordo);
+        const metti = (id: string) => { store.select([]); mettiBlocco('transizione', id, bordo, vt); };
+        const tg0 = taglioVicino(store.doc, bordo, 1, vt);
+        const gia = tg0 ? transizioneSul(store.doc, tg0) : undefined;
         return [
           { nome: 'Dissolvenza incrociata', fn: () => metti('mix') },
           { nome: 'Passaggio al nero', fn: () => metti('dip') },
@@ -1571,7 +1749,7 @@ export class Timeline {
         ];
       };
       const fxVoci: VoceMenu[] = EFFETTI_TEMPO.filter((e) => ['flash', 'scossa', 'zoomColpo', 'glitch', 'dalNero', 'alNero', 'zoomLento', 'camera'].includes(e.id))
-        .map((e) => ({ nome: e.nome, fn: () => { store.select([]); mettiBlocco('effetto', e.id, e.id === 'alNero' ? Math.max(0, end(clip) - durataBlocco(store.doc, 'effetto', e.id, modi.durataFx)) : e.id === 'dalNero' ? clip.start : f); } }));
+        .map((e) => ({ nome: e.nome, fn: () => { store.select([]); const lb = durataBlocco(store.doc, 'effetto', e.id, modi.durataFx); mettiBlocco('effetto', e.id, f, vt, e.id === 'alNero' ? Math.max(clip.start, end(clip) - lb) : e.id === 'dalNero' ? clip.start : undefined); } }));
       voci.push(
         { nome: 'Taglia qui', tasto: '1', fn: () => { motore.vaiA(f); esegui('taglia'); } },
         { nome: 'Elimina', tasto: '2', fn: () => esegui('elimina') },
@@ -1632,17 +1810,13 @@ export class Timeline {
     menuContesto(x, y, voci);
   }
 
-  /** tasto destro su un blocchetto FX: durata, sul taglio, cambia, colore, forza */
+  /** tasto destro su un blocchetto FX: durata, sul taglio, cambia, suono, colore, forza */
   private menuBlocco(x: number, y: number, b: Clip) {
     const p = store.doc;
     const r = fps(p.rate);
     const fb = b.fxb!;
     const tr = fb.tipo === 'transizione';
-    const cambiaBlocco = (label: string, fn: (c: Clip, pp: Project) => void) => store.edit(label, (pp) => {
-      const c = clipById(pp, b.id)!;
-      fn(c, pp);
-      sistemaCorsia(pp, c);
-    });
+    const cambiaBlocco = (label: string, fn: (c: Clip, pp: Project) => void) => store.edit(label, (pp) => fn(clipById(pp, b.id)!, pp));
     const durata = (sec: number) => store.edit('Durata', (pp) => durataDelBlocco(pp, clipById(pp, b.id)!, sec * r));
     const nome = (sec: number) => (sec < 1 ? sec.toString().replace('.', ',') : String(sec)) + ' s';
     const colori: [string, string][] = [['Bianco', '#ffffff'], ['Nero', '#000000'], ['Oro', '#ffd54a'], ['Rosso', '#ff3040'], ['Azzurro', '#35e8ff']];
@@ -1651,7 +1825,7 @@ export class Timeline {
       { nome: 'Durata', sotto: [0.25, 0.5, 1, 2, 3, 5, 10].map((sec) => ({ nome: nome(sec), spunta: b.len === Math.round(sec * r), fn: () => durata(sec) })) },
       {
         nome: 'Centra sul taglio più vicino', fn: () => {
-          const tg = taglioVicino(store.doc, b.start + b.len / 2, Math.round(r * 5));
+          const tg = taglioVicino(store.doc, b.start + b.len / 2, Math.round(r * 5), b.track);
           if (!tg) { avviso('Non c\'è un taglio qui vicino', 'info'); return; }
           cambiaBlocco('Sul taglio', (c) => { c.start = Math.max(0, Math.round(tg.f - c.len / 2)); });
         },
@@ -1659,8 +1833,24 @@ export class Timeline {
       {
         nome: 'Cambia in', sotto: tr
           ? [{ nome: 'Dissolvenza', id: 'mix' }, { nome: 'Passaggio al nero', id: 'dip' }, ...DVE.map((m) => ({ nome: m.nome, id: 'dve:' + m.p })), ...TENDINE.map((m) => ({ nome: 'Tendina ' + m.nome, id: 'wipe:' + m.p }))]
-            .map((v) => ({ nome: v.nome, spunta: fb.id === v.id, fn: () => cambiaBlocco('Cambia transizione', (c) => { c.fxb = { ...c.fxb!, id: v.id, tr: transizioneDa(v.id, c.len) }; c.name = nomeBlocco(c.fxb); }) }))
-          : EFFETTI_TEMPO.map((e) => ({ nome: e.nome, spunta: fb.id === e.id, fn: () => cambiaBlocco('Cambia effetto', (c) => { c.fxb = { ...c.fxb!, id: e.id, colore: e.colore ?? c.fxb!.colore }; c.name = e.nome; }) })),
+            .map((v) => ({ nome: v.nome, spunta: fb.id === v.id, fn: () => cambiaBlocco('Cambia transizione', (c) => { c.fxb = cambiaModello(c.fxb!, v.id); c.name = nomeBlocco(c.fxb); }) }))
+          : EFFETTI_TEMPO.map((e) => ({ nome: e.nome, spunta: fb.id === e.id, fn: () => cambiaBlocco('Cambia effetto', (c) => { c.fxb = cambiaModello(c.fxb!, e.id); c.name = e.nome; }) })),
+      },
+      {
+        nome: 'Suono' + (fb.suono ? `: ${suono(fb.suono)?.nome ?? ''}${fb.audio ? '' : ' (spento)'}` : ''), sotto: [
+          { nome: fb.audio ? '🔇 Spegni il suono' : '🔊 Accendi il suono', disattiva: !fb.suono, fn: () => this.alternaSuono(b.id) },
+          { sep: true },
+          { nome: 'Nessun suono', spunta: !fb.suono, fn: () => cambiaBlocco('Suono dell\'FX', (c) => { c.fxb!.suono = undefined; c.fxb!.audio = false; }) },
+          ...SUONI.map((x) => ({
+            nome: x.nome, spunta: fb.suono === x.id,
+            fn: () => { cambiaBlocco('Suono dell\'FX', (c) => { c.fxb!.suono = x.id; c.fxb!.audio = true; }); ascoltaSuono(x.id, fb.volume ?? 0); },
+          })),
+          { sep: true },
+          ...[[-12, 'Piano (−12 dB)'], [-6, 'Medio (−6 dB)'], [0, 'Normale'], [4, 'Forte (+4 dB)']].map(([v, n]) => ({
+            nome: n as string, spunta: (fb.volume ?? 0) === v, disattiva: !fb.suono,
+            fn: () => { cambiaBlocco('Volume del suono', (c) => { c.fxb!.volume = v as number; c.fxb!.audio = true; }); ascoltaSuono(fb.suono!, v as number); },
+          })),
+        ],
       },
     ];
     if (usaColore) voci.push({ nome: 'Colore', sotto: colori.map(([n, col]) => ({ nome: n, spunta: fb.colore === col, fn: () => cambiaBlocco('Colore', (c) => { c.fxb!.colore = col; }) })) });

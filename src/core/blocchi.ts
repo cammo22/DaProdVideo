@@ -1,11 +1,13 @@
-// La corsia FX: i blocchetti sottili in cima alla timeline. Due famiglie, stesso modo di lavorare
-// (li trascini, li allunghi, li metti in fila):
-//  · EFFETTI a tempo: lampo, scossa, zoom, glitch… valgono per tutto quello che sta sotto, per la durata del blocco;
-//  · TRANSIZIONI: il blocco sta sopra un taglio e passa da una clip all'altra; lungo = lenta, corto = veloce.
-// Qui c'è il catalogo, il calcolo di ogni fotogramma (lo stesso per il monitor e per l'export) e le regole per
-// posarli: sul taglio vicino, su una corsia libera, mai sopra un altro blocco.
+// Gli FX a blocchetti: stanno sulle tracce video, sopra le clip (una striscia sottile in basso sulla riga), e non
+// occupano posto: si mettono dove vuoi, anche uno sull'altro. Due famiglie, stesso modo di lavorare:
+//  · EFFETTI a tempo: lampo, scossa, zoom, glitch… valgono per la loro traccia e per tutto quello che sta sotto;
+//  · TRANSIZIONI: il blocco sta sopra un taglio della sua traccia e passa da una clip all'altra; lungo = lenta.
+// Lasciati vicino a un bordo si sistemano da soli: centrati sul taglio fra due clip, all'inizio o alla fine della
+// clip. Poi si allungano dai bordi. Un blocco segue la clip su cui sta (quella che ha sotto il suo centro).
+// Qui c'è il catalogo, il calcolo di ogni fotogramma (lo stesso per il monitor e per l'export) e le regole per posarli.
 import type { BloccoFx, Clip, Project, Transition } from './tipi';
-import { end, newClip, newTrack, nextTrackName, newTransition } from './progetto';
+import { end, newClip, newTransition } from './progetto';
+import { suonoTransizione } from './suoni';
 import { fps } from './timecode';
 import { nomeModello, tipoDi } from '../render/transizioni';
 
@@ -71,6 +73,12 @@ export const EFFETTI_TEMPO: EffettoTempo[] = [
 
 export const effettoTempo = (id: string) => EFFETTI_TEMPO.find((e) => e.id === id);
 
+/** il suono che ogni effetto si porta dietro (quelli lunghi e silenziosi non ne hanno) */
+const SUONO_EFFETTO: Record<string, string> = {
+  flash: 'zap', lampoNero: 'colpo', scossa: 'impatto', zoomColpo: 'colpo', glitch: 'glitch', rgb: 'zap', negativo: 'colpo',
+  pixel: 'glitch', fuoco: 'riverso', sfoca: 'discesa', dalBianco: 'riverso', alBianco: 'riser', battito: 'battito', vhs: 'nastro',
+};
+
 /** le durate proposte nel contenitore (0 = quella giusta per ogni effetto) */
 export const DURATE = [0, 0.5, 1, 2, 5, 10];
 
@@ -87,9 +95,24 @@ export function transizioneDa(id: string, len = 25): Transition {
 }
 export const idTransizione = (t: Transition) => (t.type === 'mix' || t.type === 'dip' ? t.type : `${t.type}:${t.pattern}`);
 
+/** il suono di partenza di un blocco (acceso, se c'è: si spegne con un clic sull'altoparlante) */
+export const suonoDi = (tipo: 'effetto' | 'transizione', id: string) => (tipo === 'effetto' ? SUONO_EFFETTO[id] : suonoTransizione(id));
+
 export function nuovoBlocco(tipo: 'effetto' | 'transizione', id: string): BloccoFx {
-  if (tipo === 'effetto') return { tipo, id, forza: 1, colore: effettoTempo(id)?.colore ?? '#ffffff' };
-  return { tipo, id, forza: 1, colore: '#000000', tr: transizioneDa(id) };
+  const suono = suonoDi(tipo, id);
+  const s = suono ? { suono, audio: true } : {};
+  if (tipo === 'effetto') return { tipo, id, forza: 1, colore: effettoTempo(id)?.colore ?? '#ffffff', ...s };
+  return { tipo, id, forza: 1, colore: '#000000', tr: transizioneDa(id), ...s };
+}
+
+/** cambia modello o effetto a un blocco: il suono segue, se era quello di partenza (o non c'era) */
+export function cambiaModello(b: BloccoFx, id: string): BloccoFx {
+  const vecchio = suonoDi(b.tipo, b.id), nuovo = suonoDi(b.tipo, id);
+  const n: BloccoFx = { ...b, id };
+  if (b.tipo === 'transizione') n.tr = { ...transizioneDa(id), reverse: b.tr?.reverse ?? false };
+  else n.colore = effettoTempo(id)?.colore ?? b.colore;
+  if (!b.suono || b.suono === vecchio) { n.suono = nuovo; n.audio = nuovo ? b.audio ?? true : b.audio; }
+  return n;
 }
 
 export const nomeBlocco = (b: BloccoFx) => (b.tipo === 'effetto' ? effettoTempo(b.id)?.nome ?? 'Effetto' : b.tr ? nomeModello(b.tr.type, b.tr.pattern) : 'Transizione');
@@ -105,6 +128,8 @@ export function durataBlocco(p: Project, tipo: 'effetto' | 'transizione', id: st
 const VISIBILI = new Set(['media', 'color', 'bars', 'countdown', 'title']);
 
 export interface Taglio { f: number; track: string; a: Clip | null; b: Clip | null }
+
+export const centro = (c: Clip) => c.start + c.len / 2;
 
 /** i bordi delle clip video (tagli fra due clip, o inizi e fine liberi) fra a e b */
 export function tagliFra(p: Project, a: number, b: number, track?: string): Taglio[] {
@@ -131,7 +156,8 @@ export function tagliFra(p: Project, a: number, b: number, track?: string): Tagl
 export function taglioVicino(p: Project, f: number, maxDist: number, track?: string): Taglio | null {
   let best: Taglio | null = null, bd = Infinity;
   for (const t of tagliFra(p, f - maxDist, f + maxDist, track)) {
-    const d = Math.abs(t.f - f) + (t.a && t.b ? 0 : maxDist * 0.35) + p.tracks.findIndex((x) => x.id === t.track) * 0.001;
+    // a parità, la traccia più in basso (il girato, non il titolo che ci sta sopra)
+    const d = Math.abs(t.f - f) + (t.a && t.b ? 0 : maxDist * 0.35) - p.tracks.findIndex((x) => x.id === t.track) * 0.001;
     if (d < bd) { bd = d; best = t; }
   }
   return best;
@@ -149,49 +175,58 @@ export interface TransizioneAttiva {
   b: Clip | null;
 }
 
-/**
- * Il taglio su cui lavora un blocco transizione: quello più vicino al centro del blocco, preferendo i tagli veri
- * (fra due clip) e la traccia più in basso (il girato, non il titolo sopra). Una transizione, un taglio.
- */
+/** Il taglio su cui lavora un blocco transizione: quello della sua traccia più vicino al suo centro, preferendo
+ *  i tagli veri (fra due clip). Una transizione, un taglio. */
 export function taglioDelBlocco(p: Project, bl: Clip): Taglio | null {
-  const m = (bl.start + end(bl)) / 2;
-  const video = p.tracks.filter((t) => t.kind === 'video');
+  const m = centro(bl);
   let best: Taglio | null = null, bd = Infinity;
-  for (const tg of tagliFra(p, bl.start, end(bl))) {
-    const dalBasso = video.length - 1 - video.findIndex((t) => t.id === tg.track);
-    const d = Math.abs(tg.f - m) + (tg.a && tg.b ? 0 : bl.len * 0.3) + dalBasso * 0.01;
+  for (const tg of tagliFra(p, bl.start, end(bl), bl.track)) {
+    const d = Math.abs(tg.f - m) + (tg.a && tg.b ? 0 : bl.len * 0.3);
     if (d < bd) { bd = d; best = tg; }
   }
   return best;
 }
 
+/** i blocchetti FX di una traccia video accesa (quelle spente non fanno niente) */
+function blocchiAccesi(p: Project, tipo: 'effetto' | 'transizione', track?: string): Clip[] {
+  const accese = new Set(p.tracks.filter((t) => t.kind === 'video' && !t.mute && (!track || t.id === track)).map((t) => t.id));
+  return p.clips.filter((c) => c.kind === 'fx' && c.fxb?.tipo === tipo && accese.has(c.track));
+}
+
 /** le transizioni dei blocchi, ognuna col suo taglio */
 export function transizioniAttive(p: Project): TransizioneAttiva[] {
   const out: TransizioneAttiva[] = [];
-  for (const t of p.tracks) {
-    if (t.kind !== 'fx' || t.mute) continue;
-    for (const bl of p.clips) {
-      if (bl.track !== t.id || bl.kind !== 'fx' || bl.fxb?.tipo !== 'transizione' || !bl.fxb.tr) continue;
-      const tg = taglioDelBlocco(p, bl);
-      if (!tg) continue;
-      // se le clip sono più corte del blocco, la transizione si stringe dentro di loro
-      const s = Math.max(bl.start, tg.a ? tg.a.start : bl.start), e = Math.min(end(bl), tg.b ? end(tg.b) : end(bl));
-      if (e - s < 1) continue;
-      out.push({ blocco: bl, tr: { ...bl.fxb.tr, len: e - s }, track: tg.track, s, e, cut: tg.f, a: tg.a, b: tg.b });
-    }
+  for (const bl of blocchiAccesi(p, 'transizione')) {
+    if (!bl.fxb?.tr) continue;
+    const tg = taglioDelBlocco(p, bl);
+    if (!tg) continue;
+    // se le clip sono più corte del blocco, la transizione si stringe dentro di loro
+    const s = Math.max(bl.start, tg.a ? tg.a.start : bl.start), e = Math.min(end(bl), tg.b ? end(tg.b) : end(bl));
+    if (e - s < 1) continue;
+    out.push({ blocco: bl, tr: { ...bl.fxb.tr, len: e - s }, track: tg.track, s, e, cut: tg.f, a: tg.a, b: tg.b });
   }
   return out;
 }
 
 /** il blocco transizione ha un taglio sotto? (senza, è spento: si disegna tratteggiato) */
-export const haTaglio = (p: Project, bl: Clip) => tagliFra(p, bl.start, end(bl)).length > 0;
+export const haTaglio = (p: Project, bl: Clip) => tagliFra(p, bl.start, end(bl), bl.track).length > 0;
 
 /** il punto forte del blocco (0..1): sul taglio che ci sta sotto, se c'è; altrimenti proprio all'inizio */
 export function piccoDi(p: Project, bl: Clip): number {
-  const m = (bl.start + end(bl)) / 2;
+  const m = centro(bl);
   let best: number | null = null;
-  for (const t of tagliFra(p, bl.start, end(bl))) if (best === null || Math.abs(t.f - m) < Math.abs(best - m)) best = t.f;
+  for (const t of tagliFra(p, bl.start, end(bl), bl.track)) if (best === null || Math.abs(t.f - m) < Math.abs(best - m)) best = t.f;
   return best === null ? 0.06 : Math.max(0, Math.min(1, (best - bl.start) / Math.max(1, bl.len)));
+}
+
+/** dove cade il colpo del suono di un blocco (fotogrammi): sul taglio, sul lampo, o alla fine per chi sale */
+export function piccoSuono(p: Project, bl: Clip): number {
+  const b = bl.fxb!;
+  if (b.tipo === 'transizione') { const tg = taglioDelBlocco(p, bl); return tg ? tg.f : centro(bl); }
+  const m = effettoTempo(b.id)?.motore;
+  if (m === 'alColore' || m === 'sfocaEsce') return end(bl);
+  if (m === 'dalColore' || m === 'sfocaEntra' || m === 'pixel') return bl.start;
+  return bl.start + piccoDi(p, bl) * bl.len;
 }
 
 // ——— il calcolo di ogni fotogramma ———
@@ -277,89 +312,151 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
   }
 }
 
-/** gli effetti a tempo accesi al fotogramma f (null = nessuno: il compositore salta il passaggio) */
-export function statoEffetti(p: Project, f: number): StatoFx | null {
+/** gli effetti a tempo della traccia accesi al fotogramma f (null = nessuno: il compositore salta il passaggio).
+ *  Valgono per la traccia e per tutto quello che sta sotto (come un livello di regolazione). */
+export function statoEffetti(p: Project, f: number, track?: string): StatoFx | null {
   let st: StatoFx | null = null;
-  for (const t of p.tracks) {
-    if (t.kind !== 'fx' || t.mute) continue;
-    for (const c of p.clips) {
-      if (c.track !== t.id || c.kind !== 'fx' || c.fxb?.tipo !== 'effetto' || f < c.start || f >= end(c)) continue;
-      st ??= neutro();
-      applica(st, p, c, f);
-    }
+  for (const c of blocchiAccesi(p, 'effetto', track)) {
+    if (f < c.start || f >= end(c)) continue;
+    st ??= neutro();
+    applica(st, p, c, f);
   }
   return st;
 }
 
 // ——— posare i blocchi ———
 
-/** la corsia FX libera fra a e b (la preferita, poi le altre; se sono tutte piene se ne apre una sopra) */
-export function corsiaLibera(p: Project, preferita: string | null, a: number, b: number, except?: Set<string>): string {
-  const list = p.tracks.filter((t) => t.kind === 'fx' && !t.lock);
-  const libera = (id: string) => !p.clips.some((c) => c.track === id && !except?.has(c.id) && c.start < b && end(c) > a);
-  const pref = list.find((t) => t.id === preferita);
-  if (pref && libera(pref.id)) return pref.id;
-  // dal basso (la più vicina alle clip) verso l'alto
-  const t = [...list].reverse().find((x) => libera(x.id));
-  if (t) return t.id;
-  const nt = newTrack('fx', nextTrackName(p, 'fx'));
-  p.tracks.unshift(nt);
-  return nt.id;
+/** i blocchi attaccati a una clip (così la seguono quando si sposta e se ne vanno con lei): sulla sua traccia, le
+ *  transizioni col taglio all'inizio della clip (o alla fine, se dopo non c'è niente), gli effetti col centro dentro */
+export function blocchiDi(p: Project, c: Clip): Clip[] {
+  if (c.kind === 'fx') return [];
+  return p.clips.filter((b) => {
+    if (b.kind !== 'fx' || b.track !== c.track) return false;
+    if (b.fxb?.tipo === 'transizione') {
+      const tg = taglioDelBlocco(p, b);
+      if (tg) return (tg.b ?? tg.a)?.id === c.id;
+    }
+    return centro(b) >= c.start && centro(b) < end(c);
+  });
 }
 
-/** se il blocco ora tocca un vicino sulla stessa corsia, passa a una corsia libera (niente si copre mai) */
-export function sistemaCorsia(p: Project, c: Clip) {
-  if (p.clips.some((z) => z.id !== c.id && z.track === c.track && z.start < end(c) && end(z) > c.start)) c.track = corsiaLibera(p, c.track, c.start, end(c), new Set([c.id]));
+/** la transizione che lavora già su quel taglio (una sola per taglio) */
+export function transizioneSul(p: Project, tg: Taglio): Clip | undefined {
+  return p.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.track === tg.track && c.start <= tg.f && end(c) >= tg.f
+    && taglioDelBlocco(p, c)?.f === tg.f);
 }
 
-/** nuova durata: le transizioni restano centrate sul loro taglio, gli effetti partono dallo stesso punto */
+/** nuova durata: le transizioni restano centrate, gli effetti partono dallo stesso punto (o finiscono lì, se
+ *  stavano attaccati alla fine della clip) */
 export function durataDelBlocco(p: Project, c: Clip, len: number) {
   len = Math.max(2, Math.round(len));
   if (c.fxb?.tipo === 'transizione') c.start = Math.max(0, Math.round(c.start + c.len / 2 - len / 2));
+  else {
+    const sotto = p.clips.find((x) => x.track === c.track && VISIBILI.has(x.kind) && end(x) === end(c));
+    if (sotto && c.start > sotto.start) c.start = Math.max(sotto.start, end(c) - len);
+  }
   c.len = len;
-  sistemaCorsia(p, c);
 }
 
-/** mette un blocco nella corsia FX (da start per len fotogrammi); ritorna la clip nuova */
-export function posaBlocco(p: Project, b: BloccoFx, start: number, len: number, preferita: string | null = null): Clip {
+/** mette un blocco sulla traccia video (da start per len fotogrammi); ritorna la clip nuova. Non copre niente:
+ *  i blocchi stanno sopra le clip */
+export function posaBlocco(p: Project, b: BloccoFx, start: number, len: number, track?: string | null): Clip {
   start = Math.max(0, Math.round(start));
   len = Math.max(2, Math.round(len));
-  const track = corsiaLibera(p, preferita, start, start + len);
-  const c = newClip('fx', track, start, len, { name: nomeBlocco(b), fxb: structuredClone(b) });
+  const t = track && p.tracks.some((x) => x.id === track && x.kind === 'video') ? track : tracciaPerBlocco(p, start + len / 2);
+  const c = newClip('fx', t, start, len, { name: nomeBlocco(b), fxb: structuredClone(b) });
   p.clips.push(c);
   return c;
 }
 
-/**
- * Dove va un blocco lasciato al fotogramma f. Vicino a un taglio: le transizioni (e i lampi) si centrano proprio lì;
- * su un bordo libero (l'inizio o la fine di una clip senza niente attaccato) il blocco sta dentro la clip, così
- * entra o esce su quello che c'è sotto. Lontano dai tagli: parte da f.
- */
-export function inizioBlocco(p: Project, tipo: 'effetto' | 'transizione', f: number, len: number, soglia: number): { start: number; taglio: Taglio | null } {
-  const tg = taglioVicino(p, f, tipo === 'transizione' ? Math.max(soglia, len) : soglia);
-  if (tg) {
-    const start = tg.a && tg.b ? tg.f - len / 2 : tg.b ? tg.f : tg.f - len;
-    return { start: Math.max(0, Math.round(start)), taglio: tg };
+/** la traccia video giusta per un blocco al fotogramma f: la più in alto con una clip lì, se no la più in basso */
+export function tracciaPerBlocco(p: Project, f: number, soloTagli = false): string {
+  const video = p.tracks.filter((t) => t.kind === 'video');
+  for (const t of video) {
+    if (t.lock) continue;
+    if (soloTagli ? tagliFra(p, f - 1, f + 1, t.id).length : p.clips.some((c) => c.track === t.id && VISIBILI.has(c.kind) && c.start <= f && end(c) > f)) return t.id;
   }
-  return { start: Math.max(0, Math.round(tipo === 'transizione' ? f - len / 2 : f)), taglio: null };
+  return (video.filter((t) => !t.lock).pop() ?? video[video.length - 1]).id;
 }
 
-/** i progetti di prima: la corsia FX in cima, e le transizioni delle clip video diventano blocchetti */
+export type Dove = 'taglio' | 'inizio' | 'fine' | 'libero';
+
+export interface Posto { start: number; taglio: Taglio | null; dove: Dove }
+
+/**
+ * Dove va un blocco lungo len lasciato al fotogramma f sulla traccia: si sistema da solo sul bordo più vicino.
+ *  · fra due clip: le transizioni si centrano sul taglio; gli effetti anche, se li lasci proprio lì, altrimenti
+ *    finiscono sul taglio (fine della clip a sinistra) o partono dal taglio (inizio di quella a destra);
+ *  · sull'inizio o sulla fine libera di una clip: il blocco sta dentro la clip, attaccato al bordo;
+ *  · lontano dai bordi: parte da f (le transizioni ci si centrano).
+ */
+export function postoBlocco(p: Project, tipo: 'effetto' | 'transizione', f: number, len: number, soglia: number, track: string, stretto = false): Posto {
+  // lasciato col mouse si attacca a un bordo anche un po' lontano; messo al cursore (stretto) solo se ci sta sopra
+  const raggio = stretto ? soglia : tipo === 'transizione' ? Math.max(soglia, len) : Math.max(soglia, len * 0.75);
+  let best: Posto | null = null, bd = Infinity;
+  const prova = (start: number, taglio: Taglio, dove: Dove, d: number) => { if (d < bd) { bd = d; best = { start: Math.max(0, Math.round(start)), taglio, dove }; } };
+  for (const tg of tagliFra(p, f - raggio, f + raggio, track)) {
+    const d = Math.abs(tg.f - f);
+    if (tg.a && tg.b) {
+      if (tipo === 'transizione' || d <= Math.max(soglia * 0.6, len * 0.3)) prova(tg.f - len / 2, tg, 'taglio', d);
+      else if (f < tg.f) prova(tg.f - len, tg, 'fine', d);
+      else prova(tg.f, tg, 'inizio', d);
+    } else if (tg.b) {
+      // l'inizio libero: vale se si è sopra la clip (o appena prima)
+      if (f >= tg.f - soglia) prova(tg.f, tg, 'inizio', d + (tipo === 'transizione' ? len * 0.2 : 0));
+    } else if (tg.a && f <= tg.f + soglia) prova(tg.f - len, tg, 'fine', d + (tipo === 'transizione' ? len * 0.2 : 0));
+  }
+  if (best) return best;
+  return { start: Math.max(0, Math.round(tipo === 'transizione' ? f - len / 2 : f)), taglio: null, dove: 'libero' };
+}
+
+/** il vecchio "taglio sotto il blocco" della corsia FX a parte: guardava tutte le tracce, preferendo la più bassa */
+function taglioVecchio(p: Project, bl: Clip): Taglio | null {
+  const m = centro(bl);
+  const video = p.tracks.filter((t) => t.kind === 'video');
+  let best: Taglio | null = null, bd = Infinity;
+  for (const tg of tagliFra(p, bl.start, end(bl))) {
+    const dalBasso = video.length - 1 - video.findIndex((t) => t.id === tg.track);
+    const d = Math.abs(tg.f - m) + (tg.a && tg.b ? 0 : bl.len * 0.3) + dalBasso * 0.01;
+    if (d < bd) { bd = d; best = tg; }
+  }
+  return best;
+}
+
+/**
+ * I progetti di prima: i blocchi della corsia FX a parte scendono sulle tracce video (le transizioni sulla traccia
+ * del loro taglio, gli effetti sulla traccia più in alto che hanno sotto, così valgono ancora per tutto) e la
+ * corsia sparisce; le transizioni attaccate alle clip video diventano blocchetti.
+ */
 export function migraBlocchi(p: Project) {
-  if (!p.tracks.some((t) => t.kind === 'fx')) p.tracks.unshift(newTrack('fx', 'FX'));
-  const video = new Set(p.tracks.filter((t) => t.kind === 'video').map((t) => t.id));
+  const video = p.tracks.filter((t) => t.kind === 'video');
+  const fx = new Set(p.tracks.filter((t) => t.kind === 'fx').map((t) => t.id));
+  if (fx.size && video.length) {
+    for (const c of p.clips) {
+      if (!fx.has(c.track)) continue;
+      if (c.kind !== 'fx' || !c.fxb) { c.track = ''; continue; }
+      if (c.fxb.tipo === 'transizione') c.track = taglioVecchio(p, c)?.track ?? tracciaPerBlocco(p, centro(c));
+      else {
+        const sopra = video.find((t) => p.clips.some((x) => x.track === t.id && VISIBILI.has(x.kind) && x.start < end(c) && end(x) > c.start));
+        c.track = (sopra ?? video[video.length - 1]).id;
+      }
+      // il suono (dalla 1.0.5): i blocchi vecchi restano muti, ma col loro suono pronto da accendere
+      if (c.fxb.suono === undefined) { c.fxb.suono = suonoDi(c.fxb.tipo, c.fxb.id); c.fxb.audio = false; }
+    }
+    p.clips = p.clips.filter((c) => c.track !== '');
+    p.tracks = p.tracks.filter((t) => t.kind !== 'fx');
+  }
+  const vids = new Set(p.tracks.filter((t) => t.kind === 'video').map((t) => t.id));
   for (const c of p.clips.slice()) {
-    if (!video.has(c.track)) continue;
+    if (!vids.has(c.track) || c.kind === 'fx') continue;
     if (c.trIn) {
       const tr = c.trIn;
-      const b: BloccoFx = { tipo: 'transizione', id: idTransizione(tr), forza: 1, colore: tr.color, tr: { ...tr } };
-      posaBlocco(p, b, c.start, tr.len);
+      posaBlocco(p, { tipo: 'transizione', id: idTransizione(tr), forza: 1, colore: tr.color, tr: { ...tr } }, c.start, tr.len, c.track);
       c.trIn = undefined;
     }
     if (c.trOut) {
       const tr = c.trOut;
-      const b: BloccoFx = { tipo: 'transizione', id: idTransizione(tr), forza: 1, colore: tr.color, tr: { ...tr } };
-      posaBlocco(p, b, end(c) - tr.len, tr.len);
+      posaBlocco(p, { tipo: 'transizione', id: idTransizione(tr), forza: 1, colore: tr.color, tr: { ...tr } }, end(c) - tr.len, tr.len, c.track);
       c.trOut = undefined;
     }
   }

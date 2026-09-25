@@ -6,6 +6,7 @@ import { dbToGain, end, keyValue, masterDi, mediaOf, newTransition } from '../co
 import { transizioniAttive } from '../core/blocchi';
 import { f2s } from '../core/timecode';
 import { mediaRT } from './libreria';
+import { bufferSuono, suoniFx } from './suoni';
 
 const SUONA = new Set(['media', 'tone', 'beep']);
 
@@ -147,6 +148,8 @@ interface Voce {
   pumping: boolean;
   /** dove entrano le sorgenti: i filtri della clip, o direttamente il guadagno */
   ingresso?: AudioNode;
+  /** i suoni degli FX: il secondo di timeline in cui finiscono */
+  fine?: number;
 }
 
 export interface Misure { l: number; r: number; lPeak: number; rPeak: number }
@@ -360,6 +363,23 @@ class Banco {
       const srcTo = c.srcIn + (ce - cs) * c.speed;
       v.iter = new AudioBufferSink(r.a).buffers(Math.max(0, srcFrom - 0.05), srcTo) as Voce['iter'];
     }
+    // i suoni dentro gli FX (whoosh, colpi, zap…): dritti nel master
+    for (const e of suoniFx(p)) {
+      const id = 'sfx:' + e.id;
+      if (this.voci.has(id)) continue;
+      const fine = e.at + e.buf.duration;
+      if (fine <= pos || e.at > pos + ANTICIPO) continue;
+      const gain = ctx.createGain(), pan = ctx.createStereoPanner();
+      gain.gain.value = e.gain;
+      gain.connect(pan);
+      pan.connect(this.master);
+      const s = ctx.createBufferSource();
+      s.buffer = e.buf;
+      s.connect(gain);
+      const when = this.t0 + e.at - this.startSec;
+      if (when >= now) s.start(when); else s.start(now, now - when);
+      this.voci.set(id, { clip: { id } as Clip, gain, pan, nodes: [s], until: now, finita: true, pumping: false, fine });
+    }
     for (const v of this.voci.values()) {
       if (v.iter && !v.finita) {
         const c = v.clip;
@@ -371,7 +391,7 @@ class Banco {
     // voci finite da tempo: via
     for (const [id, v] of this.voci) {
       const c = v.clip;
-      if (this.modo === 'timeline' && f2s(end(c) + codaIncrocio(p, c), fr) < pos - 0.5) {
+      if (this.modo === 'timeline' && (v.fine ?? f2s(end(c) + codaIncrocio(p, c), fr)) < pos - 0.5) {
         this.chiudiVoce(v);
         this.voci.delete(id);
       }
@@ -492,6 +512,21 @@ class Banco {
     void this.colpo(voci, durata);
   }
 
+  /** fa sentire un suono degli FX (quando lo accendi o lo scegli dal menu) */
+  ascolta(id: string, db = 0) {
+    const buf = bufferSuono(id);
+    if (!buf || this.attivo) return;
+    const ctx = this.sveglia();
+    const g = ctx.createGain();
+    g.gain.value = dbToGain(db) * this.volumeMaster;
+    g.connect(this.uscita);
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.connect(g);
+    s.start(ctx.currentTime + 0.01);
+    s.onended = () => { s.disconnect(); g.disconnect(); };
+  }
+
   /** il suono della sorgente nel monitor (modo sorgente) al secondo t */
   scrubSorgente(mediaId: string, t: number, durata = 0.085) {
     if (this.attivo) return;
@@ -526,6 +561,9 @@ class Banco {
 }
 
 export const banco = new Banco();
+
+/** fa sentire un suono degli FX */
+export const ascoltaSuono = (id: string, db = 0) => banco.ascolta(id, db);
 
 /**
  * Mixaggio per l'export: rende l'audio della timeline da fromSec a toSec in pezzi (così un'ora di
@@ -595,6 +633,18 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
           s.start(when, offset, dur);
         }
       })());
+    }
+    // i suoni degli FX
+    for (const e of suoniFx(p)) {
+      if (e.at + e.buf.duration <= a || e.at >= b) continue;
+      const g = ctx.createGain();
+      g.gain.value = e.gain;
+      g.connect(master);
+      const s = ctx.createBufferSource();
+      s.buffer = e.buf;
+      s.connect(g);
+      const when = e.at - a;
+      if (when >= 0) s.start(when); else s.start(0, -when);
     }
     await Promise.all(lavori);
     yield await ctx.startRendering();

@@ -146,9 +146,9 @@ export async function montaggioDimostrativo() {
         const link = uid('l');
         const cv = newClip('media', v1.id, at, L, { media: m.id, name: m.name, link, srcIn: 0 });
         const ca = newClip('media', a1.id, at, L, { media: m.id, name: m.name, link, srcIn: 0 });
-        // le transizioni sono blocchetti nella corsia FX, sul taglio; l'audio si incrocia da solo
-        if (i === 1) posaBlocco(pp, nuovoBlocco('transizione', 'mix'), at - Math.round(tr / 2), tr);
-        if (i === 2) posaBlocco(pp, nuovoBlocco('transizione', 'wipe:119'), at - Math.round(tr / 2), tr);
+        // le transizioni sono blocchetti sopra il taglio; l'audio si incrocia da solo (la tendina col suo swish)
+        if (i === 1) posaBlocco(pp, nuovoBlocco('transizione', 'mix'), at - Math.round(tr / 2), tr, v1.id);
+        if (i === 2) posaBlocco(pp, nuovoBlocco('transizione', 'wipe:119'), at - Math.round(tr / 2), tr, v1.id);
         if (i === 0) { cv.fadeIn = Math.round(r / 2); ca.fadeIn = Math.round(r / 2); }
         if (i === media.length - 1) { cv.fadeOut = tr; ca.fadeOut = tr; }
         pp.clips.push(cv, ca);
@@ -159,9 +159,9 @@ export async function montaggioDimostrativo() {
       const sotto = newClip('title', v2.id, L + Math.round(r * 1.5), Math.round(r * 3.5), { name: 'Sottopancia', gen: { title: { ...TITLE0, style: 'sottopancia', text: 'Napoli di notte\nripresa dimostrativa', size: 52, align: 'left' } } });
       sotto.fadeIn = 6; sotto.fadeOut = 6;
       pp.clips.push(titolo, sotto);
-      // gli effetti a tempo della corsia FX: un lampo quando entra il sottopancia, uno zoom lento sull'ultima ripresa
-      posaBlocco(pp, nuovoBlocco('effetto', 'flash'), L + Math.round(r * 1.5), Math.round(r / 2));
-      posaBlocco(pp, nuovoBlocco('effetto', 'zoomLento'), L * 2 + Math.round(r), L - Math.round(r * 2));
+      // gli effetti a tempo: un lampo (col suo zap) quando entra il sottopancia, uno zoom lento solo sulla ripresa
+      posaBlocco(pp, nuovoBlocco('effetto', 'flash'), L + Math.round(r * 1.5), Math.round(r / 2), v2.id);
+      posaBlocco(pp, nuovoBlocco('effetto', 'zoomLento'), L * 2 + Math.round(r), L - Math.round(r * 2), v1.id);
       pp.name = 'Montaggio dimostrativo';
     });
     store.dirty = false;
