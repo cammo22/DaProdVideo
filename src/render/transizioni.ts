@@ -38,6 +38,15 @@ export const EFFETTI: Modello[] = [
   { p: 391, nome: 'Sfocata', info: 'si sfoca, cambia, torna a fuoco' },
   { p: 401, nome: 'Cubo 3D', info: 'le due immagini sono le facce di un cubo che ruota' },
   { p: 411, nome: 'Girata', info: 'la cartolina si gira: dietro c\'è la nuova' },
+  { p: 421, nome: 'Zoom sfocato', info: 'si entra di corsa, con la scia' },
+  { p: 431, nome: 'Frusta', info: 'la camera gira di scatto (whip pan)' },
+  { p: 441, nome: 'Rotazione', info: 'la vecchia gira via, la nuova arriva girando' },
+  { p: 451, nome: 'Lama di luce', info: 'una striscia bianca spazza via la vecchia' },
+  { p: 461, nome: 'Caleidoscopio', info: 'si piega a spicchi e si riapre nuova' },
+  { p: 471, nome: 'Aria calda', info: 'trema come l\'asfalto e si scioglie' },
+  { p: 481, nome: 'Tenda', info: 'la vecchia si apre in due dal centro' },
+  { p: 491, nome: 'Sovraesposta', info: 'un colpo di luce e sei dall\'altra parte' },
+  { p: 521, nome: 'Polvere', info: 'la vecchia si sgretola in granelli' },
 ];
 
 export const nomeModello = (tipo: string, p: number) =>

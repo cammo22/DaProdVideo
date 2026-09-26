@@ -13,7 +13,7 @@ export const TF0: Transform = { x: 0, y: 0, scale: 1, rot: 0, cropL: 0, cropR: 0
 
 /** altezze di partenza: l'audio più alto (si vede la forma d'onda e il volume), il video più basso
  *  (fx = la vecchia corsia a parte, solo per i progetti di prima) */
-export const ALTEZZA = { video: 54, audio: 76, fx: 27 } as const;
+export const ALTEZZA = { video: 62, audio: 76, fx: 27 } as const;
 
 export function newTrack(kind: TrackKind, name: string): Track {
   return {

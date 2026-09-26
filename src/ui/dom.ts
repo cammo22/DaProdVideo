@@ -84,6 +84,7 @@ const P: Record<string, string> = {
   finale: '<path d="M4 9h16v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4 9l2-5 3 1-1.5 4M9 5l4 1.2L11.5 9M13 6.2l4 1.2L16 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 12.5l4 2.5-4 2.5z" fill="currentColor"/>',
   pieno: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
   montaggio: '<path d="M3 7h18M3 12h18M3 17h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".5"/><rect x="5" y="5" width="7" height="4" rx="1" fill="currentColor"/><rect x="10" y="10" width="9" height="4" rx="1" fill="currentColor"/><rect x="4" y="15" width="10" height="4" rx="1" fill="currentColor"/>',
+  live: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4.5" fill="#ff4d6d"/>',
   vista: '<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 4v16M3 13h12" stroke="currentColor" stroke-width="2"/><rect x="16.5" y="6" width="3" height="12" rx=".8" fill="currentColor" opacity=".6"/>',
   aggiorna: '<path d="M20 12a8 8 0 11-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   sottotitoli: '<rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 10.2a2.2 2.2 0 100 3.6M17 10.2a2.2 2.2 0 100 3.6" fill="none" stroke="currentColor" stroke-width="1.8"/>',
@@ -159,7 +160,17 @@ export function chiedi(titolo: string, etichetta: string, valore = '', multiline
 }
 
 // ——— menu contestuale ———
-export interface VoceMenu { nome?: string; tasto?: string; fn?: () => void; disattiva?: boolean; sep?: boolean; sotto?: VoceMenu[]; spunta?: boolean }
+export interface VoceMenu { nome?: string; tasto?: string; fn?: () => void; disattiva?: boolean; sep?: boolean; sotto?: VoceMenu[]; spunta?: boolean; /** al passaggio del puntatore (per sentire un suono prima di sceglierlo) */ sopra?: () => void }
+
+/** tiene un menu dentro lo schermo (la barra di Windows non lo copre più): se sfora sotto sale, se sfora a destra si apre a sinistra */
+function dentroLoSchermo(m: HTMLElement, x: number, y: number, xAlt?: number) {
+  m.style.maxHeight = innerHeight - 12 + 'px';
+  const r = m.getBoundingClientRect();
+  let left = x;
+  if (left + r.width > innerWidth - 4) left = xAlt !== undefined ? xAlt - r.width : innerWidth - r.width - 4;
+  m.style.left = Math.max(4, left) + 'px';
+  m.style.top = Math.max(6, Math.min(y, innerHeight - r.height - 6)) + 'px';
+}
 
 let menuAperto: HTMLElement | null = null;
 export function chiudiMenu() { menuAperto?.remove(); menuAperto = null; }
@@ -168,9 +179,7 @@ export function menuContesto(x: number, y: number, voci: VoceMenu[]) {
   chiudiMenu();
   const m = costruisciMenu(voci);
   document.body.appendChild(m);
-  const r = m.getBoundingClientRect();
-  m.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px';
-  m.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + 'px';
+  dentroLoSchermo(m, x, y);
   menuAperto = m;
   setTimeout(() => {
     const via = (e: Event) => { if (!m.contains(e.target as Node)) { chiudiMenu(); document.removeEventListener('pointerdown', via, true); } };
@@ -190,7 +199,15 @@ export function costruisciMenu(voci: VoceMenu[]): HTMLElement {
       const sub = costruisciMenu(v.sotto);
       sub.classList.add('sotto');
       riga.appendChild(sub);
+      // il sottomenu si apre accanto alla voce, ma sempre dentro lo schermo
+      riga.addEventListener('pointerenter', () => {
+        const r = riga.getBoundingClientRect();
+        sub.style.left = r.right - 4 + 'px';
+        sub.style.top = r.top - 4 + 'px';
+        requestAnimationFrame(() => dentroLoSchermo(sub, r.right - 4, r.top - 4, r.left + 4));
+      });
     }
+    if (v.sopra) riga.addEventListener('pointerenter', v.sopra);
     m.appendChild(riga);
   }
   return m;

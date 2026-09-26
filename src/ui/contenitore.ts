@@ -12,7 +12,7 @@ import { DURATE, EFFETTI_TEMPO, type EffettoTempo } from '../core/blocchi';
 import { importaDialogo, importaDaDrop, ricollega, togliMedia } from '../progetti';
 import { avviso, chiedi, h, icona, menuContesto } from './dom';
 import { trascinabile } from './trascina';
-import type { MediaItem, Transition } from '../core/tipi';
+import type { MediaItem, TitleSpec, Transition } from '../core/tipi';
 import { projectEnd, newTransition, end, clipById } from '../core/progetto';
 import * as M from '../core/montaggio';
 import { EFFETTI, TENDINE } from '../render/transizioni';
@@ -261,9 +261,17 @@ export class Contenitore {
       if (!extra) trascinabile(el, () => 'g:' + kind, () => '📺 ' + nome);
       return el;
     };
-    const titolo = (stile: 'fisso' | 'sottopancia' | 'rullo' | 'crawl', testo: string) => () => {
+    const titolo = (stile: TitleSpec['style'], testo: string, extra: Partial<TitleSpec> = {}) => () => {
       const ids = inserisciGeneratore('title');
-      store.edit('Stile titolo', (p) => { for (const c of p.clips) if (ids.includes(c.id) && c.gen?.title) { c.gen.title.style = stile; c.gen.title.text = testo; if (stile === 'sottopancia') { c.gen.title.size = 56; c.gen.title.align = 'left'; } if (stile === 'rullo') { c.len = c.len * 3; c.gen.title.size = 64; } if (stile === 'crawl') { c.len = c.len * 2; c.gen.title.size = 50; c.gen.title.y = 0.9; c.gen.title.box = true; } } });
+      store.edit('Stile titolo', (p) => {
+        for (const c of p.clips) {
+          if (!ids.includes(c.id) || !c.gen?.title) continue;
+          Object.assign(c.gen.title, { style: stile, text: testo }, extra);
+          if (stile === 'sottopancia') { c.gen.title.size = 56; c.gen.title.align = 'left'; }
+          if (stile === 'rullo') { c.len = c.len * 3; c.gen.title.size = 64; }
+          if (stile === 'crawl') { c.len = c.len * 2; c.gen.title.size = 50; c.gen.title.y = 0.9; c.gen.title.box = true; }
+        }
+      });
     };
     return h('div', { class: 'gen-lista' },
       h('p', { class: 'nota' }, 'Clic per metterli al cursore (su una traccia libera: non coprono niente), o trascinali dove vuoi.'),
@@ -272,7 +280,13 @@ export class Contenitore {
         g('title', 'Titolo', 'testo fisso al centro', 'titolo'),
         g('title', 'Sottopancia', 'nome e ruolo in basso, stile TG', 'sottopancia', titolo('sottopancia', 'Mario Rossi\nregista')),
         g('title', 'Rullo titoli', 'i titoli di coda che salgono', 'rullo', titolo('rullo', 'DaProd Video\n\nMontaggio\nDaProd\n\nMusica\nDaProd\n\nGrazie per la visione')),
-        g('title', 'Crawl', 'la scritta che scorre in basso', 'crawl', titolo('crawl', 'ULTIM\'ORA · DaProd Video: il montaggio vecchio stile, moderno dentro · '))),
+        g('title', 'Crawl', 'la scritta che scorre in basso', 'crawl', titolo('crawl', 'ULTIM\'ORA · DaProd Video: il montaggio vecchio stile, moderno dentro · ')),
+        g('title', 'Neon', 'si accende tremando come un\'insegna', 'neon', titolo('neon', 'OPEN', { color: '#ff3df2', size: 130, shadow: false, outline: 'none', font: 'Orbitron' })),
+        g('title', 'Cinema', 'lettere larghe che si avvicinano piano', 'cinema', titolo('cinema', 'Napoli, 1994', { size: 72, shadow: true, outline: 'none' })),
+        g('title', 'Macchina da scrivere', 'le lettere arrivano una alla volta', 'macchina', titolo('macchina', 'C\'era una volta…', { size: 64, outline: 'none', color: '#f2efe6' })),
+        g('title', 'Rimbalzo', 'entra con un salto', 'rimbalzo', titolo('rimbalzo', 'WOW!', { size: 150, color: '#ffd54a', outline: '#000000' })),
+        g('title', 'Social', 'la fascia colorata che entra di lato', 'social', titolo('social', 'Seguici per la parte 2 👉', { size: 58, color: '#111111', boxColor: '#ffd54a', outline: 'none', shadow: false, y: 0.78 })),
+        g('title', 'Citazione', 'una frase importante, con le virgolette', 'citazione', titolo('citazione', 'Il montaggio è scrivere\ncon le immagini.', { size: 60, outline: 'none' }))),
       h('h4', { class: 'bin-sezione' }, 'Le macchine della sala'),
       h('div', { class: 'bin-griglia' },
         g('bars', 'Barre + tono', 'SMPTE e 1 kHz a −18 dBFS', 'barre'),
@@ -344,11 +358,15 @@ export class Contenitore {
     };
     return h('div', { class: 'gen-lista' },
       this.durate(),
-      h('p', { class: 'nota' }, 'Trascina un effetto sopra una clip: diventa un blocchetto in basso sulla clip e si sistema da solo all\'inizio, alla fine o centrato sul taglio fra due clip (lontano dai bordi resta dove lo lasci). Poi allungalo dai bordi. Vale per la sua traccia e per quelle sotto; i rapidi hanno il loro suono (altoparlante sul blocco = acceso/spento).'),
+      h('p', { class: 'nota' }, 'Trascina un effetto sopra una clip: diventa un blocchetto in basso sulla clip e si sistema da solo all\'inizio, alla fine o centrato sul taglio fra due clip (lontano dai bordi resta dove lo lasci). Poi allungalo dai bordi. Vale per la sua traccia e per quelle sotto, e si somma con gli altri: mettine due sullo stesso punto e si fondono. Il suono si accende dall\'altoparlante sul blocco (tasto destro = scegli quale).'),
       h('h4', { class: 'bin-sezione' }, '⚡ Effetti rapidi'),
       h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'rapidi').map(tempo)),
       h('h4', { class: 'bin-sezione' }, '⏱ Effetti lunghi'),
       h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'lunghi').map(tempo)),
+      h('h4', { class: 'bin-sezione' }, '💡 Luci'),
+      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'luci').map(tempo)),
+      h('h4', { class: 'bin-sezione' }, '🌀 Distorsioni'),
+      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'distorsioni').map(tempo)),
       h('h4', { class: 'bin-sezione' }, icona('video', 13), 'Stile della clip · trascinali su una clip'),
       h('div', { class: 'bin-griglia' }, EFFETTI_VIDEO.map(carta)),
       h('h4', { class: 'bin-sezione' }, icona('musica', 13), 'Audio · trascinali su una clip audio'),

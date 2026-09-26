@@ -24,12 +24,22 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   if (hit) return hit;
   if (cacheTitoli.size > 40) cacheTitoli.delete(cacheTitoli.keys().next().value!);
   const size = Math.max(8, spec.size * (H / 1080));
-  const lines = spec.text.split('\n');
-  const lineH = size * 1.2;
-  const font = `700 ${size}px "${spec.font}", "Rajdhani", "Segoe UI", sans-serif`;
+  const st = spec.style;
+  // il cinema: maiuscole, lettere larghe e sottili
+  const testo = st === 'cinema' ? spec.text.toUpperCase() : spec.text;
+  const lines = testo.split('\n');
+  const lineH = size * (st === 'citazione' ? 1.35 : 1.2);
+  const peso = st === 'cinema' ? 500 : st === 'social' || st === 'rimbalzo' ? 800 : 700;
+  const famiglia = st === 'macchina' ? '"Share Tech Mono", "Courier New", monospace' : st === 'citazione' ? 'Georgia, "Times New Roman", serif'
+    : `"${spec.font}", "Rajdhani", "Segoe UI", sans-serif`;
+  const font = `${st === 'citazione' ? 'italic ' : ''}${peso} ${size}px ${famiglia}`;
+  const spazio = st === 'cinema' ? size * 0.32 : 0;
   const misura = nuovaTela(8, 8).getContext('2d') as Ctx2D;
   misura.font = font;
-  const textW = Math.max(...lines.map((l) => misura.measureText(l).width), 1);
+  const larga = (l: string) => misura.measureText(l).width + spazio * Math.max(0, l.length - 1);
+  // la macchina da scrivere misura il testo intero: le lettere compaiono al loro posto, senza spostare le altre
+  const intere = st === 'macchina' && spec.intero ? spec.intero.split('\n') : lines;
+  const textW = Math.max(...intere.map(larga), 1);
   const textH = lines.length * lineH;
   let w = W, h = H;
   if (spec.style === 'rullo') h = Math.ceil(textH + H * 0.2);
@@ -37,6 +47,7 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   const tela = nuovaTela(w, h);
   const ctx = tela.getContext('2d') as Ctx2D;
   ctx.font = font;
+  if (spazio && 'letterSpacing' in ctx) (ctx as unknown as { letterSpacing: string }).letterSpacing = spazio + 'px';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
   const pad = size * 0.35;
@@ -45,10 +56,11 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   else if (spec.style === 'crawl') { y0 = h * spec.y; }
   else if (spec.style === 'sottopancia') { y0 = H * 0.82 - textH / 2 + lineH / 2; }
   else { y0 = H * spec.y - textH / 2 + lineH / 2; }
-  const align = spec.style === 'crawl' ? 'left' : spec.style === 'sottopancia' && spec.align === 'center' ? 'left' : spec.align;
+  const align = spec.style === 'crawl' || st === 'macchina' ? 'left' : (spec.style === 'sottopancia' || st === 'social') && spec.align === 'center' ? 'left' : spec.align;
   ctx.textAlign = align as CanvasTextAlign;
   if (spec.style === 'crawl') x0 = size / 2;
-  else if (align === 'left') x0 = spec.style === 'sottopancia' ? W * 0.08 : W * 0.1;
+  else if (st === 'macchina' && spec.align === 'center') x0 = (W - textW) / 2;
+  else if (align === 'left') x0 = spec.style === 'sottopancia' || st === 'social' ? W * 0.08 : W * 0.1;
   else if (align === 'right') x0 = W * 0.9;
   else x0 = W / 2;
   // sottopancia: la fascia colorata sotto al nome, come nei TG
@@ -62,6 +74,25 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
     ctx.fillRect(x0 - pad * 2, by, bw, bh);
     ctx.fillStyle = '#ffd54a';
     ctx.fillRect(x0 - pad * 2, by, size * 0.12, bh);
+  } else if (st === 'social') {
+    // la fascia piena coi bordi appena tondi, come nei video dei social
+    const bw = textW + pad * 3, bh = textH + pad * 1.4;
+    const by = y0 - lineH / 2 - pad * 0.7;
+    ctx.fillStyle = spec.boxColor.length === 7 ? spec.boxColor : spec.boxColor.slice(0, 7);
+    ctx.beginPath();
+    ctx.roundRect(x0 - pad * 1.5, by, bw, bh, size * 0.18);
+    ctx.fill();
+  } else if (st === 'citazione') {
+    // le virgolette grandi e una riga sottile sotto
+    ctx.save();
+    ctx.fillStyle = spec.color;
+    ctx.globalAlpha = 0.35;
+    ctx.font = `700 ${size * 3}px Georgia, serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('“', align === 'center' ? x0 - textW / 2 - size * 0.4 : x0 - size * 0.6, y0 - size * 0.2);
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(align === 'center' ? x0 - textW * 0.2 : x0, y0 + textH - lineH / 2 + size * 0.35, textW * 0.4, Math.max(1, size * 0.04));
+    ctx.restore();
   } else if (spec.box) {
     ctx.fillStyle = spec.boxColor;
     const bx = align === 'left' ? x0 - pad : align === 'right' ? x0 - textW - pad : x0 - textW / 2 - pad;
@@ -69,6 +100,27 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   }
   lines.forEach((l, i) => {
     const y = y0 + i * lineH;
+    if (st === 'neon') {
+      // il tubo al neon: tre aloni del colore e il filo quasi bianco in mezzo
+      ctx.save();
+      ctx.shadowColor = spec.color;
+      for (const b of [size * 0.6, size * 0.3, size * 0.12]) {
+        ctx.shadowBlur = b;
+        ctx.fillStyle = spec.color;
+        ctx.fillText(l, x0, y);
+      }
+      ctx.restore();
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.85;
+      ctx.fillText(l, x0, y);
+      ctx.globalAlpha = 1;
+      return;
+    }
+    if (st === 'macchina' && i === lines.length - 1 && spec.intero && spec.intero !== spec.text) {
+      // il cursore che lampeggia dopo l'ultima lettera
+      ctx.fillStyle = spec.color;
+      ctx.fillRect(x0 + larga(l) + size * 0.08, y - size * 0.42, size * 0.5, size * 0.84);
+    }
     if (spec.shadow) {
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,.75)';
@@ -92,9 +144,32 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   return r;
 }
 
-/** spostamento del titolo animato (rullo / crawl) al tempo locale t su una durata d, in pixel del progetto */
-export function motoTitolo(spec: TitleSpec, w: number, h: number, W: number, H: number, t: number, d: number): { dx: number; dy: number } {
+/** la macchina da scrivere: il testo fino alla lettera che si vede al tempo t (una lettera ogni 1/18 di secondo) */
+export function specAlTempo(spec: TitleSpec, t: number): TitleSpec {
+  if (spec.style !== 'macchina') return spec;
+  const n = Math.max(0, Math.floor(t * 18));
+  return n >= spec.text.length ? spec : { ...spec, text: spec.text.slice(0, n), intero: spec.text };
+}
+
+const dolce = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
+const salto = (x: number) => { const t = Math.max(0, Math.min(1, x)) - 1; return 1 + 2.7 * t * t * t + 1.7 * t * t; };
+
+/** spostamento, grandezza e trasparenza del titolo animato al tempo locale t su una durata d (pixel del progetto) */
+export function motoTitolo(spec: TitleSpec, w: number, h: number, W: number, H: number, t: number, d: number): { dx: number; dy: number; scala?: number; alfa?: number } {
   const k = d > 0 ? Math.min(1, Math.max(0, t / d)) : 0;
+  const resta = d - t;
+  const entra = (s: number) => dolce(t / s), esce = (s: number) => dolce(resta / s);
+  switch (spec.style) {
+    case 'neon': {
+      // si accende a scatti come un'insegna, poi resta; si spegne alla fine
+      const scatti = t < 0.7 ? ([0.08, 0.16, 0.3, 0.38, 0.55].filter((x) => t > x).length % 2 ? 0.25 : 1) : 1;
+      return { dx: 0, dy: 0, alfa: Math.min(t < 0.7 ? scatti : 1, esce(0.35)) };
+    }
+    case 'cinema': return { dx: 0, dy: 0, scala: 1 + 0.08 * k, alfa: Math.min(entra(0.9), esce(0.9)) };
+    case 'rimbalzo': return { dx: 0, dy: 0, scala: Math.max(0.001, Math.min(salto(t / 0.45), resta < 0.3 ? dolce(resta / 0.3) : 1)) };
+    case 'social': return { dx: -W * 0.7 * (1 - Math.min(entra(0.35), esce(0.3))), dy: 0 };
+    case 'citazione': return { dx: 0, dy: H * 0.03 * (1 - entra(0.8)), alfa: Math.min(entra(0.8), esce(0.7)) };
+  }
   if (spec.style === 'rullo') {
     // parte da sotto lo schermo e finisce fuori in alto
     const from = H / 2 + h / 2, to = -H / 2 - h / 2;

@@ -108,7 +108,7 @@ export class Ispettore {
         this.cursore('Contrasto', 50, 150, 1, (c) => Math.round(c.fx.contrast * 100), (c, v) => { c.fx.contrast = v / 100; }, '%', video),
         this.cursore('Saturazione', 0, 200, 1, (c) => Math.round(c.fx.sat * 100), (c, v) => { c.fx.sat = v / 100; }, '%', video),
         this.cursore('Temperatura', -100, 100, 1, (c) => Math.round((c.fx.temp ?? 0) * 100), (c, v) => { c.fx.temp = v / 100; }, '', video),
-        this.pulsanti([['Azzera', () => store.edit('Azzera colore', () => { for (const c of video) { c.fx.bright = 0; c.fx.contrast = 1; c.fx.sat = 1; c.fx.hue = 0; c.fx.temp = 0; c.fx.look = 'none'; } })]]),
+        this.pulsanti([['Azzera', () => store.edit('Azzera colore', () => { for (const c of video) { c.fx.bright = 0; c.fx.contrast = 1; c.fx.sat = 1; c.fx.hue = 0; c.fx.temp = 0; c.fx.look = 'none'; c.fx.effetti = undefined; } })]]),
         h('p', { class: 'nota' }, 'Il colore automatico e il look di tutto il montaggio sono nella pagina Finale.'),
       ], true));
     }
@@ -267,7 +267,7 @@ export class Ispettore {
       this.scelta(nome, opts, (c) => get(c.gen!.title!), (c, v) => put(c.gen!.title!, v), tt);
     return this.gruppo('titolo', 'Titolatrice', [
       h('label', { class: 'etichetta' }, 'Testo (a capo per più righe)'), testo,
-      tsel('Stile', [['fisso', 'Fisso'], ['sottopancia', 'Sottopancia'], ['rullo', 'Rullo (sale)'], ['crawl', 'Crawl (scorre)']], (s) => s.style, (s, v) => { s.style = v as TitleSpec['style']; }),
+      tsel('Stile', [['fisso', 'Fisso'], ['sottopancia', 'Sottopancia'], ['rullo', 'Rullo (sale)'], ['crawl', 'Crawl (scorre)'], ['neon', 'Neon (si accende)'], ['cinema', 'Cinema (si avvicina)'], ['macchina', 'Macchina da scrivere'], ['rimbalzo', 'Rimbalzo'], ['social', 'Social (fascia)'], ['citazione', 'Citazione']], (s) => s.style, (s, v) => { s.style = v as TitleSpec['style']; }),
       tsel('Carattere', [['Rajdhani', 'Rajdhani'], ['Orbitron', 'Orbitron'], ['Georgia', 'Georgia (graziato)'], ['Arial Black', 'Arial Black'], ['Courier New', 'Macchina da scrivere'], ['Impact', 'Impact']], (s) => s.font, (s, v) => { s.font = v; }),
       this.cursore('Dimensione', 16, 240, 1, (c) => c.gen!.title!.size, (c, v) => { c.gen!.title!.size = v; }, 'pt', tt),
       this.cursore('Altezza', 5, 95, 1, (c) => Math.round(c.gen!.title!.y * 100), (c, v) => { c.gen!.title!.y = v / 100; }, '%', tt),

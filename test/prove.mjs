@@ -466,7 +466,7 @@ try {
     await page.click('.bin-cat[data-c=effetti]');
     await page.locator('.carta.fx', { hasText: 'Bianco e nero' }).click();
     dd = await doc();
-    prova('effetto dal contenitore: Bianco e nero sulla clip scelta', dd.clips.find((c) => c.id === ultima.id).fx.look === 'bn');
+    prova('effetto dal contenitore: Bianco e nero sulla clip scelta', !!dd.clips.find((c) => c.id === ultima.id).fx.effetti?.includes('bn'));
     const accesa = await page.waitForSelector('.carta.fx.acceso:has-text("Bianco e nero")', { timeout: 3000 }).then(() => true, () => false);
     prova('la carta dell\'effetto si accende', accesa);
     await tasto('Control+z');
@@ -507,7 +507,7 @@ try {
     const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
     const scossa = dd.clips.find((c) => c.fxb?.id === 'scossa');
     prova('la scossa trascinata sulla clip diventa un blocchetto sopra la clip (sulla V1)', !!scossa && scossa.track === tv1 && Math.abs(scossa.start - lontano) <= 3 && scossa.len === 13 && dd.clips.length === n0 + 1, JSON.stringify(scossa && { s: scossa.start, l: scossa.len, f: lontano }));
-    prova('la scossa ha il suo suono (impatto) acceso', scossa?.fxb.suono === 'impatto' && scossa.fxb.audio === true, JSON.stringify(scossa?.fxb));
+    prova('la scossa ha il suo suono (impatto) pronto, ma spento: gli FX partono muti', scossa?.fxb.suono === 'impatto' && scossa.fxb.audio === false, JSON.stringify(scossa?.fxb));
     const st = await page.evaluate((f) => { const s = window.__dpvTest.B.statoEffetti(window.__dpv.doc, f, window.__dpv.doc.tracks.find((t) => t.name === 'V1').id); return s && { zoom: s.zoom, dx: s.dx }; }, scossa.start + 2);
     prova('sotto la scossa l\'immagine trema (e zooma per non mostrare i bordi)', !!st && st.zoom > 1 && st.dx !== 0, JSON.stringify(st));
     // l'altoparlante sul blocco: un clic lo spegne, un altro lo riaccende
@@ -518,11 +518,20 @@ try {
         await page.mouse.click(box.x + rb.sp.x + rb.sp.s / 2, box.y + rb.sp.y + rb.sp.s / 2);
         await page.waitForTimeout(150);
         dd = await doc();
-        const spento = dd.clips.find((c) => c.id === scossa.id).fxb.audio === false;
+        const acceso = dd.clips.find((c) => c.id === scossa.id).fxb.audio === true;
         await page.mouse.click(box.x + rb.sp.x + rb.sp.s / 2, box.y + rb.sp.y + rb.sp.s / 2);
         await page.waitForTimeout(150);
         dd = await doc();
-        prova('un clic sull\'altoparlante spegne il suono dell\'FX, un altro lo riaccende', spento && dd.clips.find((c) => c.id === scossa.id).fxb.audio === true && dd.clips.find((c) => c.id === scossa.id).start === scossa.start);
+        prova('un clic sull\'altoparlante accende il suono dell\'FX, un altro lo rispegne', acceso && dd.clips.find((c) => c.id === scossa.id).fxb.audio === false && dd.clips.find((c) => c.id === scossa.id).start === scossa.start);
+        // tasto destro sull'altoparlante: il menu piccolo dei suoni (passandoci sopra si sentono)
+        await page.mouse.click(box.x + rb.sp.x + rb.sp.s / 2, box.y + rb.sp.y + rb.sp.s / 2, { button: 'right' });
+        await page.waitForTimeout(200);
+        const menuSuoni = await page.textContent('.menu-contesto').catch(() => '');
+        await page.hover('.menu-contesto .voce:has-text("Whoosh")');
+        await page.click('.menu-contesto .voce:has-text("Whoosh")');
+        dd = await doc();
+        const sc = dd.clips.find((c) => c.id === scossa.id).fxb;
+        prova('tasto destro sull\'altoparlante: il menu dei suoni, e il suono scelto si accende', menuSuoni.includes('Campanella') && sc.suono === 'whoosh' && sc.audio === true, JSON.stringify(sc));
       }
     }
     // un lampo vicino al taglio dove c'è già la tendina: si centra sul taglio, sopra la tendina (non si coprono)
@@ -580,6 +589,7 @@ try {
         for (const t of d.tracks) if (t.kind === 'audio') t.mute = true;
         const r = d.rate.num / d.rate.den;
         const fl = d.clips.find((c) => c.fxb?.id === 'flash');
+        fl.fxb.audio = true;
         const e = SU.suoniFx(d).find((x) => x.id === fl.id);
         const rms = async (pp) => { let s = 0, n = 0; for await (const b of mixaggio(pp, Math.max(0, e.at), e.at + 0.5)) { const x = b.getChannelData(0); for (const v of x) { s += v * v; n++; } } return Math.sqrt(s / Math.max(1, n)); };
         const on = await rms(d);
@@ -776,6 +786,139 @@ try {
       await page.waitForTimeout(250);
     }
     await page.click('.fin-voce[data-s=colore]');
+    await page.click('.pagina-btn[data-p=montaggio]');
+    await page.waitForTimeout(300);
+  }
+
+  console.log('▶ 1.0.6: effetti che si sommano, menu, sottotitoli in timeline, timeline multiple, LIVE');
+  {
+    await page.evaluate(() => { window.__dpv.select([]); document.dispatchEvent(new CustomEvent('dpv:adatta')); });
+    let dd = await doc();
+    const tv1 = dd.tracks.find((t) => t.name === 'V1').id;
+    const c0 = solide(dd, tv1).sort((a, b) => a.start - b.start)[0];
+    // gli effetti al volo della clip si sommano: B/N e Caldo insieme, e un look vecchio resta
+    await page.evaluate((id) => { window.__dpv.edit('look vecchio', (p) => { p.clips.find((c) => c.id === id).fx.look = 'vhs'; }); }, c0.id);
+    await page.click('.bin-cat[data-c=effetti]');
+    await page.waitForTimeout(200);
+    await page.evaluate((id) => window.__dpv.select([id]), c0.id);
+    for (const nome of ['Bianco e nero', 'Caldo']) { await page.locator('.carta.fx', { hasText: nome }).first().scrollIntoViewIfNeeded(); await page.locator('.carta.fx', { hasText: nome }).first().click(); await page.waitForTimeout(120); }
+    dd = await doc();
+    const fx0 = dd.clips.find((c) => c.id === c0.id).fx;
+    const eff = await page.evaluate((fx) => window.__dpvTest.FE.fxEffettivo(fx), fx0);
+    prova('gli effetti della clip si sommano: B/N + Caldo + il VHS di prima, tutti insieme', (fx0.effetti ?? []).includes('bn') && fx0.effetti.includes('caldo') && eff.looks === (1 | 4) && Math.abs(eff.temp - 0.4) < 1e-6, JSON.stringify({ e: fx0.effetti, looks: eff.looks, temp: eff.temp }));
+    await tasto('Control+z'); await tasto('Control+z'); await tasto('Control+z');
+    await page.click('.bin-cat[data-c=tutto]');
+    // due lampi sullo stesso punto si fondono (più forti di uno solo)
+    const due = await page.evaluate((tv1) => {
+      const { P, B } = window.__dpvTest;
+      const p = structuredClone(window.__dpv.doc);
+      p.clips = p.clips.filter((c) => c.kind !== 'fx');
+      const b1 = B.posaBlocco(p, { ...B.nuovoBlocco('effetto', 'flash'), forza: 0.5 }, 200, 20, tv1);
+      const uno = B.statoEffetti(p, 205, tv1).flash;
+      B.posaBlocco(p, { ...B.nuovoBlocco('effetto', 'flash'), forza: 0.5, colore: '#ff0000' }, 200, 20, tv1);
+      const st = B.statoEffetti(p, 205, tv1);
+      B.posaBlocco(p, B.nuovoBlocco('effetto', 'onda'), 200, 20, tv1);
+      const conOnda = B.statoEffetti(p, 205, tv1);
+      void b1; void P;
+      return { uno, due: st.flash, rosso: st.flashCol[0] > st.flashCol[1], onda: conOnda.onda };
+    }, tv1);
+    prova('gli FX a blocchetti sullo stesso punto si sommano (due lampi più forti di uno, i colori si mescolano)', due.due > due.uno + 0.05 && due.rosso && due.onda > 0, JSON.stringify(due));
+    // gli effetti nuovi (luci e distorsioni) e le transizioni nuove si disegnano senza errori
+    const nErr = errori.length;
+    for (const id of ['bagliore', 'flare', 'neon', 'caleido', 'vortice', 'zoomSfocato']) {
+      await page.evaluate(({ id, tv1 }) => window.__dpv.edit('prova fx', (p) => { const c = window.__dpvTest.B.posaBlocco(p, window.__dpvTest.B.nuovoBlocco('effetto', id), 30, 40, tv1); c.name = '__prova'; }), { id, tv1 });
+      await page.evaluate(() => window.__motore.vaiA(45));
+      await page.waitForTimeout(250);
+      await page.evaluate(() => window.__dpv.edit('via', (p) => { p.clips = p.clips.filter((c) => c.name !== '__prova'); }));
+    }
+    prova('ci sono le luci e le distorsioni nuove, e si disegnano', (await page.evaluate(() => window.__dpvTest.B.EFFETTI_TEMPO.length)) >= 36 && errori.length === nErr, errori.slice(nErr).join(' | '));
+    const mt = await page.evaluate(() => {
+      const G = window.__dpvTest.G;
+      const spec = { text: 'Ciao Napoli', style: 'macchina', font: 'Rajdhani', size: 60, color: '#fff', outline: 'none', shadow: false, box: false, boxColor: '#000', align: 'center', y: 0.5 };
+      return { parziale: G.specAlTempo(spec, 0.25).text, intero: G.specAlTempo(spec, 5).text, salto: G.motoTitolo({ ...spec, style: 'rimbalzo' }, 100, 100, 1920, 1080, 0.1, 4).scala, neon: G.motoTitolo({ ...spec, style: 'neon' }, 100, 100, 1920, 1080, 3, 4).alfa };
+    });
+    prova('i titoli nuovi si muovono: macchina da scrivere lettera per lettera, rimbalzo, neon', mt.parziale === 'Ciao' && mt.intero === 'Ciao Napoli' && mt.salto < 1 && mt.neon === 1, JSON.stringify(mt));
+    // il menu col tasto destro resta dentro lo schermo (anche il sottomenu dei suoni)
+    await page.setViewportSize({ width: 1600, height: 700 });
+    await page.waitForTimeout(400);
+    const bl = await page.evaluate(() => { const d = window.__dpv.doc; const b = d.clips.find((c) => c.kind === 'fx'); return b && window.__dpvTest.ui().tl.rettBlocco(b.id); });
+    const box = await page.locator('.tl-tela').boundingBox();
+    await page.mouse.click(box.x + bl.x + bl.w / 2 - 6, box.y + bl.y + bl.h / 2, { button: 'right' });
+    await page.waitForTimeout(200);
+    await page.hover('.menu-contesto .voce:has-text("Suono")');
+    await page.waitForTimeout(250);
+    const rm = await page.evaluate(() => { const r = [...document.querySelectorAll('.menu-contesto')].map((m) => m.getBoundingClientRect()).filter((r) => r.height > 0); return { fuori: r.filter((x) => x.bottom > innerHeight + 1 || x.right > innerWidth + 1).length, n: r.length }; });
+    prova('il menu e il sottomenu dei suoni stanno dentro lo schermo (niente sotto la barra di Windows)', rm.n >= 2 && rm.fuori === 0, JSON.stringify(rm));
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+    await page.setViewportSize({ width: 1600, height: 950 });
+    await page.waitForTimeout(400);
+    // clic su una clip: le sue impostazioni nel pannello a destra (anche se era chiuso)
+    await page.evaluate(() => document.querySelector('#app').classList.add('senza-lato'));
+    const rv = await page.evaluate((id) => { const tl = window.__dpvTest.ui().tl; const d = window.__dpv.doc; const c = d.clips.find((x) => x.id === id); const r = tl.riga(c.track); return { x: (c.start + c.len * 0.5 - tl.scrollF) * tl.ppf, y: r.y + 8 }; }, c0.id);
+    const box2 = await page.locator('.tl-tela').boundingBox();
+    await page.mouse.click(box2.x + rv.x, box2.y + rv.y);
+    await page.waitForTimeout(300);
+    prova('clic su una clip: il pannello a destra si apre con le sue proprietà', await page.evaluate(() => !document.querySelector('#app').classList.contains('senza-lato') && document.querySelector('.lato .scheda.attiva')?.dataset.s === 'clip'));
+    // i sottotitoli nella timeline: si trascinano, si uniscono, si dividono
+    await page.evaluate(() => window.__dpv.edit('sottotitoli di prova', (p) => { p.sottotitoli = { righe: [{ id: 'sa', da: 50, a: 90, testo: 'Buonasera' }, { id: 'sb', da: 100, a: 140, testo: 'Napoli' }], nelVideo: true, dimensione: 46, fascia: true, alto: false, lingua: 'it' }; }));
+    await page.waitForTimeout(300);
+    const rs = await page.evaluate(() => { const tl = window.__dpvTest.ui().tl; tl.righe(window.__dpv.doc); return { rs: tl.rigaSott, x: (60 - tl.scrollF) * tl.ppf, ppf: tl.ppf }; });
+    prova('la riga dei sottotitoli compare nella timeline', !!rs.rs && (await page.locator('.tl-testata.sott').count()) === 1, JSON.stringify(rs));
+    const box3 = await page.locator('.tl-tela').boundingBox();
+    await page.mouse.move(box3.x + rs.x + 3, box3.y + rs.rs.y + rs.rs.h / 2);
+    await page.mouse.down();
+    await page.mouse.move(box3.x + rs.x + 3 + 5 * rs.ppf, box3.y + rs.rs.y + rs.rs.h / 2, { steps: 4 });
+    await page.mouse.up();
+    dd = await doc();
+    const sa = dd.sottotitoli.righe.find((r) => r.id === 'sa');
+    prova('trascinando il sottotitolo nella timeline si sposta (senza entrare nel successivo)', sa.da > 50 && sa.a - sa.da === 40 && sa.a <= 100, JSON.stringify(sa));
+    const uni = await page.evaluate(() => { const S = window.__dpvTest.SOT; const s = structuredClone(window.__dpv.doc.sottotitoli); const id = S.unisciRighe(s, ['sa']); const r = s.righe.find((x) => x.id === id); const testo = r.testo, n = s.righe.length; const d2 = S.dividiRiga(s, id, r.da + 20); return { testo, n, d2: !!d2, dopo: s.righe.length }; });
+    prova('unire due righe le fa apparire insieme (a capo), dividerle le separa', uni.testo === 'Buonasera\nNapoli' && uni.n === 1 && uni.d2 && uni.dopo === 2, JSON.stringify(uni));
+    await tasto('Control+z'); await tasto('Control+z');
+    // più timeline: una nuova vuota, poi si torna alla prima com'era
+    const n0 = (await doc()).clips.length;
+    await page.click('.tl-scheda.piu');
+    await page.click('.menu-contesto .voce:has-text("vuota")');
+    const t0 = Date.now();
+    await page.waitForFunction(() => document.querySelectorAll('.tl-scheda').length === 3, null, { timeout: 4000 }).catch(() => {});
+    const attesa = Date.now() - t0;
+    dd = await doc();
+    const vuota = { attesa, clip: dd.clips.length, seq: dd.sequenze?.length, schede: await page.locator('.tl-scheda').count() };
+    const nuovaVuota = vuota.clip === 0 && vuota.seq === 2 && vuota.schede === 3;
+    await page.locator('.tl-scheda', { hasText: 'Montaggio 1' }).click();
+    await page.waitForTimeout(300);
+    dd = await doc();
+    prova('più timeline: una nuova parte vuota, la prima torna com\'era', nuovaVuota && dd.clips.length === n0 && dd.seqAttiva === dd.sequenze[0].id, JSON.stringify({ n0, ora: dd.clips.length, seq: dd.sequenze?.map((s) => s.nome), vuota }));
+    await tasto('Control+z'); await tasto('Control+z');
+    dd = await doc();
+    prova('annulla toglie la timeline nuova', (dd.sequenze?.length ?? 1) === 1 && dd.clips.length === n0);
+    // LIVE: registra (con uno schermo finto), pausa, riprendi, ferma: finisce nel contenitore e in fondo alla timeline
+    await page.evaluate(() => {
+      window.__dpvTest.LV.impostaSorgenteLive(async () => {
+        const c = document.createElement('canvas'); c.width = 640; c.height = 360;
+        const x = c.getContext('2d'); let n = 0;
+        window.__giroLive = setInterval(() => { n++; x.fillStyle = `hsl(${n * 4 % 360} 70% 45%)`; x.fillRect(0, 0, 640, 360); }, 33);
+        return c.captureStream(30);
+      }, async () => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const d = ctx.createMediaStreamDestination(); o.connect(d); o.start(); return d.stream; });
+    });
+    const fineP = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    const nm = (await doc()).media.length;
+    await page.click('.pagina-btn[data-p=live]');
+    await page.click('.live-btn.reg');
+    await page.waitForTimeout(1600);
+    await page.click('.live-tasti .live-btn:nth-child(2)');
+    await page.waitForTimeout(900);
+    const inPausa = await page.evaluate(() => document.querySelector('.live').classList.contains('in-pausa'));
+    await page.click('.live-tasti .live-btn:nth-child(2)');
+    await page.waitForTimeout(900);
+    await page.click('.live-btn.ferma');
+    await page.evaluate(() => window.__dpvTest.ui().live.ultima);
+    await page.evaluate(() => clearInterval(window.__giroLive));
+    dd = await doc();
+    const reg = dd.media.slice(nm).find((m) => m.name.startsWith('Registrazione'));
+    const inTl = reg && dd.clips.some((c) => c.media === reg.id && c.start === fineP);
+    prova('LIVE: registra, pausa (senza buchi), ferma: nel contenitore e in fondo alla timeline', inPausa && !!reg && reg.duration > 1.8 && reg.duration < 3.6 && reg.hasAudio && inTl, JSON.stringify({ reg: reg && [reg.name, reg.duration, reg.hasAudio], fineP, inTl }));
     await page.click('.pagina-btn[data-p=montaggio]');
     await page.waitForTimeout(300);
   }

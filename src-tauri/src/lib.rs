@@ -161,6 +161,30 @@ async fn istantanea_percorso(app: AppHandle, name: String) -> Esito<String> {
     Ok(p.to_string_lossy().into_owned())
 }
 
+/// Dove va una registrazione dello schermo (pagina LIVE): nella cartella Video, sotto "DaProd Video"
+/// (se il sistema non ce l'ha, nella cartella dell'app). Non sovrascrive mai: aggiunge (2), (3)…
+#[tauri::command]
+async fn registrazione_percorso(app: AppHandle, name: String) -> Esito<String> {
+    let base = app.path().video_dir().or_else(|_| app.path().app_data_dir()).map_err(|e| e.to_string())?;
+    let dir = base.join("DaProd Video");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let pulito: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || " ._-".contains(c) { c } else { '_' })
+        .collect();
+    let (nome, est) = match pulito.rsplit_once('.') {
+        Some((n, e)) if !n.is_empty() && e.len() <= 5 => (n.to_string(), e.to_string()),
+        _ => (pulito.clone(), "webm".to_string()),
+    };
+    let mut p = dir.join(format!("{nome}.{est}"));
+    let mut n = 2;
+    while p.exists() {
+        p = dir.join(format!("{nome} ({n}).{est}"));
+        n += 1;
+    }
+    Ok(p.to_string_lossy().into_owned())
+}
+
 /// Apre il file dell'export in scrittura; ritorna un numero da usare per scrivere e chiudere.
 #[tauri::command]
 async fn export_apri(app: AppHandle, stato: State<'_, Stato>, path: String) -> Esito<u32> {
@@ -285,6 +309,7 @@ pub fn run() {
             export_chiudi,
             apri_link,
             istantanea_percorso,
+            registrazione_percorso,
             audio_apri,
             audio_decodifica,
             audio_chiudi,
