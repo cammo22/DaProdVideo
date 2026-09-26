@@ -4,6 +4,9 @@
 // La PAUSA chiude un pezzo e RIPRENDI ne apre un altro (la pausa di MediaRecorder non la tratta uguale ogni browser:
 // alcuni lasciano il buco nel file); alla fine Mediabunny cuce i pezzi uno dopo l'altro in un file solo, con durata
 // e indice giusti, così si taglia e si sposta come gli altri.
+// Non ci si fida nemmeno della consegna finale di MediaRecorder (con alcuni Chromium quello che arriva allo stop si
+// perde): i dati escono a pezzetti di un quarto di secondo, e alla PAUSA il registratore va avanti ancora un attimo
+// prima di fermarsi; quel pezzetto in più poi si taglia via cucendo, al punto esatto in cui hai premuto.
 import {
   ALL_FORMATS, BlobSource, BufferTarget, Conversion, EncodedAudioPacketSource, EncodedPacketSink, EncodedVideoPacketSource,
   Input, Mp4OutputFormat, Output, WebMOutputFormat,
@@ -34,10 +37,17 @@ function formato(): string {
 const due = (n: number) => String(n).padStart(2, '0');
 const orologio = (ms: number) => { const s = Math.floor(ms / 1000); return `${due(Math.floor(s / 3600))}:${due(Math.floor(s / 60) % 60)}:${due(s % 60)}`; };
 
-/** i pezzi fra una pausa e l'altra, cuciti uno dopo l'altro in un file solo, senza ricodificare
- *  (null se non si riesce: allora si prova pezzo per pezzo) */
-async function cuci(pezzi: Blob[], mp4: boolean): Promise<Blob | null> {
-  const ingressi = pezzi.map((b) => new Input({ source: new BlobSource(b), formats: ALL_FORMATS }));
+/** quanto il registratore va avanti dopo PAUSA e FERMA (quel tratto poi si taglia), e ogni quanto consegna i dati */
+const GRAZIA = 600;
+const FETTA = 250;
+
+/** un tratto registrato fra una pausa e l'altra: il file e dove tagliarlo (secondi dal suo inizio) */
+interface Tratto { blob: Blob; taglio: number; nota: string }
+
+/** i pezzi fra una pausa e l'altra, cuciti uno dopo l'altro in un file solo, senza ricodificare, ognuno tagliato
+ *  dove si è premuto PAUSA o FERMA (null se non si riesce: allora si prova pezzo per pezzo) */
+async function cuci(tratti: Tratto[], mp4: boolean, note: string[]): Promise<Blob | null> {
+  const ingressi = tratti.map((x) => new Input({ source: new BlobSource(x.blob), formats: ALL_FORMATS }));
   try {
     const v0 = await ingressi[0].getPrimaryVideoTrack();
     const a0 = await ingressi[0].getPrimaryAudioTrack();
@@ -53,14 +63,18 @@ async function cuci(pezzi: Blob[], mp4: boolean): Promise<Blob | null> {
     let primoV = true, primoA = true;
     /** dove comincia il pezzo nel file cucito, in secondi */
     let inizio = 0;
-    for (const inp of ingressi) {
+    for (const [i, inp] of ingressi.entries()) {
       const v = await inp.getPrimaryVideoTrack();
       const a = sa ? await inp.getPrimaryAudioTrack() : null;
-      if (!v) continue;
+      if (!v) { note.push(`pezzo ${i + 1}: niente video`); continue; }
       // video e audio del pezzo partono insieme: si toglie a tutti e due lo stesso inizio
       const base = Math.min(await v.getFirstTimestamp(), a ? await a.getFirstTimestamp() : Infinity);
-      let fine = inizio;
+      const taglio = tratti[i].taglio;
+      let fine = inizio, nv = 0, na = 0, via = 0;
       for await (const pk of new EncodedPacketSink(v).packets()) {
+        // dopo il taglio c'è il tratto di grazia: via (togliere la coda non rovina i fotogrammi prima)
+        if (pk.timestamp - base > taglio) { via++; continue; }
+        nv++;
         const t = inizio + Math.max(0, pk.timestamp - base);
         fine = Math.max(fine, t + (pk.duration || 1 / 30));
         await sv.add(pk.clone({ timestamp: t }), primoV && cv ? { decoderConfig: cv } : undefined);
@@ -69,6 +83,8 @@ async function cuci(pezzi: Blob[], mp4: boolean): Promise<Blob | null> {
       if (a && sa) {
         let ultimo = -1;
         for await (const pk of new EncodedPacketSink(a).packets()) {
+          if (pk.timestamp - base > taglio) { via++; continue; }
+          na++;
           const t = Math.max(ultimo, inizio + Math.max(0, pk.timestamp - base));
           ultimo = t;
           fine = Math.max(fine, t + (pk.duration || 0.02));
@@ -76,6 +92,7 @@ async function cuci(pezzi: Blob[], mp4: boolean): Promise<Blob | null> {
           primoA = false;
         }
       }
+      note.push(`pezzo ${i + 1}: ${nv} fotogrammi e ${na} pacchetti audio, ${(fine - inizio).toFixed(2)} s (taglio ${taglio.toFixed(2)} s, ${via} via)`);
       inizio = fine;
     }
     await output.finalize();
@@ -137,16 +154,17 @@ export class Live {
   private flusso: MediaStream | null = null;
   private tipo = '';
   private fase: 'fermo' | 'registra' | 'pausa' = 'fermo';
-  /** il pezzo che si sta registrando adesso, e i pezzi (uno per ogni tratto fra le pause) */
-  private rec: MediaRecorder | null = null;
-  private pezzi: Promise<Blob>[] = [];
+  /** il pezzo che si sta registrando adesso, e i tratti (uno per ogni pezzo fra le pause) */
+  private pezzo: { chiudi: () => void } | null = null;
+  private pezzi: Promise<Tratto>[] = [];
   private audioCtx: AudioContext | null = null;
   /** millisecondi registrati (senza le pause) e da quando si sta registrando adesso */
   private fatto = 0;
   private da = 0;
   private giro = 0;
-  /** quanto è durata l'ultima registrazione, pause escluse (in millisecondi) */
+  /** quanto è durata l'ultima registrazione, pause escluse (in millisecondi), e com'è andata la cucitura */
   durataUltima = 0;
+  diagnosi: string[] = [];
   /** finisce quando la registrazione è stata messa nel contenitore (per le prove) */
   ultima: Promise<void> = Promise.resolve();
 
@@ -193,14 +211,31 @@ export class Live {
     this.tempo.textContent = orologio(ms);
   }
 
-  /** un pezzo nuovo: parte subito e, quando si ferma, diventa un Blob */
+  /** un pezzo nuovo: parte subito, su copie delle tracce tutte sue (così un registratore non disturba l'altro) */
   private nuovoPezzo() {
-    const rec = new MediaRecorder(this.flusso!, { mimeType: this.tipo || undefined, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 160_000 });
+    const tracce = this.flusso!.getTracks().map((t) => t.clone());
+    const rec = new MediaRecorder(new MediaStream(tracce), { mimeType: this.tipo || undefined, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 160_000 });
     const dati: Blob[] = [];
-    rec.ondataavailable = (e) => { if (e.data.size) dati.push(e.data); };
-    this.pezzi.push(new Promise<Blob>((fatto) => { rec.onstop = () => fatto(new Blob(dati, { type: rec.mimeType || this.tipo || 'video/webm' })); }));
-    rec.start(1000);
-    this.rec = rec;
+    const t0 = performance.now();
+    let taglio = Infinity, fermo = false, tardivi = 0, attesa = 0;
+    this.pezzi.push(new Promise<Tratto>((fatto) => {
+      const chiudi = () => {
+        for (const t of tracce) t.stop();
+        fatto({ blob: new Blob(dati, { type: rec.mimeType || this.tipo || 'video/webm' }), taglio, nota: `${dati.length} fette, ${tardivi} dopo lo stop` });
+      };
+      // finito lo stop si aspetta ancora un attimo: qualche Chromium consegna gli ultimi dati dopo
+      const aspetta = () => { clearTimeout(attesa); attesa = window.setTimeout(chiudi, 300); };
+      rec.ondataavailable = (e) => { if (e.data.size) dati.push(e.data); if (fermo) { tardivi++; aspetta(); } };
+      rec.onstop = () => { fermo = true; aspetta(); };
+    }));
+    rec.start(FETTA);
+    // PAUSA o FERMA: il taglio è adesso, ma il registratore si ferma un po' dopo (così niente resta nel tubo)
+    this.pezzo = {
+      chiudi: () => {
+        taglio = (performance.now() - t0) / 1000;
+        window.setTimeout(() => { try { rec.requestData(); rec.stop(); } catch { /* già fermo */ } }, GRAZIA);
+      },
+    };
   }
 
   async registra() {
@@ -272,8 +307,8 @@ export class Live {
   pausa() {
     if (this.fase === 'registra') {
       // la pausa chiude il pezzo: nel file finale la pausa non c'è proprio
-      this.rec?.stop();
-      this.rec = null;
+      this.pezzo?.chiudi();
+      this.pezzo = null;
       this.fase = 'pausa';
       this.fatto += performance.now() - this.da;
       this.bPausa.textContent = '▶ RIPRENDI';
@@ -310,8 +345,8 @@ export class Live {
   ferma() {
     if (this.fase === 'fermo') return;
     if (this.fase === 'registra') this.fatto += performance.now() - this.da;
-    this.rec?.stop();
-    this.rec = null;
+    this.pezzo?.chiudi();
+    this.pezzo = null;
     this.fase = 'fermo';
     clearInterval(this.giro);
     this.aggiornaTempo();
@@ -329,10 +364,11 @@ export class Live {
     this.flusso = null;
     this.ultima = (async () => {
       // i flussi si spengono solo quando l'ultimo pezzo ha dato tutto
-      const blobs = (await Promise.all(pezzi)).filter((b) => b.size);
+      const tratti = await Promise.all(pezzi);
+      this.diagnosi = tratti.map((x, i) => `tratto ${i + 1}: ${Math.round(x.blob.size / 1024)} kB, ${x.nota}`);
       this.chiudiFlussi(flussi, ctx);
       if (this.fase === 'fermo') this.video.srcObject = null;
-      await this.consegna(blobs, durata);
+      await this.consegna(tratti.filter((x) => x.blob.size), durata);
     })().catch((e) => {
       this.stato.textContent = 'Non sono riuscito a mettere via la registrazione';
       avviso('La registrazione non si salva: ' + String(e), 'errore', 4000);
@@ -340,12 +376,12 @@ export class Live {
   }
 
   /** la registrazione finita: cucita, sul disco (nell'app), nel contenitore e in fondo alla timeline */
-  private async consegna(blobs: Blob[], durata: number) {
-    if (!blobs.length) { this.stato.textContent = 'La registrazione è vuota'; return; }
-    const mp4 = /mp4/.test(blobs[0].type);
+  private async consegna(tratti: Tratto[], durata: number) {
+    if (!tratti.length) { this.stato.textContent = 'La registrazione è vuota'; return; }
+    const mp4 = /mp4/.test(tratti[0].blob.type);
     // di solito un file solo; se la cucitura non riesce, i pezzi vanno uno dopo l'altro (sempre senza buchi)
-    const cucito = await cuci(blobs, mp4);
-    const files = cucito ? [cucito] : await Promise.all(blobs.map((b) => rimetteInOrdine(b, mp4)));
+    const cucito = await cuci(tratti, mp4, this.diagnosi);
+    const files = cucito ? [cucito] : await Promise.all(tratti.map((x) => rimetteInOrdine(x.blob, mp4)));
     const ora = new Date();
     const radice = `Registrazione ${ora.getFullYear()}-${due(ora.getMonth() + 1)}-${due(ora.getDate())} ${due(ora.getHours())}.${due(ora.getMinutes())}.${due(ora.getSeconds())}`;
     const ids: string[] = [];

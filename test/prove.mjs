@@ -925,6 +925,7 @@ try {
     const registrato = await page.evaluate(() => window.__dpvTest.ui().live.durataUltima / 1000);
     const tracce = reg && await page.evaluate(async (id) => { const r = window.__dpvTest.mediaRT(id); return { v: await r.v.computeDuration(), a: r.a ? await r.a.computeDuration() : 0 }; }, reg.id);
     const inTl = reg && dd.clips.some((c) => c.media === reg.id && c.start === fineP);
+    console.log('    LIVE:', (await page.evaluate(() => window.__dpvTest.ui().live.diagnosi)).join(' · '));
     prova('LIVE: registra, pausa (senza buchi), ferma: un file solo, nel contenitore e in fondo alla timeline',
       inPausa && regs.length === 1 && Math.abs(reg.duration - registrato) < 0.5 && tracce.v > reg.duration - 0.5 && reg.hasAudio && inTl,
       JSON.stringify({ reg: regs.map((m) => [m.name, m.duration, m.hasAudio]), registrato, tracce, fineP, inTl }));
