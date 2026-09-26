@@ -513,10 +513,18 @@ class Banco {
   }
 
   /** fa sentire un suono degli FX (quando lo accendi o lo scegli dal menu) */
+  private inAscolto: { s: AudioBufferSourceNode; g: GainNode } | null = null;
+
+  /** fa sentire un suono degli FX (uno alla volta: passando sul menu il nuovo ferma quello di prima) */
   ascolta(id: string, db = 0) {
     const buf = bufferSuono(id);
     if (!buf || this.attivo) return;
     const ctx = this.sveglia();
+    if (this.inAscolto) {
+      const { s: s0, g: g0 } = this.inAscolto;
+      g0.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+      try { s0.stop(ctx.currentTime + 0.1); } catch { /* già fermo */ }
+    }
     const g = ctx.createGain();
     g.gain.value = dbToGain(db) * this.volumeMaster;
     g.connect(this.uscita);
@@ -524,7 +532,8 @@ class Banco {
     s.buffer = buf;
     s.connect(g);
     s.start(ctx.currentTime + 0.01);
-    s.onended = () => { s.disconnect(); g.disconnect(); };
+    this.inAscolto = { s, g };
+    s.onended = () => { s.disconnect(); g.disconnect(); if (this.inAscolto?.s === s) this.inAscolto = null; };
   }
 
   /** il suono della sorgente nel monitor (modo sorgente) al secondo t */

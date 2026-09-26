@@ -7,6 +7,7 @@ import { azioni, esegui, modi } from '../azioni';
 import { Timeline } from './timeline';
 import { PannelloMonitor } from './monitor';
 import { Finale } from './finale';
+import { Live } from './live';
 import { Contenitore } from './contenitore';
 import { Pulsantiera } from './pulsantiera';
 import { Ispettore } from './ispettore';
@@ -29,6 +30,7 @@ export function avvia(radice: HTMLElement) {
   const tl = new Timeline();
   const monitor = new PannelloMonitor();
   const finale = new Finale();
+  const live = new Live();
   const bin = new Contenitore();
   const puls = new Pulsantiera(tl);
   const isp = new Ispettore();
@@ -47,16 +49,25 @@ export function avvia(radice: HTMLElement) {
   };
   const tab = (s: Lato, n: string) => h('button', { class: 'scheda' + (s === 'clip' ? ' attiva' : ''), 'data-s': s, on: { click: () => mostraLato(s) } }, n);
   const vuCornice = h('div', { class: 'vu-cornice' }, vu.el);
+  // il puntino: il pannello a destra sempre in vista, a tutta altezza (come il tasto V)
+  const fissa = h('button', { class: 'scheda-fissa', title: 'Tieni il pannello sempre in vista, a tutta altezza (V)', on: { click: () => vistaStretta() } }, '📌');
   const pannelloLato = h('section', { class: 'pannello lato' },
     vuCornice,
-    h('header', { class: 'schede' }, tab('clip', 'Proprietà'), tab('mixer', 'Mixer'), tab('scopi', 'Strumenti')),
+    h('header', { class: 'schede' }, tab('clip', 'Proprietà'), tab('mixer', 'Mixer'), tab('scopi', 'Strumenti'), fissa),
     latoCorpo);
+  // clic su una clip o su un FX: il pannello si apre (se era chiuso) e mostra le sue impostazioni
+  document.addEventListener('dpv:proprieta', () => {
+    if (radice.dataset.pagina !== 'montaggio' || radice.classList.contains('stretto')) return;
+    if (radice.classList.contains('senza-lato')) { radice.classList.remove('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); }
+    mostraLato('clip');
+  });
   document.addEventListener('dpv:ispettore', () => { pagina('montaggio'); mostraLato('clip'); apriFoglio('lato'); });
 
-  // ——— le due pagine: Montaggio e Finale ———
-  type Pagina = 'montaggio' | 'finale';
+  // ——— le tre pagine: Montaggio, Finale e LIVE ———
+  type Pagina = 'montaggio' | 'finale' | 'live';
   const pagina = (pg: Pagina) => {
     if (radice.dataset.pagina === pg) return;
+    if (radice.dataset.pagina === 'live' && live.registrando) avviso('La registrazione continua: torna su LIVE per fermarla', 'info', 2600);
     radice.dataset.pagina = pg;
     // i VU vanno dove si guarda: nelle proprietà durante il montaggio, nel Finale alla fine
     if (pg === 'finale') finale.el.insertBefore(vuCornice, finale.el.children[1] ?? null);
@@ -107,6 +118,7 @@ export function avvia(radice: HTMLElement) {
     ['Vista', () => [
       { nome: 'Pagina Montaggio', spunta: radice.dataset.pagina !== 'finale', tasto: 'F9', fn: () => pagina('montaggio') },
       { nome: 'Pagina Finale (colore, audio, esporta)', spunta: radice.dataset.pagina === 'finale', tasto: 'F9', fn: () => pagina('finale') },
+      { nome: 'Pagina LIVE (registra lo schermo)', spunta: radice.dataset.pagina === 'live', tasto: 'F10', fn: () => pagina('live') },
       { sep: true },
       { nome: 'Contenitore', spunta: !radice.classList.contains('senza-bin'), fn: () => { radice.classList.toggle('senza-bin'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
       { nome: 'Proprietà', spunta: !radice.classList.contains('senza-lato'), fn: () => { radice.classList.toggle('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
@@ -170,7 +182,8 @@ export function avvia(radice: HTMLElement) {
     barraMenu,
     h('div', { class: 'pagine' },
       tastoPagina('montaggio', 'MONTAGGIO', 'montaggio', 'Il banco di montaggio (F9)'),
-      tastoPagina('finale', 'FINALE', 'finale', 'Colore e audio su tutto il montaggio, poi esporta (F9)')),
+      tastoPagina('finale', 'FINALE', 'finale', 'Colore e audio su tutto il montaggio, poi esporta (F9)'),
+      tastoPagina('live', 'LIVE', 'live', 'Registra lo schermo e mettilo nel montaggio (F10)')),
     h('div', { class: 'testata-destra' },
       nomeProgetto, formato,
       h('span', { class: 'badge edizione' + (isTauri ? '' : ' prova') }, isTauri ? edizione : 'VERSIONE PROVA · WEB'),
@@ -206,8 +219,10 @@ export function avvia(radice: HTMLElement) {
   const divisore = h('div', { class: 'divisore', title: 'Trascina per dare più spazio al monitor o alla timeline' });
   const bordoBin = h('div', { class: 'bordo bordo-bin', title: 'Trascina per allargare il contenitore · doppio clic per chiuderlo/riaprirlo' });
   const bordoLato = h('div', { class: 'bordo bordo-lato', title: 'Trascina per allargare il pannello · doppio clic per chiuderlo/riaprirlo' });
+  // col pannello chiuso resta una linguetta sul bordo destro per riaprirlo
+  const linguetta = h('button', { class: 'linguetta-lato', title: 'Riapri il pannello delle proprietà', on: { click: () => { radice.classList.remove('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } } }, '‹ Proprietà');
   radice.dataset.pagina = 'montaggio';
-  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, puls.el, divisore, tl.el, statoBar, barraTel);
+  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, live.el, puls.el, divisore, tl.el, statoBar, barraTel, linguetta);
 
   const VARI = ['--alto', '--bin', '--lato', '--fin', '--tlfin'];
   const salvaBanco = () => {
@@ -227,6 +242,7 @@ export function avvia(radice: HTMLElement) {
     const b = JSON.parse(localStorage.getItem('dpv-banco') ?? 'null') as { o: Record<string, string>; cls: string[] } | null;
     if (b) { for (const [k, v] of Object.entries(b.o)) radice.style.setProperty(k, v); for (const c of b.cls) radice.classList.add(c); }
   } catch { /* niente */ }
+  fissa.classList.toggle('acceso', radice.classList.contains('lato-lungo'));
   /** un bordo trascinabile: cambia una variabile del banco (in pixel) */
   const trascinaBordo = (el: HTMLElement, calcola: (dx: number, dy: number, r0: DOMRect) => [string, number] | null, misura: () => DOMRect, chiudi?: string) => {
     el.addEventListener('pointerdown', (e) => {
@@ -255,6 +271,7 @@ export function avvia(radice: HTMLElement) {
   /** tasto V: la timeline si stringe e la colonna di destra (VU, proprietà, mixer) scende fino in fondo, o torna larga */
   const vistaStretta = () => {
     const on = radice.classList.toggle('lato-lungo');
+    fissa.classList.toggle('acceso', on);
     if (on) radice.classList.remove('senza-lato');
     salvaBanco();
     setTimeout(() => { monitor.adatta(); }, 60);
@@ -276,6 +293,7 @@ export function avvia(radice: HTMLElement) {
     'ctrl+m': () => finestraEsporta(), 'ctrl+n': () => nuovo(), f1: () => finestraTasti(), '+': () => tl.zoom(1.5), '-': () => tl.zoom(1 / 1.5),
     '\\': () => tl.adattaTutto(), v: () => vistaStretta(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
     f11: () => void schermoIntero(), f9: () => pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'),
+    f10: () => pagina(radice.dataset.pagina === 'live' ? 'montaggio' : 'live'),
   };
   addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
@@ -300,6 +318,8 @@ export function avvia(radice: HTMLElement) {
   }
 
   document.addEventListener('dpv:demo', () => montaggioDimostrativo());
+  document.addEventListener('dpv:sottotitoli', () => { pagina('finale'); finale.mostra('sottotitoli'); });
+  document.addEventListener('dpv:pagina', (e) => pagina((e as CustomEvent).detail as Pagina));
   document.addEventListener('dpv:adatta', () => tl.adattaTutto());
   document.addEventListener('dpv:mancano', () => avviso('Alcuni file vanno ricollegati: File → Ricollega media', 'info', 6000));
 
@@ -322,5 +342,5 @@ export function avvia(radice: HTMLElement) {
   void riprendi().then((ok) => { if (ok) setTimeout(() => tl.adattaTutto(), 200); });
   setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   void esegui;
-  return { tl, monitor, finale };
+  return { tl, monitor, finale, live };
 }

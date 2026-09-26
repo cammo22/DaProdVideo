@@ -23,15 +23,23 @@ export interface StatoFx {
   fade: number; fadeCol: V3;
   luce: number; lucePh: number;
   bande: number; vhs: number;
+  // luci
+  bagliore: number; flare: number; flarePh: number; arco: number; arcoPh: number; espo: number; neon: number;
+  // distorsioni
+  onda: number; bolla: number; vortice: number; caleido: number; calore: number; zblur: number;
 }
 
 const neutro = (): StatoFx => ({
   zoom: 1, dx: 0, dy: 0, rot: 0, blur: 0, pixel: 0, rgb: 0, glitch: 0, seme: 0, desat: 0, invert: 0,
   flash: 0, flashCol: [1, 1, 1], fade: 0, fadeCol: [0, 0, 0], luce: 0, lucePh: 0, bande: 0, vhs: 0,
+  bagliore: 0, flare: 0, flarePh: 0, arco: 0, arcoPh: 0, espo: 0, neon: 0,
+  onda: 0, bolla: 0, vortice: 0, caleido: 0, calore: 0, zblur: 0,
 });
 
 type Motore = 'flash' | 'scossa' | 'camera' | 'zoomColpo' | 'battito' | 'zoomLento' | 'glitch' | 'rgb' | 'negativo' | 'strobo'
-  | 'pixel' | 'sfocaEntra' | 'sfocaEsce' | 'dalColore' | 'alColore' | 'luce' | 'bande' | 'bn' | 'tornaColore' | 'vhs';
+  | 'pixel' | 'sfocaEntra' | 'sfocaEsce' | 'dalColore' | 'alColore' | 'luce' | 'bande' | 'bn' | 'tornaColore' | 'vhs'
+  | 'bagliore' | 'flare' | 'tremolio' | 'bruciato' | 'arcobaleno' | 'neon' | 'sogno'
+  | 'onda' | 'bolla' | 'vortice' | 'caleido' | 'calore' | 'zoomSfocato';
 
 export interface EffettoTempo {
   id: string;
@@ -39,7 +47,7 @@ export interface EffettoTempo {
   info: string;
   /** secondi di partenza del blocco */
   durata: number;
-  gruppo: 'rapidi' | 'lunghi';
+  gruppo: 'rapidi' | 'lunghi' | 'luci' | 'distorsioni';
   motore: Motore;
   /** colore di partenza (lampi e dissolvenze) */
   colore?: string;
@@ -69,6 +77,19 @@ export const EFFETTI_TEMPO: EffettoTempo[] = [
   { id: 'bn', nome: 'Bianco e nero', info: 'toglie il colore per un pezzo', durata: 3, gruppo: 'lunghi', motore: 'bn' },
   { id: 'tornaColore', nome: 'Torna il colore', info: 'dal bianco e nero al colore', durata: 2, gruppo: 'lunghi', motore: 'tornaColore' },
   { id: 'vhs', nome: 'Disturbo VHS', info: 'il nastro che si rovina', durata: 1, gruppo: 'lunghi', motore: 'vhs' },
+  { id: 'bagliore', nome: 'Bagliore', info: 'le luci si allargano e brillano', durata: 1, gruppo: 'luci', motore: 'bagliore' },
+  { id: 'flare', nome: 'Riflesso d\'obiettivo', info: 'il sole che passa sulla lente', durata: 1.2, gruppo: 'luci', motore: 'flare' },
+  { id: 'tremolio', nome: 'Luce che trema', info: 'la corrente che va e viene', durata: 1, gruppo: 'luci', motore: 'tremolio' },
+  { id: 'bruciato', nome: 'Sovraesposto', info: 'un colpo di luce che brucia tutto', durata: 0.8, gruppo: 'luci', motore: 'bruciato' },
+  { id: 'arcobaleno', nome: 'Luce arcobaleno', info: 'una scia di colori che attraversa', durata: 2, gruppo: 'luci', motore: 'arcobaleno' },
+  { id: 'neon', nome: 'Contorni neon', info: 'i bordi si accendono come tubi al neon', durata: 2, gruppo: 'luci', motore: 'neon' },
+  { id: 'sogno', nome: 'Sogno', info: 'morbido e luminoso, come un ricordo', durata: 3, gruppo: 'luci', motore: 'sogno' },
+  { id: 'onda', nome: 'Onda', info: 'l\'immagine ondeggia come l\'acqua', durata: 1, gruppo: 'distorsioni', motore: 'onda' },
+  { id: 'bolla', nome: 'Bolla', info: 'il centro si gonfia come in una lente', durata: 0.8, gruppo: 'distorsioni', motore: 'bolla' },
+  { id: 'vortice', nome: 'Vortice', info: 'tutto gira verso il centro', durata: 1, gruppo: 'distorsioni', motore: 'vortice' },
+  { id: 'caleido', nome: 'Caleidoscopio', info: 'l\'immagine si specchia a spicchi', durata: 2, gruppo: 'distorsioni', motore: 'caleido' },
+  { id: 'calore', nome: 'Aria calda', info: 'il tremolio dell\'asfalto d\'estate', durata: 3, gruppo: 'distorsioni', motore: 'calore' },
+  { id: 'zoomSfocato', nome: 'Zoom sfocato', info: 'un colpo verso il centro, con la scia', durata: 0.5, gruppo: 'distorsioni', motore: 'zoomSfocato' },
 ];
 
 export const effettoTempo = (id: string) => EFFETTI_TEMPO.find((e) => e.id === id);
@@ -77,6 +98,7 @@ export const effettoTempo = (id: string) => EFFETTI_TEMPO.find((e) => e.id === i
 const SUONO_EFFETTO: Record<string, string> = {
   flash: 'zap', lampoNero: 'colpo', scossa: 'impatto', zoomColpo: 'colpo', glitch: 'glitch', rgb: 'zap', negativo: 'colpo',
   pixel: 'glitch', fuoco: 'riverso', sfoca: 'discesa', dalBianco: 'riverso', alBianco: 'riser', battito: 'battito', vhs: 'nastro',
+  bagliore: 'riverso', flare: 'zap', tremolio: 'glitch', bruciato: 'riser', zoomSfocato: 'whoosh', onda: 'swish', bolla: 'colpo', vortice: 'whoosh',
 };
 
 /** le durate proposte nel contenitore (0 = quella giusta per ogni effetto) */
@@ -95,12 +117,12 @@ export function transizioneDa(id: string, len = 25): Transition {
 }
 export const idTransizione = (t: Transition) => (t.type === 'mix' || t.type === 'dip' ? t.type : `${t.type}:${t.pattern}`);
 
-/** il suono di partenza di un blocco (acceso, se c'è: si spegne con un clic sull'altoparlante) */
+/** il suono pronto per un blocco (spento: si accende con un clic sull'altoparlante) */
 export const suonoDi = (tipo: 'effetto' | 'transizione', id: string) => (tipo === 'effetto' ? SUONO_EFFETTO[id] : suonoTransizione(id));
 
 export function nuovoBlocco(tipo: 'effetto' | 'transizione', id: string): BloccoFx {
   const suono = suonoDi(tipo, id);
-  const s = suono ? { suono, audio: true } : {};
+  const s = suono ? { suono, audio: false } : {};
   if (tipo === 'effetto') return { tipo, id, forza: 1, colore: effettoTempo(id)?.colore ?? '#ffffff', ...s };
   return { tipo, id, forza: 1, colore: '#000000', tr: transizioneDa(id), ...s };
 }
@@ -111,7 +133,7 @@ export function cambiaModello(b: BloccoFx, id: string): BloccoFx {
   const n: BloccoFx = { ...b, id };
   if (b.tipo === 'transizione') n.tr = { ...transizioneDa(id), reverse: b.tr?.reverse ?? false };
   else n.colore = effettoTempo(id)?.colore ?? b.colore;
-  if (!b.suono || b.suono === vecchio) { n.suono = nuovo; n.audio = nuovo ? b.audio ?? true : b.audio; }
+  if (!b.suono || b.suono === vecchio) { n.suono = nuovo; n.audio = nuovo ? b.audio ?? false : false; }
   return n;
 }
 
@@ -238,6 +260,13 @@ function hex(c: string): V3 {
   const n = parseInt(m.length === 3 ? m.split('').map((x) => x + x).join('') : m.slice(0, 6), 16) || 0;
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
+/** due luci che si sommano (come due proiettori sullo stesso punto): mai oltre il pieno, il colore si mescola */
+function somma(v0: number, c0: V3, v: number, c: V3): [number, V3] {
+  const tot = 1 - (1 - Math.min(1, v0)) * (1 - Math.min(1, v));
+  const k = v0 + v > 0 ? v / (v0 + v) : 1;
+  return [tot, [c0[0] + (c[0] - c0[0]) * k, c0[1] + (c[1] - c0[1]) * k, c0[2] + (c[2] - c0[2]) * k]];
+}
+
 /** sale e scende ai bordi del blocco (per gli effetti lunghi: entrano ed escono morbidi) */
 const bordi = (x: number, k = 6) => Math.min(1, x * k, (1 - x) * k);
 
@@ -254,13 +283,11 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
     case 'flash': {
       const pk = piccoDi(p, bl);
       const env = x < pk ? dolce(x / Math.max(1e-3, pk)) : Math.pow(Math.max(0, 1 - (x - pk) / Math.max(1e-3, 1 - pk)), 1.7);
-      const v = k * env;
-      if (v > st.flash) { st.flash = Math.min(1, v); st.flashCol = col; }
+      [st.flash, st.flashCol] = somma(st.flash, st.flashCol, k * env, col);
       break;
     }
     case 'strobo': {
-      const v = k * 0.92 * ((Math.floor(f) % 4) < 2 ? 1 : 0) * bordi(x, 10);
-      if (v > st.flash) { st.flash = v; st.flashCol = col; }
+      [st.flash, st.flashCol] = somma(st.flash, st.flashCol, k * 0.92 * ((Math.floor(f) % 4) < 2 ? 1 : 0) * bordi(x, 10), col);
       break;
     }
     case 'scossa': {
@@ -293,22 +320,38 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
     }
     case 'zoomLento': st.zoom *= 1 + k * 0.25 * dolce(x); break;
     case 'glitch': {
-      const v = k * (hash(Math.floor(f) * 0.37 + bl.start) > 0.35 ? 1 : 0.25) * bordi(x, 8);
-      if (v > st.glitch) { st.glitch = v; st.seme = Math.floor(f); }
+      st.glitch += k * (hash(Math.floor(f) * 0.37 + bl.start) > 0.35 ? 1 : 0.25) * bordi(x, 8);
+      st.seme = Math.floor(f);
       break;
     }
-    case 'rgb': st.rgb = Math.max(st.rgb, k * Math.sin(Math.PI * x)); break;
-    case 'negativo': st.invert = Math.max(st.invert, k * (x < 0.35 ? 1 : 1 - dolce((x - 0.35) / 0.65))); break;
-    case 'pixel': st.pixel = Math.max(st.pixel, k * (1 - dolce(x))); break;
-    case 'sfocaEntra': st.blur = Math.max(st.blur, k * (1 - dolce(x))); break;
-    case 'sfocaEsce': st.blur = Math.max(st.blur, k * dolce(x)); break;
-    case 'dalColore': { const v = k * (1 - dolce(x)); if (v > st.fade) { st.fade = Math.min(1, v); st.fadeCol = col; } break; }
-    case 'alColore': { const v = k * dolce(x); if (v > st.fade) { st.fade = Math.min(1, v); st.fadeCol = col; } break; }
-    case 'luce': if (k * Math.sin(Math.PI * x) > st.luce) { st.luce = k * Math.sin(Math.PI * x); st.lucePh = x; } break;
+    // gli altri si sommano: due sfocature sfocano di più, due glitch rompono di più (si tiene un tetto nel quadro)
+    case 'rgb': st.rgb += k * Math.sin(Math.PI * x); break;
+    case 'negativo': st.invert += k * (x < 0.35 ? 1 : 1 - dolce((x - 0.35) / 0.65)); break;
+    case 'pixel': st.pixel += k * (1 - dolce(x)); break;
+    case 'sfocaEntra': st.blur += k * (1 - dolce(x)); break;
+    case 'sfocaEsce': st.blur += k * dolce(x); break;
+    case 'dalColore': [st.fade, st.fadeCol] = somma(st.fade, st.fadeCol, k * (1 - dolce(x)), col); break;
+    case 'alColore': [st.fade, st.fadeCol] = somma(st.fade, st.fadeCol, k * dolce(x), col); break;
+    case 'luce': { const v = k * Math.sin(Math.PI * x); if (v > st.luce) st.lucePh = x; st.luce += v; break; }
     case 'bande': st.bande = Math.max(st.bande, k * Math.min(dolce(x * 5), dolce((1 - x) * 5))); break;
-    case 'bn': st.desat = Math.max(st.desat, Math.min(1, k) * bordi(x, 8)); break;
-    case 'tornaColore': st.desat = Math.max(st.desat, Math.min(1, k) * (1 - dolce(x))); break;
-    case 'vhs': st.vhs = Math.max(st.vhs, k * Math.sin(Math.PI * x)); break;
+    case 'bn': st.desat += Math.min(1, k) * bordi(x, 8); break;
+    case 'tornaColore': st.desat += Math.min(1, k) * (1 - dolce(x)); break;
+    case 'vhs': st.vhs += k * Math.sin(Math.PI * x); break;
+    // le luci
+    case 'bagliore': st.bagliore += k * Math.sin(Math.PI * x); break;
+    case 'flare': { const v = k * Math.min(1, Math.sin(Math.PI * x) * 1.6); if (v > st.flare) st.flarePh = x; st.flare += v; break; }
+    case 'tremolio': st.espo += k * 0.55 * (hash(Math.floor(f) * 1.7 + bl.start) - 0.6) * bordi(x, 8); break;
+    case 'bruciato': { const pk = piccoDi(p, bl); st.espo += k * 1.6 * (x < pk ? dolce(x / Math.max(0.05, pk)) : Math.pow(1 - (x - pk) / Math.max(0.05, 1 - pk), 1.5)); break; }
+    case 'arcobaleno': { const v = k * Math.sin(Math.PI * x); if (v > st.arco) st.arcoPh = x; st.arco += v; break; }
+    case 'neon': st.neon += Math.min(1, k) * bordi(x, 8); break;
+    case 'sogno': { const v = k * bordi(x, 6); st.bagliore += v * 0.8; st.blur += v * 0.18; break; }
+    // le distorsioni
+    case 'onda': st.onda += k * Math.sin(Math.PI * x); break;
+    case 'bolla': st.bolla += k * Math.sin(Math.PI * Math.min(1, x * 1.2)); break;
+    case 'vortice': st.vortice += k * Math.sin(Math.PI * x); break;
+    case 'caleido': st.caleido += Math.min(1, k) * bordi(x, 7); break;
+    case 'calore': st.calore += k * bordi(x, 6); break;
+    case 'zoomSfocato': { const pk = piccoDi(p, bl) < 0.1 ? 0.3 : piccoDi(p, bl); st.zblur += k * (x < pk ? dolce(x / pk) : 1 - dolce((x - pk) / Math.max(0.05, 1 - pk))); break; }
   }
 }
 
@@ -320,6 +363,15 @@ export function statoEffetti(p: Project, f: number, track?: string): StatoFx | n
     if (f < c.start || f >= end(c)) continue;
     st ??= neutro();
     applica(st, p, c, f);
+  }
+  if (st) {
+    // il tetto: sommati restano belli (oltre, l'immagine si romperebbe e basta)
+    st.desat = Math.min(1, st.desat); st.invert = Math.min(1, st.invert);
+    st.blur = Math.min(1.6, st.blur); st.pixel = Math.min(1.4, st.pixel); st.rgb = Math.min(1.8, st.rgb);
+    st.glitch = Math.min(1.6, st.glitch); st.luce = Math.min(1.5, st.luce); st.vhs = Math.min(1.5, st.vhs);
+    st.bagliore = Math.min(2, st.bagliore); st.flare = Math.min(1.5, st.flare); st.arco = Math.min(1.5, st.arco); st.espo = Math.max(-0.8, Math.min(2.5, st.espo));
+    st.neon = Math.min(1, st.neon); st.onda = Math.min(2, st.onda); st.bolla = Math.min(1.5, st.bolla); st.vortice = Math.min(2, st.vortice);
+    st.caleido = Math.min(1, st.caleido); st.calore = Math.min(2, st.calore); st.zblur = Math.min(1.5, st.zblur);
   }
   return st;
 }

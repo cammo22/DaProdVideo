@@ -10,9 +10,10 @@ import { autoColore, masterDi, mediaOf } from '../core/progetto';
 import { mediaRT } from '../media/libreria';
 import { gradeDi, gradeNeutro } from './colore';
 import { statoEffetti, type StatoFx } from '../core/blocchi';
+import { fxEffettivo } from '../core/effettiClip';
 import { disegnaSovr, firmaSovr } from './sovrimpressione';
 import { nuovaTela } from './grafica';
-import { disegnaCountdown, motoTitolo, telaTitolo } from './grafica';
+import { disegnaCountdown, motoTitolo, specAlTempo, telaTitolo } from './grafica';
 import { TITLE0 } from '../core/progetto';
 
 const VS_LAYER = `#version 300 es
@@ -41,7 +42,7 @@ uniform int u_src;          // 0 texture, 1 barre SMPTE, 2 barre EBU, 3 colore p
 uniform int u_orient;       // rotazione dei metadati: 0, 90, 180, 270
 uniform vec3 u_color;
 uniform float u_bright, u_contrast, u_sat, u_hue;
-uniform int u_look;         // 0 nessuno, 1 vhs, 2 pellicola, 3 b/n, 4 seppia, 5 crt
+uniform int u_look;         // bit: 1 vhs, 2 pellicola, 4 b/n, 8 seppia, 16 crt (si sommano)
 uniform float u_time;
 uniform vec2 u_texel;
 uniform int u_key;          // 0 no, 1 luma, 2 chroma
@@ -53,6 +54,7 @@ uniform float u_temp, u_vignette;
 uniform bool u_auto;          // colore automatico: livelli, bianco e luce misurati sulla ripresa
 uniform vec3 u_autoLo, u_autoHi, u_autoWb;
 uniform float u_autoK, u_autoGamma;
+uniform float u_alpha;        // i titoli animati che compaiono e spariscono
 out vec4 o;
 
 vec2 orient(vec2 uv) {
@@ -103,7 +105,7 @@ void main() {
     lv = pow(lv * u_autoWb, vec3(u_autoGamma));
     rgb = mix(rgb, clamp(lv, 0.0, 1.0), u_autoK);
   }
-  if (u_look == 1) {
+  if ((u_look & 1) != 0) {
     // VHS: il colore scappa di lato, righe di tracking, rumore
     float wob = sin(v_uv.y * 180.0 + u_time * 3.0) * 0.0009 + (hash(vec2(floor(v_uv.y * 240.0), u_time)) - 0.5) * 0.0012;
     vec2 uvw = uv0 + vec2(wob, 0.0);
@@ -116,19 +118,23 @@ void main() {
     rgb = mix(rgb, vec3(dot(rgb, vec3(.299,.587,.114))), -0.25);
     rgb += (hash(v_uv * vec2(640.0, 480.0) + u_time) - 0.5) * 0.07;
     rgb *= 0.94 + 0.06 * sin(v_uv.y * 900.0);
-  } else if (u_look == 2) {
+  }
+  if ((u_look & 2) != 0) {
     // pellicola: grana, vignetta, tinta calda, sfarfallio
     float g = (hash(v_uv * 900.0 + fract(u_time * 7.13)) - 0.5) * 0.09;
     rgb = rgb * vec3(1.06, 1.0, 0.9) + g;
     vec2 d = v_uv - 0.5;
     rgb *= 1.0 - dot(d, d) * 0.9;
     rgb *= 0.97 + 0.03 * hash(vec2(u_time, 1.0));
-  } else if (u_look == 3) {
+  }
+  if ((u_look & 4) != 0) {
     rgb = vec3(dot(rgb, vec3(.299, .587, .114)));
-  } else if (u_look == 4) {
+  }
+  if ((u_look & 8) != 0) {
     float y = dot(rgb, vec3(.299, .587, .114));
     rgb = vec3(y * 1.07 + 0.05, y * 0.95 + 0.02, y * 0.75);
-  } else if (u_look == 5) {
+  }
+  if ((u_look & 16) != 0) {
     // tubo catodico: righe, maschera RGB, bordi scuri
     float sl = 0.78 + 0.22 * sin(v_uv.y / u_texel.y * 3.14159);
     int m = int(mod(gl_FragCoord.x, 3.0));
@@ -164,6 +170,7 @@ void main() {
     if (kc.g > kc.r && kc.g > kc.b) rgb.g = min(rgb.g, max(rgb.r, rgb.b) + 0.05);
     else if (kc.b > kc.r && kc.b > kc.g) rgb.b = min(rgb.b, max(rgb.r, rgb.g) + 0.05);
   }
+  a *= u_alpha;
   o = vec4(rgb * a, a);
 }`;
 
@@ -207,17 +214,34 @@ in vec2 v_uv;
 uniform sampler2D u_src;
 uniform vec2 u_res, u_off;
 uniform float u_zoom, u_rot, u_blur, u_pixel, u_rgb, u_glitch, u_seme, u_desat, u_invert, u_flash, u_fade, u_luce, u_lucePh, u_bande, u_vhs, u_time;
+uniform float u_bagliore, u_flare, u_flarePh, u_arco, u_arcoPh, u_espo, u_neon, u_onda, u_bolla, u_vortice, u_caleido, u_calore, u_zblur;
 uniform vec3 u_flashCol, u_fadeCol;
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec3 campione(vec2 uv) { return texture(u_src, clamp(uv, vec2(0.0005), vec2(0.9995))).rgb; }
+vec3 tinta(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }
 void main() {
   float asp = u_res.x / u_res.y;
   // zoom e rotazione attorno al centro, poi lo spostamento (scossa, camera a mano)
   vec2 c = (v_uv - 0.5) * vec2(asp, 1.0);
   float cr = cos(u_rot), sr = sin(u_rot);
   c = vec2(cr * c.x - sr * c.y, sr * c.x + cr * c.y) / u_zoom;
+  // le distorsioni: tutte sulle coordinate, così si sommano fra loro e con lo zoom
+  float rr = length(c);
+  if (u_caleido > 0.0) {
+    float seg = 6.2831853 / 6.0;
+    float a = mod(atan(c.y, c.x) + u_time * 0.2, seg);
+    a = abs(a - seg * 0.5);
+    c = mix(c, vec2(cos(a), sin(a)) * rr, u_caleido);
+  }
+  if (u_vortice > 0.0) {
+    float ang = u_vortice * 2.6 * max(0.0, 1.0 - rr * 1.4);
+    c = vec2(cos(ang) * c.x - sin(ang) * c.y, sin(ang) * c.x + cos(ang) * c.y);
+  }
+  if (u_bolla > 0.0) c *= 1.0 - u_bolla * 0.45 * (1.0 - smoothstep(0.0, 0.55, rr));
   vec2 uv = c / vec2(asp, 1.0) + 0.5 + u_off;
+  if (u_onda > 0.0) uv += vec2(sin(uv.y * 22.0 + u_time * 7.0) * 0.018, sin(uv.x * 16.0 + u_time * 5.0) * 0.01) * u_onda;
+  if (u_calore > 0.0) uv += vec2(sin(uv.y * 70.0 + u_time * 13.0) + sin(uv.y * 31.0 - u_time * 9.0), cos(uv.x * 55.0 + u_time * 11.0)) * 0.0022 * u_calore;
   if (u_glitch > 0.0) {
     float riga = floor(uv.y * 28.0);
     if (hash(vec2(riga, u_seme)) > 1.0 - u_glitch * 0.55) uv.x += (hash(vec2(riga * 3.1, u_seme + 1.0)) - 0.5) * 0.18 * u_glitch;
@@ -239,9 +263,34 @@ void main() {
       col += campione(uv + vec2(cos(a), sin(a)) * sqrt((fi + 0.5) / 24.0) * r * vec2(1.0 / asp, 1.0));
     }
     col /= 24.0;
+  } else if (u_zblur > 0.0) {
+    // zoom sfocato: la scia verso il centro
+    col = vec3(0.0);
+    for (int i = 0; i < 16; i++) col += campione(mix(uv, vec2(0.5), float(i) / 15.0 * u_zblur * 0.22));
+    col /= 16.0;
   } else col = campione(uv);
   float sp = u_rgb * 0.014 + u_glitch * 0.012 + u_vhs * 0.004;
   if (sp > 0.0) { col.r = campione(uv + vec2(sp, 0.0)).r; col.b = campione(uv - vec2(sp, 0.0)).b; }
+  if (u_neon > 0.0) {
+    // i contorni: dove la luce cambia di colpo si accende il tubo, il resto si spegne
+    vec2 px = 1.5 / u_res;
+    float l = dot(campione(uv + vec2(px.x, 0.0)) - campione(uv - vec2(px.x, 0.0)), vec3(0.33));
+    float m = dot(campione(uv + vec2(0.0, px.y)) - campione(uv - vec2(0.0, px.y)), vec3(0.33));
+    float bordo = clamp(length(vec2(l, m)) * 5.0, 0.0, 1.0);
+    vec3 luceNeon = tinta(fract(uv.x * 0.6 + uv.y * 0.3 + u_time * 0.15)) * bordo * 2.2;
+    col = mix(col, col * 0.18 + luceNeon, u_neon);
+  }
+  if (u_bagliore > 0.0) {
+    // le parti chiare si allargano (il bloom delle lenti)
+    vec3 g = vec3(0.0);
+    for (int i = 0; i < 12; i++) {
+      float a = float(i) * 0.5236;
+      vec3 s = campione(uv + vec2(cos(a), sin(a)) * 0.022 * vec2(1.0 / asp, 1.0));
+      g += max(s - 0.5, 0.0);
+    }
+    col += g / 12.0 * 2.2 * u_bagliore + col * 0.08 * u_bagliore;
+  }
+  col *= 1.0 + u_espo;
   float y = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = mix(col, vec3(y), u_desat);
   col = mix(col, 1.0 - col, u_invert);
@@ -254,6 +303,26 @@ void main() {
     float x = v_uv.x + (v_uv.y - 0.5) * 0.35;
     float lama = exp(-pow((x - mix(-0.2, 1.2, u_lucePh)) * 3.2, 2.0));
     col += vec3(1.0, 0.55, 0.2) * lama * u_luce * 0.9 + vec3(1.0, 0.85, 0.6) * pow(lama, 3.0) * u_luce * 0.5;
+  }
+  if (u_arco > 0.0) {
+    // la scia di colori che attraversa in diagonale (come la luce che entra dalla pellicola)
+    float d = v_uv.x * 0.8 + (1.0 - v_uv.y) * 0.45 - mix(-0.3, 1.5, u_arcoPh);
+    float banda = exp(-d * d * 7.0);
+    vec3 arco = tinta(fract(d * 1.3 + 0.1));
+    col = 1.0 - (1.0 - col) * (1.0 - arco * banda * u_arco * 0.75);
+  }
+  if (u_flare > 0.0) {
+    // il riflesso d'obiettivo: la sorgente che passa in alto, la striscia orizzontale e gli aloni verso il centro
+    vec2 sole = vec2(mix(-0.1, 1.1, u_flarePh), 0.28);
+    vec2 d = (v_uv - vec2(sole.x, 1.0 - sole.y)) * vec2(asp, 1.0);
+    vec3 fl = vec3(1.0, 0.92, 0.75) * exp(-dot(d, d) * 60.0) * 1.4 + vec3(1.0, 0.8, 0.55) * exp(-abs(d.y) * 90.0) * exp(-abs(d.x) * 1.8) * 0.55;
+    for (int i = 1; i <= 3; i++) {
+      vec2 g = mix(vec2(sole.x, 1.0 - sole.y), vec2(0.5), 0.5 + float(i) * 0.45);
+      vec2 dg = (v_uv - g) * vec2(asp, 1.0);
+      float an = smoothstep(0.08 * float(i), 0.07 * float(i), length(dg)) * 0.12;
+      fl += tinta(0.08 * float(i) + 0.5) * an;
+    }
+    col += fl * u_flare;
   }
   col = mix(col, u_flashCol, u_flash);
   col = mix(col, u_fadeCol, u_fade);
@@ -428,6 +497,82 @@ vec4 effetto(vec2 q, float p) {
     }
     return mix(a / 49.0, b / 49.0, smoothstep(0.3, 0.7, p));
   }
+  if (u_pattern == 421) {
+    // zoom sfocato: si entra nella vecchia con la scia, si esce dalla nuova
+    vec2 c = q - 0.5;
+    vec4 a = vec4(0.0), b = vec4(0.0);
+    float sa = 1.0 + e * 2.0, sb = 1.0 + (1.0 - e) * 0.6;
+    for (int i = 0; i < 14; i++) {
+      float k = float(i) / 13.0 * arco * 0.5;
+      a += tA(0.5 + c / (sa + k));
+      b += tB(0.5 + c / (sb + k));
+    }
+    return mix(a / 14.0, b / 14.0, smoothstep(0.42, 0.58, p));
+  }
+  if (u_pattern == 431) {
+    // frusta: la camera gira di scatto, tutto striscia di lato
+    float sh = e;
+    vec4 a = vec4(0.0), b = vec4(0.0);
+    for (int i = 0; i < 16; i++) {
+      float k = (float(i) / 15.0 - 0.5) * arco * 0.35;
+      a += tA(q + vec2(sh + k, 0.0));
+      b += tB(q - vec2(1.0 - sh - k, 0.0));
+    }
+    return q.x < 1.0 - sh ? a / 16.0 : b / 16.0;
+  }
+  if (u_pattern == 441) {
+    // rotazione: la vecchia gira e si rimpicciolisce, la nuova arriva girando
+    vec2 c = (q - 0.5) * vec2(u_aspect, 1.0);
+    float ang = e * 6.2831853;
+    float s1 = mix(1.0, 3.0, e), s2 = mix(3.0, 1.0, e);
+    vec2 ra = vec2(cos(ang) * c.x - sin(ang) * c.y, sin(ang) * c.x + cos(ang) * c.y);
+    vec2 qa = ra * s1 / vec2(u_aspect, 1.0) + 0.5, qb = ra * s2 / vec2(u_aspect, 1.0) + 0.5;
+    return mix(tA(qa), tB(qb), smoothstep(0.4, 0.6, p));
+  }
+  if (u_pattern == 451) {
+    // lama di luce: una striscia bianca in diagonale spazza via la vecchia
+    float x = q.x * 0.8 + q.y * 0.4;
+    float fronte = mix(-0.25, 1.45, p);
+    vec4 m = x < fronte ? tB(q) : tA(q);
+    float l = exp(-pow((x - fronte) * 9.0, 2.0));
+    return vec4(min(vec3(1.0), m.rgb + vec3(1.0, 0.97, 0.9) * l * 1.3), max(m.a, l));
+  }
+  if (u_pattern == 461) {
+    // caleidoscopio: l'immagine si piega a spicchi, cambia, si riapre
+    vec2 c = (q - 0.5) * vec2(u_aspect, 1.0);
+    float r = length(c), seg = 6.2831853 / 8.0;
+    float a0 = mod(atan(c.y, c.x) + p * 3.0, seg);
+    a0 = abs(a0 - seg * 0.5);
+    vec2 k = mix(c, vec2(cos(a0), sin(a0)) * r, arco);
+    vec2 qq = k / vec2(u_aspect, 1.0) + 0.5;
+    return mix(tA(qq), tB(qq), smoothstep(0.4, 0.6, p));
+  }
+  if (u_pattern == 471) {
+    // aria calda: tutto trema come sopra l'asfalto e si scioglie nella nuova
+    vec2 w = vec2(sin(q.y * 60.0 + p * 40.0) + sin(q.y * 23.0 - p * 30.0), cos(q.x * 45.0 + p * 35.0)) * 0.012 * arco;
+    float n = caso(floor(q.x * 90.0) + floor(q.y * 50.0) * 91.0);
+    return mix(tA(q + w), tB(q + w), smoothstep(n * 0.5, n * 0.5 + 0.5, p));
+  }
+  if (u_pattern == 481) {
+    // tenda: la vecchia si apre dal centro in due metà, con l'ombra
+    float h = e * 0.5;
+    vec4 b = tB(q) * (0.6 + 0.4 * e);
+    if (q.x < 0.5 - h) return tA(q + vec2(h, 0.0)) * (1.0 - 0.25 * smoothstep(0.5 - h - 0.05, 0.5 - h, q.x));
+    if (q.x > 0.5 + h) return tA(q - vec2(h, 0.0)) * (1.0 - 0.25 * smoothstep(0.5 + h + 0.05, 0.5 + h, q.x));
+    return b;
+  }
+  if (u_pattern == 491) {
+    // sovraesposta: la vecchia si brucia di luce, dalla luce esce la nuova
+    vec4 m = mix(tA(q), tB(q), smoothstep(0.45, 0.55, p));
+    float l = pow(arco, 1.5);
+    return vec4(min(vec3(1.0), m.rgb * (1.0 + l * 3.5) + l * 0.25), m.a);
+  }
+  if (u_pattern == 521) {
+    // polvere: la vecchia si sgretola in granelli e sotto c'è la nuova
+    float n = caso(floor(q.x * 320.0) * 1.37 + floor(q.y * 180.0) * 91.7);
+    float soglia = q.y * 0.35 + n * 0.65;
+    return p > soglia ? tB(q) : tA(q + vec2(0.0, -max(0.0, p - soglia + 0.25) * 0.15));
+  }
   if (u_pattern == 401 || u_pattern == 411) {
     // raggio dall'occhio (0,0,-D) attraverso il punto dello schermo; lo schermo è il piano z = 0
     float a = u_aspect;
@@ -528,7 +673,6 @@ function hex(c: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-const LOOK: Record<string, number> = { none: 0, vhs: 1, film: 2, bn: 3, seppia: 4, crt: 5 };
 
 export class Compositore {
   gl: WebGL2RenderingContext;
@@ -562,10 +706,10 @@ export class Compositore {
     this.pComb = this.prog(VS_FULL, FS_COMBINE);
     this.pMaster = this.prog(VS_FULL, FS_MASTER);
     this.pFx = this.prog(VS_FULL, FS_FX);
-    for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol'])
+    for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol', 'u_bagliore', 'u_flare', 'u_flarePh', 'u_arco', 'u_arcoPh', 'u_espo', 'u_neon', 'u_onda', 'u_bolla', 'u_vortice', 'u_caleido', 'u_calore', 'u_zblur'])
       this.uF[n] = gl.getUniformLocation(this.pFx, n);
     for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv',
-      'u_mirror', 'u_temp', 'u_vignette', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
+      'u_mirror', 'u_temp', 'u_vignette', 'u_alpha', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
       this.uL[n] = gl.getUniformLocation(this.pLayer, n);
     for (const n of ['u_src', 'u_lift', 'u_gamma', 'u_gain', 'u_shadow', 'u_high', 'u_sat', 'u_contrast', 'u_vignette', 'u_grain', 'u_time', 'u_split'])
       this.uM[n] = gl.getUniformLocation(this.pMaster, n);
@@ -759,6 +903,7 @@ export class Compositore {
     gl.uniform1i(u.u_mirror, 0);
     gl.uniform1f(u.u_temp, 0);
     gl.uniform1f(u.u_vignette, 0);
+    gl.uniform1f(u.u_alpha, 1);
     gl.uniform1i(u.u_auto, 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
@@ -792,6 +937,19 @@ export class Compositore {
     gl.uniform1f(u.u_lucePh, st.lucePh);
     gl.uniform1f(u.u_bande, st.bande);
     gl.uniform1f(u.u_vhs, st.vhs);
+    gl.uniform1f(u.u_bagliore, st.bagliore);
+    gl.uniform1f(u.u_flare, st.flare);
+    gl.uniform1f(u.u_flarePh, st.flarePh);
+    gl.uniform1f(u.u_arco, st.arco);
+    gl.uniform1f(u.u_arcoPh, st.arcoPh);
+    gl.uniform1f(u.u_espo, st.espo);
+    gl.uniform1f(u.u_neon, st.neon);
+    gl.uniform1f(u.u_onda, st.onda);
+    gl.uniform1f(u.u_bolla, st.bolla);
+    gl.uniform1f(u.u_vortice, st.vortice);
+    gl.uniform1f(u.u_caleido, st.caleido);
+    gl.uniform1f(u.u_calore, st.calore);
+    gl.uniform1f(u.u_zblur, st.zblur);
     gl.uniform1f(u.u_time, (frame % 10000) / 25);
     gl.uniform3f(u.u_flashCol, ...st.flashCol);
     gl.uniform3f(u.u_fadeCol, ...st.fadeCol);
@@ -806,7 +964,7 @@ export class Compositore {
     let srcKind = 0;
     let tex: WebGLTexture = this.blank;
     let sw = W, sh = H, orient = 0;
-    let off = { dx: 0, dy: 0 };
+    let off: { dx: number; dy: number; scala?: number; alfa?: number } = { dx: 0, dy: 0 };
     let fit = true;
     if (c.kind === 'media' && c.media) {
       const m = mediaOf(p, c);
@@ -838,7 +996,7 @@ export class Compositore {
       tex = t.tex;
       sw = W; sh = H;
     } else if (c.kind === 'title') {
-      const spec = c.gen?.title ?? TITLE0;
+      const spec = specAlTempo(c.gen?.title ?? TITLE0, s.local);
       const tt = telaTitolo(spec, W, H);
       const t = this.upload('img:t:' + c.id, tt.tela as TexImageSource, tt.w, tt.h, tt.tela);
       tex = t.tex;
@@ -855,6 +1013,8 @@ export class Compositore {
       dh = sh * k;
     }
     const tf = c.tf, fx = c.fx;
+    // le regolazioni a mano più tutti gli effetti al volo accesi, sommati
+    const fe = fxEffettivo(fx);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[i].fb);
     gl.viewport(0, 0, this.fbW, this.fbH);
     gl.clearColor(0, 0, 0, 0);
@@ -870,18 +1030,19 @@ export class Compositore {
     gl.uniform4f(u.u_crop, tf.cropL, tf.cropT, tf.cropR, tf.cropB);
     gl.uniform2f(u.u_off, tf.x + off.dx, tf.y + off.dy);
     // zoom lento (Ken Burns): la clip si avvicina piano piano lungo tutta la sua durata
-    const kb = fx.zoom ? 1 + fx.zoom * Math.min(1, s.lf / Math.max(1, c.len)) : 1;
-    gl.uniform1f(u.u_scale, tf.scale * kb);
+    const kb = fe.zoom ? 1 + fe.zoom * Math.min(1, s.lf / Math.max(1, c.len)) : 1;
+    gl.uniform1f(u.u_scale, tf.scale * kb * (off.scala ?? 1));
+    gl.uniform1f(u.u_alpha, off.alfa ?? 1);
     gl.uniform1f(u.u_rot, (tf.rot * Math.PI) / 180);
     gl.uniform1i(u.u_src, srcKind);
     gl.uniform1i(u.u_orient, orient);
     const col = hex(c.gen?.color ?? '#000000');
     gl.uniform3f(u.u_color, col[0], col[1], col[2]);
-    gl.uniform1f(u.u_bright, fx.bright);
-    gl.uniform1f(u.u_contrast, fx.contrast);
-    gl.uniform1f(u.u_sat, fx.sat);
-    gl.uniform1f(u.u_hue, fx.hue);
-    gl.uniform1i(u.u_look, LOOK[fx.look] ?? 0);
+    gl.uniform1f(u.u_bright, fe.bright);
+    gl.uniform1f(u.u_contrast, fe.contrast);
+    gl.uniform1f(u.u_sat, fe.sat);
+    gl.uniform1f(u.u_hue, fe.hue);
+    gl.uniform1i(u.u_look, fe.looks);
     gl.uniform1f(u.u_time, (frame % 10000) / 25);
     gl.uniform2f(u.u_texel, 1 / Math.max(1, dw), 1 / Math.max(1, dh));
     gl.uniform1i(u.u_key, fx.key === 'luma' ? 1 : fx.key === 'chroma' ? 2 : 0);
@@ -890,9 +1051,9 @@ export class Compositore {
     gl.uniform1f(u.u_keyLevel, fx.keyLevel);
     gl.uniform1f(u.u_keySoft, fx.keySoft);
     gl.uniform1i(u.u_keyInv, fx.keyInvert ? 1 : 0);
-    gl.uniform1i(u.u_mirror, fx.mirror ? 1 : 0);
-    gl.uniform1f(u.u_temp, fx.temp ?? 0);
-    gl.uniform1f(u.u_vignette, fx.vignette ?? 0);
+    gl.uniform1i(u.u_mirror, fe.mirror ? 1 : 0);
+    gl.uniform1f(u.u_temp, fe.temp);
+    gl.uniform1f(u.u_vignette, fe.vignette);
     const an = c.media && autoColore(p, c) ? mediaRT(c.media)?.colore : undefined;
     gl.uniform1i(u.u_auto, an ? 1 : 0);
     if (an) {

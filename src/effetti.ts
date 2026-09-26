@@ -23,11 +23,21 @@ export interface Effetto {
   metti(c: Clip, on: boolean, p: Project): void;
 }
 
-const look = (id: string, nome: string, info: string, l: Look): Effetto => ({
+/**
+ * Un effetto al volo che si somma agli altri: si segna in fx.effetti e il ritocco lo fa il compositore
+ * (src/core/effettiClip.ts). vecchio/spegniVecchio: i progetti di prima, dove l'effetto cambiava i valori a mano.
+ */
+const somma = (id: string, nome: string, info: string, vecchio?: (c: Clip) => boolean, spegniVecchio?: (c: Clip) => void): Effetto => ({
   id, nome, info, per: 'video', anteprima: 'fx-' + id,
-  acceso: (c) => c.fx.look === l,
-  metti: (c, on) => { c.fx.look = on ? l : 'none'; },
+  acceso: (c) => !!c.fx.effetti?.includes(id) || !!vecchio?.(c),
+  metti: (c, on) => {
+    const lista = (c.fx.effetti ?? []).filter((x) => x !== id);
+    if (on) lista.push(id);
+    else if (vecchio?.(c)) spegniVecchio?.(c);
+    c.fx.effetti = lista.length ? lista : undefined;
+  },
 });
+const look = (id: string, nome: string, info: string, l: Look) => somma(id, nome, info, (c) => c.fx.look === l, (c) => { c.fx.look = 'none'; });
 
 const secondo = (p: Project) => Math.round(fps(p.rate));
 
@@ -51,46 +61,26 @@ export const EFFETTI_VIDEO: Effetto[] = [
     acceso: (c, p) => autoColore(p, c),
     metti: (c, on, p) => { c.fx.auto = on === masterDi(p).auto ? undefined : on; },
   },
-  {
-    id: 'vivace', nome: 'Vivace', info: 'colori più pieni', per: 'video', anteprima: 'fx-vivace',
-    acceso: (c) => c.fx.sat >= 1.25,
-    metti: (c, on) => { c.fx.sat = on ? 1.35 : 1; c.fx.contrast = on ? 1.06 : 1; },
-  },
-  {
-    id: 'luminoso', nome: 'Più luce', info: 'schiarisce le riprese buie', per: 'video', anteprima: 'fx-luminoso',
-    acceso: (c) => c.fx.bright >= 0.06,
-    metti: (c, on) => { c.fx.bright = on ? 0.1 : 0; c.fx.contrast = on ? 1.05 : 1; },
-  },
-  {
-    id: 'caldo', nome: 'Caldo', info: 'luce calda da tramonto', per: 'video', anteprima: 'fx-caldo',
-    acceso: (c) => (c.fx.temp ?? 0) > 0.1,
-    metti: (c, on) => { c.fx.temp = on ? 0.4 : 0; },
-  },
-  {
-    id: 'freddo', nome: 'Freddo', info: 'luce fredda e pulita', per: 'video', anteprima: 'fx-freddo',
-    acceso: (c) => (c.fx.temp ?? 0) < -0.1,
-    metti: (c, on) => { c.fx.temp = on ? -0.4 : 0; },
-  },
+  somma('vivace', 'Vivace', 'colori più pieni', (c) => c.fx.sat >= 1.25, (c) => { c.fx.sat = 1; c.fx.contrast = 1; }),
+  somma('luminoso', 'Più luce', 'schiarisce le riprese buie', (c) => c.fx.bright >= 0.06, (c) => { c.fx.bright = 0; c.fx.contrast = 1; }),
+  somma('caldo', 'Caldo', 'luce calda da tramonto', (c) => (c.fx.temp ?? 0) > 0.1, (c) => { c.fx.temp = 0; }),
+  somma('freddo', 'Freddo', 'luce fredda e pulita', (c) => (c.fx.temp ?? 0) < -0.1, (c) => { c.fx.temp = 0; }),
+  somma('pop', 'Pop', 'colori a palla, contrasto deciso'),
+  somma('contrasto', 'Contrasto forte', 'neri profondi, bianchi brillanti'),
+  somma('cinema', 'Cinema', 'il colore dei film, bordi scuri'),
+  somma('tramonto', 'Tramonto', 'tutto arancio e oro'),
+  somma('notte', 'Notte', 'blu scuro, come girato di notte'),
+  somma('gelo', 'Gelo', 'freddo e pallido'),
+  somma('sbiadito', 'Sbiadito', 'la foto vecchia, colori stanchi'),
+  somma('sogno', 'Sogno', 'morbido e luminoso'),
   look('bn', 'Bianco e nero', 'toglie il colore', 'bn'),
   look('seppia', 'Seppia', 'la foto della nonna', 'seppia'),
   look('pellicola', 'Pellicola', 'grana e vignetta', 'film'),
   look('vhs', 'VHS', 'la cassetta del matrimonio', 'vhs'),
   look('crt', 'Tubo catodico', 'il vecchio televisore', 'crt'),
-  {
-    id: 'vignetta', nome: 'Vignetta', info: 'bordi più scuri, sguardo al centro', per: 'video', anteprima: 'fx-vignetta',
-    acceso: (c) => (c.fx.vignette ?? 0) > 0.05,
-    metti: (c, on) => { c.fx.vignette = on ? 0.55 : 0; },
-  },
-  {
-    id: 'zoom', nome: 'Zoom lento', info: 'si avvicina piano (Ken Burns)', per: 'video', anteprima: 'fx-zoom',
-    acceso: (c) => (c.fx.zoom ?? 0) > 0.01,
-    metti: (c, on) => { c.fx.zoom = on ? 0.15 : 0; },
-  },
-  {
-    id: 'specchia', nome: 'Specchia', info: 'gira l\'immagine da destra a sinistra', per: 'video', anteprima: 'fx-specchia',
-    acceso: (c) => !!c.fx.mirror,
-    metti: (c, on) => { c.fx.mirror = on || undefined; },
-  },
+  somma('vignetta', 'Vignetta', 'bordi più scuri, sguardo al centro', (c) => (c.fx.vignette ?? 0) > 0.05, (c) => { c.fx.vignette = 0; }),
+  somma('zoom', 'Zoom lento', 'si avvicina piano (Ken Burns)', (c) => (c.fx.zoom ?? 0) > 0.01, (c) => { c.fx.zoom = 0; }),
+  somma('specchia', 'Specchia', 'gira l\'immagine da destra a sinistra', (c) => !!c.fx.mirror, (c) => { c.fx.mirror = undefined; }),
   {
     id: 'dissolvi', nome: 'Entra ed esce', info: 'dal nero e nel nero, mezzo secondo', per: 'video', anteprima: 'fx-dissolvi',
     acceso: (c) => c.fadeIn > 0 && c.fadeOut > 0,

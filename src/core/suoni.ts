@@ -37,5 +37,8 @@ export function suonoTransizione(id: string): string | undefined {
   if (id === 'dve:351') return 'zap';
   if (id === 'dve:371') return 'glitch';
   if (id === 'dve:361') return 'riverso';
+  if (id === 'dve:451' || id === 'dve:491') return 'zap';
+  if (id === 'dve:471' || id === 'dve:521') return 'discesa';
+  if (id === 'dve:481') return 'swish';
   return 'whoosh';
 }

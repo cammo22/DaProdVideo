@@ -126,3 +126,53 @@ export function leggiSrt(testo: string, p: Project): Sottotitolo[] {
   }
   return out;
 }
+
+// ——— sistemare i tempi: unire, dividere, attaccare al cursore ———
+
+/**
+ * Unisce le righe scelte (e tutto quello che c'è fra loro) in una riga sola: il testo va a capo, così le frasi
+ * compaiono insieme. Ritorna l'id della riga che resta.
+ */
+export function unisciRighe(s: Sottotitoli, ids: string[]): string | null {
+  s.righe.sort((x, y) => x.da - y.da);
+  const idx = s.righe.map((r, i) => (ids.includes(r.id) ? i : -1)).filter((i) => i >= 0);
+  if (!idx.length) return null;
+  const a = Math.min(...idx), b = Math.max(...idx, idx.length === 1 ? Math.min(s.righe.length - 1, a + 1) : a);
+  if (b <= a) return null;
+  const pezzi = s.righe.slice(a, b + 1);
+  const unita = { ...pezzi[0], a: Math.max(...pezzi.map((r) => r.a)), testo: pezzi.map((r) => r.testo.trim()).filter(Boolean).join('\n') };
+  s.righe.splice(a, b - a + 1, unita);
+  return unita.id;
+}
+
+/** divide una riga al fotogramma f: il testo si spezza alla parola più vicina a quel punto */
+export function dividiRiga(s: Sottotitoli, id: string, f: number): string | null {
+  const r = s.righe.find((x) => x.id === id);
+  if (!r || f <= r.da + 1 || f >= r.a - 1) return null;
+  const k = (f - r.da) / (r.a - r.da);
+  const parole = r.testo.split(/\s+/).filter(Boolean);
+  let taglio = Math.round(parole.length * k);
+  if (parole.length > 1) taglio = Math.max(1, Math.min(parole.length - 1, taglio));
+  const dopo = { id: uid('s'), da: f, a: r.a, testo: parole.slice(taglio).join(' ') };
+  r.a = f;
+  r.testo = parole.slice(0, taglio).join(' ');
+  s.righe.push(dopo);
+  s.righe.sort((x, y) => x.da - y.da);
+  return dopo.id;
+}
+
+/** i limiti di una riga: non entra nella precedente né nella successiva */
+export function limitiRiga(s: Sottotitoli, id: string): [number, number] {
+  const ord = s.righe.slice().sort((x, y) => x.da - y.da);
+  const i = ord.findIndex((x) => x.id === id);
+  return [i > 0 ? ord[i - 1].a : 0, i >= 0 && i < ord.length - 1 ? ord[i + 1].da : Infinity];
+}
+
+/** l'inizio o la fine di una riga al fotogramma f (senza entrare nelle vicine, almeno due fotogrammi) */
+export function bordoRiga(s: Sottotitoli, id: string, lato: 'da' | 'a', f: number) {
+  const r = s.righe.find((x) => x.id === id);
+  if (!r) return;
+  const [min, max] = limitiRiga(s, id);
+  if (lato === 'da') r.da = Math.max(min, Math.min(r.a - 2, Math.round(f)));
+  else r.a = Math.min(max, Math.max(r.da + 2, Math.round(f)));
+}

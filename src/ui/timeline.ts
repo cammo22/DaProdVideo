@@ -8,13 +8,15 @@ import { store } from '../core/store';
 import { motore } from '../motore';
 import * as M from '../core/montaggio';
 import { clipById, dbToGain, end, isVideoClip, keyValue, mediaOf, newTrack, newTransition, nextTrackName, projectEnd, srcTimeAt, trackOf, ALTEZZA } from '../core/progetto';
-import type { Clip, Key, Project, Track, TrackKind } from '../core/tipi';
+import type { Clip, Key, Project, Sottotitolo, Track, TrackKind } from '../core/tipi';
+import { SOTTO0, bordoRiga, dividiRiga, limitiRiga, unisciRighe } from '../core/sottotitoli';
 import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
 import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco } from '../azioni';
 import { cambiaModello, centro, durataBlocco, durataDelBlocco, nomeBlocco, nuovoBlocco, piccoDi, posaBlocco, postoBlocco, tagliFra, taglioDelBlocco, taglioVicino, tracciaPerBlocco, transizioneSul, EFFETTI_TEMPO, type Dove, type Taglio } from '../core/blocchi';
 import { SUONI, suono } from '../core/suoni';
+import { attivaDi, eliminaSequenza, nuovaSequenza, passaA, rinominaSequenza, sequenzeDi } from '../core/sequenze';
 
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto, effettiAccesi, effetto } from '../effetti';
 import { ascoltaSuono, banco } from '../media/audio';
@@ -26,6 +28,8 @@ const RIGHELLO = 34;
 const SEP = 10;
 /** la barra per scorrere su e giù, a destra (sempre lì, anche con poche tracce) */
 const VBAR = 14;
+/** la riga dei sottotitoli, sotto le tracce video (c'è quando ci sono righe) */
+const SOTT_H = 28;
 /** l'altezza del navigatore in fondo (la barra per andare a destra e sinistra) */
 const NAV = 24;
 const BORDO = 8;
@@ -53,12 +57,15 @@ type Presa =
   | { tipo: 'riquadro'; x0: number; y0: number; x1: number; y1: number; add: boolean }
   | { tipo: 'elastico'; id: string; key: number; base: Clip[] }
   | { tipo: 'volume'; id: string; y0: number; gain0: number; keys0: Key[]; seg: [number, number] | null; mosso: boolean }
-  | { tipo: 'fade'; id: string; lato: 'in' | 'out'; mosso: boolean };
+  | { tipo: 'fade'; id: string; lato: 'in' | 'out'; mosso: boolean }
+  | { tipo: 'sott'; id: string; lato: 'in' | 'out' | 'corpo'; x0: number; righe0: Sottotitolo[]; mosso: boolean };
 
 interface Colpo {
   track?: Track;
   clip?: Clip;
-  zona: 'righello' | 'corpo' | 'in' | 'out' | 'vuoto' | 'fuori' | 'fx' | 'volume' | 'punto' | 'fadeIn' | 'fadeOut' | 'suono';
+  zona: 'righello' | 'corpo' | 'in' | 'out' | 'vuoto' | 'fuori' | 'fx' | 'volume' | 'punto' | 'fadeIn' | 'fadeOut' | 'suono' | 'sott';
+  /** sulla riga dei sottotitoli: quale riga e quale parte (vuoto = nessuna) */
+  sott?: { id: string; lato: 'in' | 'out' | 'corpo' };
   f: number;
   taglio?: { l: Clip; r: Clip };
   /** indice del punto del volume sotto il puntatore */
@@ -76,6 +83,9 @@ export class Timeline {
   private vbar: HTMLElement;
   private vpollice: HTMLElement;
   private area: HTMLElement;
+  /** le schede delle timeline del progetto, sopra a tutto */
+  private schede: HTMLElement;
+  private firmaSchede = '';
   ppf = 4; // pixel per fotogramma
   scrollF = 0;
   scrollY = 0;
@@ -105,7 +115,9 @@ export class Timeline {
     this.vbar = h('div', { class: 'tl-vbar', title: 'Su e giù fra le tracce: trascina, o clic per saltare · rotella sulle testate' }, this.vpollice);
     this.vbar.style.bottom = NAV + 'px';
     this.area = h('div', { class: 'tl-area' }, this.cv, this.vbar, this.nav);
+    this.schede = h('div', { class: 'tl-schede' });
     this.el = h('div', { class: 'timeline' },
+      this.schede,
       h('div', { class: 'tl-angolo' },
         h('button', {
           class: 'btn-mini tl-piu', title: 'Aggiungi una traccia',
@@ -131,7 +143,7 @@ export class Timeline {
       }
     });
     new ResizeObserver(() => this.adatta()).observe(this.area);
-    store.on('doc', () => { this.testateSeCambiate(); this.sporca(); });
+    store.on('doc', () => { this.testateSeCambiate(); this.costruisciSchede(); this.sporca(); });
     store.on('sel', () => this.sporca());
     store.on('view', () => { this.costruisciTestate(); this.sporca(); });
     store.on('status', () => this.sporca());
@@ -140,6 +152,7 @@ export class Timeline {
     quandoPicchi(() => this.sporca());
     this.eventi();
     this.costruisciTestate();
+    this.costruisciSchede();
     const loop = () => { if (this.sporco) { this.sporco = false; this.disegna(); } requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
@@ -166,16 +179,28 @@ export class Timeline {
   fX = (f: number) => (f - this.scrollF) * this.ppf;
   xF = (x: number) => x / this.ppf + this.scrollF;
 
+  /** dove sta la riga dei sottotitoli (null = non c'è): la calcola righe() */
+  rigaSott: { y: number; h: number } | null = null;
+  /** le righe dei sottotitoli scelte nella timeline */
+  selSott = new Set<string>();
+  private conSott(p: Project) { return (p.sottotitoli?.righe.length ?? 0) > 0; }
+
   private righe(p: Project) {
     const out: { t: Track; y: number; h: number }[] = [];
     let y = RIGHELLO - this.scrollY;
     let prima: Track | null = null;
+    this.rigaSott = null;
+    const sott = this.conSott(p);
     for (const t of p.tracks) {
-      if (prima && prima.kind !== 'audio' && t.kind === 'audio') y += SEP;
+      if (prima && prima.kind !== 'audio' && t.kind === 'audio') {
+        if (sott) { this.rigaSott = { y, h: SOTT_H }; y += SOTT_H; }
+        y += SEP;
+      }
       out.push({ t, y, h: t.height });
       y += t.height;
       prima = t;
     }
+    if (sott && !this.rigaSott) this.rigaSott = { y, h: SOTT_H };
     return out;
   }
 
@@ -195,7 +220,7 @@ export class Timeline {
 
   private altezzaTotale() {
     const p = store.doc;
-    return p.tracks.reduce((s, t) => s + t.height, 0) + SEP + RIGHELLO + 40;
+    return p.tracks.reduce((s, t) => s + t.height, 0) + SEP + RIGHELLO + 40 + (this.conSott(p) ? SOTT_H : 0);
   }
 
   /** scorre su e giù fra le tracce (la rotella sulle testate, la barra a destra, il dito) */
@@ -260,15 +285,17 @@ export class Timeline {
   /** dove sta un blocchetto dentro la riga: una striscia sottile in basso (le corsie in più salgono) */
   private geoBlocco(y: number, hh: number, i: number, n: number) {
     const g = this.geo(y, hh);
-    const bh = clamp(Math.round(g.alt * 0.44), 12, 24);
-    const lh = n * bh <= g.corpoH ? bh : Math.max(7, g.corpoH / n);
+    // grandi e squadrati, così si prendono bene
+    const bh = clamp(Math.round(g.alt * 0.5), 16, 30);
+    const lh = n * bh <= g.corpoH + 4 ? bh : Math.max(10, (g.corpoH + 4) / n);
     return { top: g.top + g.alt - (i + 1) * lh, alt: lh - 1 };
   }
 
   /** il rettangolo dell'altoparlante di un blocchetto (se c'è posto) */
   private altoparlante(c: Clip, x: number, w: number, top: number, alt: number) {
-    if (!c.fxb?.suono || w < 34 || alt < 10) return null;
-    const s = Math.min(14, alt - 2);
+    // c'è su tutti i blocchi: acceso, spento, o da scegliere (tasto destro = il menu dei suoni)
+    if (!c.fxb || w < 34 || alt < 10) return null;
+    const s = Math.min(18, alt - 4);
     return { x: x + w - s - 5, y: top + (alt - s) / 2, s };
   }
 
@@ -296,6 +323,16 @@ export class Timeline {
     const f = this.xF(x);
     if (y < RIGHELLO) return { zona: 'righello', f };
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
+    const rs = this.rigaSott;
+    if (rs && y >= rs.y && y < rs.y + rs.h) {
+      for (const r of p.sottotitoli?.righe ?? []) {
+        const x0 = this.fX(r.da), x1 = this.fX(r.a);
+        if (x < x0 - 4 || x > x1 + 4) continue;
+        const b = Math.min(BORDO, Math.max(3, (x1 - x0) / 4));
+        return { zona: 'sott', f, sott: { id: r.id, lato: x - x0 <= b ? 'in' : x1 - x <= b ? 'out' : 'corpo' } };
+      }
+      return { zona: 'sott', f };
+    }
     if (!riga) return { zona: 'fuori', f };
     const t = riga.t;
     const on = p.clips.filter((c) => c.track === t.id && c.kind !== 'fx');
@@ -385,10 +422,69 @@ export class Timeline {
     }
   }
 
+  // ——— le schede delle timeline ———
+  /** le schede si rifanno solo quando cambiano le timeline o quella aperta */
+  costruisciSchede() {
+    const p = store.doc;
+    const lista = sequenzeDi(p), att = attivaDi(p);
+    const firma = lista.map((s) => s.id + ':' + s.nome).join('|') + '#' + att;
+    if (firma === this.firmaSchede) return;
+    this.firmaSchede = firma;
+    const apri = (id: string) => {
+      if (id === attivaDi(store.doc)) return;
+      motore.stop();
+      store.select([]);
+      this.selSott.clear();
+      store.edit('Apri timeline', (pp) => { passaA(pp, id); });
+      store.setHead(0);
+      this.adattaTutto();
+    };
+    const rinomina = async (id: string) => {
+      const s = sequenzeDi(store.doc).find((x) => x.id === id);
+      const n = await chiedi('Rinomina la timeline', 'Nome', s?.nome ?? '');
+      if (n) store.edit('Rinomina timeline', (pp) => rinominaSequenza(pp, id, n));
+    };
+    const nuova = (copia: boolean) => {
+      motore.stop();
+      store.select([]);
+      store.edit(copia ? 'Duplica timeline' : 'Nuova timeline', (pp) => { nuovaSequenza(pp, copia); });
+      store.setHead(0);
+      this.adattaTutto();
+      avviso(copia ? '⧉ Copia della timeline: qui puoi provare senza toccare l\'altra' : '＋ Timeline nuova: i media del contenitore sono gli stessi', 'ok', 1800);
+    };
+    this.schede.replaceChildren(
+      ...lista.map((s) => {
+        const b = h('button', {
+          class: 'tl-scheda' + (s.id === att ? ' attiva' : ''), title: 'Clic: apri · doppio clic: rinomina · tasto destro: duplica, elimina',
+          on: {
+            click: () => apri(s.id),
+            dblclick: () => void rinomina(s.id),
+            contextmenu: (e: MouseEvent) => {
+              e.preventDefault();
+              menuContesto(e.clientX, e.clientY, [
+                { nome: 'Apri', disattiva: s.id === att, fn: () => apri(s.id) },
+                { nome: 'Rinomina…', fn: () => void rinomina(s.id) },
+                { nome: 'Duplica', fn: () => { apri(s.id); nuova(true); } },
+                { sep: true },
+                { nome: 'Elimina questa timeline', disattiva: lista.length < 2, fn: () => store.edit('Elimina timeline', (pp) => { eliminaSequenza(pp, s.id); }) },
+              ]);
+            },
+          },
+        }, icona('montaggio', 12), h('span', null, s.nome));
+        return b;
+      }),
+      h('button', {
+        class: 'tl-scheda piu', title: 'Una timeline nuova (o una copia di questa)',
+        on: { click: (e: MouseEvent) => menuContesto(e.clientX, e.clientY, [{ nome: 'Timeline nuova, vuota', fn: () => nuova(false) }, { nome: 'Copia di questa timeline', fn: () => nuova(true) }]) },
+      }, icona('piu', 11)),
+    );
+  }
+
   // ——— testate ———
   private firmaTestate = '';
   private firma() {
-    return store.doc.tracks.map((t) => [t.id, t.name, t.height, t.mute, t.solo, t.lock, t.opacity, t.volume, modi.attive.has(t.id)].join(',')).join(';') + '|' + this.scrollY;
+    const s = store.doc.sottotitoli;
+    return store.doc.tracks.map((t) => [t.id, t.name, t.height, t.mute, t.solo, t.lock, t.opacity, t.volume, modi.attive.has(t.id)].join(',')).join(';') + '|' + this.scrollY + '|' + (s?.righe.length ? (s.nelVideo ? 2 : 1) : 0);
   }
   /** le testate si rifanno solo se cambiano le tracce, non a ogni spostamento di clip */
   private testateSeCambiate() {
@@ -415,8 +511,20 @@ export class Timeline {
     this.testate.style.setProperty('--righello', RIGHELLO + 'px');
     const cont = h('div', { class: 'tl-testate-in', style: `transform: translateY(${-this.scrollY}px)` });
     let prima: Track | null = null;
+    // la testata della riga dei sottotitoli: l'occhio li mostra o li nasconde nel video
+    const testataSott = () => {
+      const s = p.sottotitoli!;
+      return h('div', { class: 'tl-testata sott' + (s.nelVideo ? '' : ' spenta'), style: `height:${SOTT_H}px` },
+        h('div', { class: 'tt-riga' },
+          h('span', { class: 'tt-nome sott', title: 'I sottotitoli: trascina per spostarli, tira i bordi per i tempi, doppio clic per scrivere, tasto destro per unire e dividere' }, icona('sottotitoli', 12), 'SOTT'),
+          h('button', { class: 'tt-btn' + (s.nelVideo ? '' : ' on-rosso'), title: 'Sottotitoli nel video sì / no', on: { click: () => store.edit('Sottotitoli nel video', (pp) => { pp.sottotitoli!.nelVideo = !pp.sottotitoli!.nelVideo; }) } }, icona('occhio', 13)),
+          h('button', { class: 'tt-btn', title: 'Una riga al cursore', on: { click: () => this.rigaSottAlCursore() } }, '+')));
+    };
     for (const t of p.tracks) {
-      if (prima && prima.kind !== 'audio' && t.kind === 'audio') cont.appendChild(h('div', { class: 'tl-sep', style: `height:${SEP}px` }));
+      if (prima && prima.kind !== 'audio' && t.kind === 'audio') {
+        if (this.conSott(p)) cont.appendChild(testataSott());
+        cont.appendChild(h('div', { class: 'tl-sep', style: `height:${SEP}px` }));
+      }
       prima = t;
       const accesa = modi.attive.has(t.id);
       const cambia = (label: string, fn: (tr: Track) => void) => store.edit(label, (pp) => fn(pp.tracks.find((x) => x.id === t.id)!));
@@ -467,6 +575,7 @@ export class Timeline {
       });
       cont.appendChild(riga);
     }
+    if (this.conSott(p) && !p.tracks.some((t) => t.kind === 'audio')) cont.appendChild(testataSott());
     this.testate.appendChild(h('div', { class: 'tl-testate-righello', style: `height:${RIGHELLO}px` },
       h('span', { class: 'tc-mini' }, frameToTc(Math.round(store.head), p.rate, p.drop))));
     this.testate.appendChild(cont);
@@ -525,6 +634,8 @@ export class Timeline {
         this.disegnaBlocco(ctx, p, c, t, y, hh, r, corsia.get(c.id)!, n);
       }
     }
+    // la riga dei sottotitoli
+    if (this.rigaSott) this.disegnaSott(ctx, p, W);
     // fantasma del trascinamento dal contenitore
     if (this.fantasma) {
       for (const g of this.fantasma) {
@@ -567,11 +678,11 @@ export class Timeline {
         ctx.fillRect(0, row.y, W, row.h);
         ctx.globalAlpha = 0.8;
         ctx.fillStyle = c1;
-        ctx.beginPath(); ctx.roundRect(x0, top, w, alt, 6); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(x0, top, w, alt, 2); ctx.fill();
         ctx.globalAlpha = 1;
         ctx.strokeStyle = '#fff';
         ctx.setLineDash([4, 3]);
-        ctx.beginPath(); ctx.roundRect(x0 + 0.5, top + 0.5, w - 1, alt - 1, 6); ctx.stroke();
+        ctx.beginPath(); ctx.roundRect(x0 + 0.5, top + 0.5, w - 1, alt - 1, 2); ctx.stroke();
         ctx.setLineDash([]);
         const sec = (g.len / r).toFixed(1).replace('.', ',').replace(',0', '');
         const dove = g.dove === 'taglio' ? ' · sul taglio' : g.dove === 'inizio' ? ' · all\'inizio della clip' : g.dove === 'fine' ? ' · alla fine della clip' : g.tipo === 'transizione' ? ' · qui non c\'è un taglio' : '';
@@ -684,7 +795,7 @@ export class Timeline {
     const tg = tr ? taglioDelBlocco(p, c) : null;
     const spento = tr && !tg;
     const [c1, c2] = COLORI[b.tipo];
-    const raggio = Math.min(6, alt / 2, w / 2);
+    const raggio = Math.min(2, alt / 2, w / 2);
     ctx.save();
     // l'ombra sotto stacca il blocchetto dalle miniature
     ctx.fillStyle = 'rgba(0,0,0,.45)';
@@ -716,7 +827,7 @@ export class Timeline {
     if (w > 22 && alt >= 10) {
       const sec = (c.len / r).toFixed(1).replace('.', ',').replace(',0', '');
       const testo = (tr ? '✦ ' : '⚡ ') + nomeBlocco(b) + (w > 90 ? ` · ${sec} s` : '') + (spento && w > 170 ? ' · mettilo su un taglio' : '');
-      ctx.font = `700 ${alt >= 18 ? 11 : 10}px Rajdhani, sans-serif`;
+      ctx.font = `700 ${alt >= 22 ? 12 : alt >= 16 ? 11 : 10}px Rajdhani, sans-serif`;
       ctx.textBaseline = 'middle';
       const tx = Math.max(x + 6, 4), ty = top + alt / 2 + 0.5;
       const max = (sp ? sp.x - 3 : x + w - 4) - tx;
@@ -739,6 +850,102 @@ export class Timeline {
       ctx.fillRect(x + w - 5, top + alt / 2 - 4, 3, 8);
     }
     ctx.lineWidth = 1;
+  }
+
+  /** la riga dei sottotitoli: un blocchetto per ogni riga col suo testo (tratteggiato se è ancora da scrivere) */
+  private disegnaSott(ctx: CanvasRenderingContext2D, p: Project, W: number) {
+    const { y, h: hh } = this.rigaSott!;
+    const s = p.sottotitoli!;
+    ctx.fillStyle = '#121a1f';
+    ctx.fillRect(0, y, W, hh);
+    ctx.fillStyle = 'rgba(255,255,255,.035)';
+    ctx.fillRect(0, y + hh - 1, W, 1);
+    const top = y + 3, alt = hh - 6;
+    ctx.font = '600 11.5px Rajdhani, sans-serif';
+    ctx.textBaseline = 'middle';
+    for (const r of s.righe) {
+      const x0 = this.fX(r.da), x1 = this.fX(r.a);
+      if (x1 < -2 || x0 > W + 2) continue;
+      const w = Math.max(2, x1 - x0);
+      const sel = this.selSott.has(r.id);
+      const qui = store.head >= r.da && store.head < r.a;
+      ctx.globalAlpha = s.nelVideo ? 1 : 0.55;
+      ctx.fillStyle = r.testo.trim() ? (qui ? '#3f7fa0' : '#2e5f78') : 'rgba(46,95,120,.35)';
+      ctx.beginPath(); ctx.roundRect(x0 + 0.5, top, w - 1, alt, 2); ctx.fill();
+      ctx.strokeStyle = sel ? '#ffd54a' : r.testo.trim() ? 'rgba(0,0,0,.55)' : 'rgba(140,200,230,.7)';
+      ctx.lineWidth = sel ? 2 : 1;
+      if (!r.testo.trim()) ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.roundRect(x0 + (sel ? 1 : 0.5), top + (sel ? 0.5 : 0), w - (sel ? 2 : 1), alt, 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+      if (w > 16) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(x0 + 2, top, w - 4, alt); ctx.clip();
+        ctx.fillStyle = r.testo.trim() ? '#eaf6ff' : 'rgba(200,230,245,.6)';
+        ctx.fillText(r.testo.trim() ? r.testo.replace(/\n/g, ' ⏎ ') : 'scrivi…', Math.max(x0 + 5, 3), top + alt / 2 + 0.5);
+        ctx.restore();
+      }
+      if (sel && w > 14) {
+        ctx.fillStyle = '#ffd54a';
+        ctx.fillRect(x0 + 2, top + alt / 2 - 4, 2, 8);
+        ctx.fillRect(x1 - 4, top + alt / 2 - 4, 2, 8);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** una riga di sottotitolo di 2,5 secondi al cursore (fino alla dopo, se è più vicina) */
+  rigaSottAlCursore() {
+    const p = store.doc;
+    const da = Math.round(store.head);
+    const righe = p.sottotitoli?.righe ?? [];
+    if (righe.some((x) => x.da <= da && da < x.a)) { avviso('Qui c\'è già una riga: doppio clic per scriverla', 'info', 1600); return; }
+    const dopo = righe.filter((x) => x.da > da).sort((a, b) => a.da - b.da)[0];
+    const a = Math.max(da + 2, Math.min(da + Math.round(fps(p.rate) * 2.5), dopo ? dopo.da : Infinity));
+    let id = '';
+    store.edit('Riga di sottotitolo', (pp) => {
+      pp.sottotitoli = { ...structuredClone(SOTTO0), ...(pp.sottotitoli ?? {}) };
+      const r = { id: 's' + Math.random().toString(36).slice(2, 9), da, a, testo: '' };
+      id = r.id;
+      pp.sottotitoli.righe.push(r);
+      pp.sottotitoli.righe.sort((x, y) => x.da - y.da);
+    });
+    this.selSott = new Set([id]);
+    void this.scriviSott(id);
+  }
+
+  /** scrivi o correggi il testo di una riga (Invio = a capo, cioè due righe insieme) */
+  async scriviSott(id: string) {
+    const r = store.doc.sottotitoli?.righe.find((x) => x.id === id);
+    if (!r) return;
+    const t = await chiedi('Sottotitolo', 'Il testo (può andare a capo)', r.testo, true);
+    if (t === null) return;
+    store.edit('Testo del sottotitolo', (pp) => { const z = pp.sottotitoli?.righe.find((x) => x.id === id); if (z) z.testo = t; });
+  }
+
+  /** tasto destro su una riga dei sottotitoli */
+  private menuSott(x: number, y: number, id: string | undefined, f: number) {
+    const p = store.doc;
+    const righe = (p.sottotitoli?.righe ?? []).slice().sort((a, b) => a.da - b.da);
+    const r = righe.find((z) => z.id === id);
+    const cambia = (label: string, fn: (s: NonNullable<Project['sottotitoli']>) => void) => store.edit(label, (pp) => { if (pp.sottotitoli) fn(pp.sottotitoli); });
+    const scelte = [...this.selSott].filter((z) => righe.some((x) => x.id === z));
+    const voci: VoceMenu[] = r ? [
+      { nome: 'Scrivi / correggi il testo…', tasto: 'doppio clic', fn: () => void this.scriviSott(r.id) },
+      { nome: scelte.length > 1 ? `Unisci le ${scelte.length} righe scelte (appaiono insieme)` : 'Unisci con la riga dopo (appaiono insieme)', disattiva: scelte.length < 2 && righe[righe.length - 1]?.id === r.id,
+        fn: () => { let rimasta: string | null = null; cambia('Unisci sottotitoli', (s) => { rimasta = unisciRighe(s, scelte.length > 1 ? scelte : [r.id]); }); if (rimasta) this.selSott = new Set([rimasta]); } },
+      { nome: 'Dividi qui', disattiva: !(f > r.da + 1 && f < r.a - 1), fn: () => cambia('Dividi sottotitolo', (s) => { dividiRiga(s, r.id, Math.round(f)); }) },
+      { sep: true },
+      { nome: '⇤ Inizia al cursore', fn: () => cambia('Inizio del sottotitolo', (s) => bordoRiga(s, r.id, 'da', store.head)) },
+      { nome: '⇥ Finisci al cursore', fn: () => cambia('Fine del sottotitolo', (s) => bordoRiga(s, r.id, 'a', store.head)) },
+      { nome: 'Allunga fino alla dopo', fn: () => cambia('Fine del sottotitolo', (s) => bordoRiga(s, r.id, 'a', limitiRiga(s, r.id)[1] === Infinity ? r.a + fps(p.rate) : limitiRiga(s, r.id)[1])) },
+      { sep: true },
+      { nome: 'Togli la riga', tasto: 'Canc', fn: () => cambia('Togli sottotitolo', (s) => { const via = new Set(scelte.length > 1 ? scelte : [r.id]); s.righe = s.righe.filter((z) => !via.has(z.id)); }) },
+    ] : [
+      { nome: 'Riga di sottotitolo al cursore', fn: () => this.rigaSottAlCursore() },
+    ];
+    voci.push({ sep: true }, { nome: 'Tutti i sottotitoli (pagina Finale)…', fn: () => document.dispatchEvent(new CustomEvent('dpv:sottotitoli')) });
+    menuContesto(x, y, voci);
   }
 
   /** l'altoparlante del suono dell'FX: pieno con le onde se acceso, spento con la croce */
@@ -1103,6 +1310,7 @@ export class Timeline {
       if (c.zona === 'righello') cur = 'col-resize';
       else if (c.zona === 'in' || c.zona === 'out') cur = e.shiftKey && c.taglio ? 'ew-resize' : c.zona === 'in' ? 'w-resize' : 'e-resize';
       else if (c.zona === 'fx' || c.zona === 'suono') cur = 'pointer';
+      else if (c.zona === 'sott') cur = !c.sott ? 'default' : c.sott.lato === 'corpo' ? 'move' : 'ew-resize';
       else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cur = 'ew-resize';
       else if (c.zona === 'volume') cur = 'ns-resize';
       else if (c.zona === 'punto') cur = 'grab';
@@ -1113,7 +1321,8 @@ export class Timeline {
         const db = c.zona === 'punto' ? cl.gainKeys[c.punto!].v : cl.gainKeys.length ? keyValue(cl.gainKeys, c.f - cl.start, cl.gain) : cl.gain;
         cv.title = `Volume ${db > 0 ? '+' : ''}${db} dB · trascina su/giù · doppio clic = un punto · Alt+clic sul punto = toglilo`;
       } else if (c.zona === 'fx') cv.title = 'Effetti al volo per questa clip';
-      else if (c.zona === 'suono') cv.title = `Suono dell'FX: ${suono(c.clip?.fxb?.suono)?.nome ?? ''} · clic = ${c.clip?.fxb?.audio ? 'spegnilo' : 'accendilo'} · tasto destro = scegli un altro suono`;
+      else if (c.zona === 'sott') cv.title = c.sott ? 'Sottotitolo: trascina per spostarlo, tira i bordi per i tempi, doppio clic per scrivere, Shift+clic per sceglierne altri, tasto destro per unire e dividere' : 'La riga dei sottotitoli: tasto destro per aggiungerne uno qui';
+      else if (c.zona === 'suono') cv.title = c.clip?.fxb?.suono ? `Suono dell'FX: ${suono(c.clip.fxb.suono)?.nome ?? ''} · clic = ${c.clip.fxb.audio ? 'spegnilo' : 'accendilo'} · tasto destro = scegli un altro suono` : 'Nessun suono · clic o tasto destro = scegline uno';
       else if (c.clip?.kind === 'fx' && c.zona === 'corpo') cv.title = `${nomeBlocco(c.clip.fxb!)}: trascinalo dove vuoi (si attacca al taglio, all'inizio o alla fine della clip) · allungalo dai bordi · tasto destro = durata, suono, modello`;
       else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cv.title = c.zona === 'fadeIn' ? 'Dissolvenza in entrata: trascina verso destra' : 'Dissolvenza in uscita: trascina verso sinistra';
       else cv.title = '';
@@ -1135,6 +1344,18 @@ export class Timeline {
       }
       if (e.button === 2) return;
       const c = this.colpo(x, y);
+      if (c.zona !== 'sott' && !e.shiftKey && this.selSott.size) { this.selSott.clear(); this.sporca(); }
+      if (c.zona === 'sott') {
+        if (!c.sott) { motore.setMonitor('recorder'); store.setHead(Math.max(0, Math.round(c.f))); this.selSott.clear(); this.sporca(); return; }
+        if (e.shiftKey) { if (this.selSott.has(c.sott.id)) this.selSott.delete(c.sott.id); else this.selSott.add(c.sott.id); }
+        else if (!this.selSott.has(c.sott.id)) this.selSott = new Set([c.sott.id]);
+        if (store.sel.size) store.select([]);
+        store.begin('Sottotitolo');
+        this.presa = { tipo: 'sott', id: c.sott.id, lato: c.sott.lato, x0: x, righe0: structuredClone(store.doc.sottotitoli!.righe), mosso: false };
+        try { cv.setPointerCapture(e.pointerId); } catch { /* ok */ }
+        this.sporca();
+        return;
+      }
       if (c.zona === 'righello' || (c.zona === 'vuoto' && e.pointerType === 'touch')) {
         motore.setMonitor('recorder');
         this.presa = { tipo: 'cursore' };
@@ -1145,7 +1366,8 @@ export class Timeline {
         this.menuEffetti(e.clientX, e.clientY, c.clip);
         return;
       } else if (c.clip && c.zona === 'suono') {
-        this.alternaSuono(c.clip.id);
+        if (c.clip.fxb?.suono) this.alternaSuono(c.clip.id);
+        else this.menuSuoni(e.clientX, e.clientY, c.clip);
         return;
       } else if (c.clip && (c.zona === 'fadeIn' || c.zona === 'fadeOut')) {
         if (trackOf(store.doc, c.clip.track).lock) return;
@@ -1171,6 +1393,8 @@ export class Timeline {
           if (store.sel.has(clip.id)) { for (const id of ids) store.sel.delete(id); store.emit('sel'); }
           else store.select(ids, true);
         } else if (!store.sel.has(clip.id)) store.select(e.altKey ? [clip.id] : M.withLinked(store.doc, [clip.id]));
+        // clic su una clip o su un FX: le sue impostazioni compaiono nel pannello a destra
+        document.dispatchEvent(new CustomEvent('dpv:proprieta'));
         store.focusTrack = clip.track;
         if (trackOf(store.doc, clip.track).lock) return;
         const base = structuredClone(store.doc.clips);
@@ -1238,7 +1462,7 @@ export class Timeline {
       if (q.tipo === 'sposta') store.commit(q.df !== 0 || q.dt !== 0);
       else if (q.tipo === 'trim' || q.tipo === 'roll' || q.tipo === 'slip') store.commit(q.d !== 0);
       else if (q.tipo === 'elastico') store.commit(true);
-      else if (q.tipo === 'volume' || q.tipo === 'fade') store.commit(q.mosso);
+      else if (q.tipo === 'volume' || q.tipo === 'fade' || q.tipo === 'sott') store.commit(q.mosso);
       else if (q.tipo === 'riquadro') this.selezionaRiquadro(q);
       this.sporca();
     };
@@ -1247,6 +1471,7 @@ export class Timeline {
     cv.addEventListener('dblclick', (e) => {
       const { x, y } = pos(e);
       const c = this.colpo(x, y);
+      if (c.zona === 'sott') { if (c.sott) void this.scriviSott(c.sott.id); else this.rigaSottAlCursore(); return; }
       if (c.clip && (c.zona === 'volume' || c.zona === 'punto')) {
         // doppio clic sulla linea: un punto nuovo (sul punto: lo toglie)
         const id = c.clip.id, lf = Math.round(c.f - c.clip.start), idx = c.punto;
@@ -1272,8 +1497,26 @@ export class Timeline {
       e.preventDefault();
       const { x, y } = pos(e);
       const c = this.colpo(x, y);
+      if (c.zona === 'sott') {
+        if (c.sott && !this.selSott.has(c.sott.id)) this.selSott = new Set([c.sott.id]);
+        if (!c.sott) { motore.vaiA(Math.max(0, Math.round(c.f))); }
+        this.sporca();
+        this.menuSott(e.clientX, e.clientY, c.sott?.id, c.f);
+        return;
+      }
       if (c.clip && !store.sel.has(c.clip.id)) store.select(M.withLinked(store.doc, [c.clip.id]));
+      // sull'altoparlante: dritto il menu dei suoni
+      if (c.clip && c.zona === 'suono') { this.menuSuoni(e.clientX, e.clientY, c.clip); return; }
       this.menu(e.clientX, e.clientY, c);
+    });
+    cv.addEventListener('keydown', (e) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selSott.size && !store.sel.size) {
+        e.preventDefault();
+        e.stopPropagation();
+        const via = new Set(this.selSott);
+        store.edit('Togli sottotitoli', (pp) => { if (pp.sottotitoli) pp.sottotitoli.righe = pp.sottotitoli.righe.filter((z) => !via.has(z.id)); });
+        this.selSott.clear();
+      }
     });
     cv.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -1340,6 +1583,30 @@ export class Timeline {
       return;
     }
     if (q.tipo === 'riquadro') { q.x1 = x; q.y1 = y; this.sporca(); return; }
+    if (q.tipo === 'sott') {
+      const s = p.sottotitoli;
+      if (!s) return;
+      let d = Math.round((x - q.x0) / this.ppf);
+      s.righe = structuredClone(q.righe0);
+      const r = s.righe.find((z) => z.id === q.id);
+      if (!r) return;
+      const [min, max] = limitiRiga(s, r.id);
+      if (q.lato === 'corpo') {
+        // col bordo che si aggancia ai tagli e al cursore
+        if (modi.snap) { const sa = this.aggancia(r.da + d, new Set()); if (this.snapLinea !== null) d = sa - r.da; else { const sb = this.aggancia(r.a + d, new Set()); if (this.snapLinea !== null) d = sb - r.a; } }
+        const len = r.a - r.da;
+        const da = Math.max(min, Math.min(max === Infinity ? Infinity : max - len, r.da + d));
+        r.da = Math.max(0, da); r.a = r.da + len;
+      } else {
+        let f = (q.lato === 'in' ? r.da : r.a) + d;
+        if (modi.snap) f = this.aggancia(f, new Set());
+        bordoRiga(s, r.id, q.lato === 'in' ? 'da' : 'a', f);
+        store.setHead(q.lato === 'in' ? r.da : Math.max(r.da, r.a - 1));
+      }
+      if (d) q.mosso = true;
+      store.liveChange();
+      return;
+    }
     if (q.tipo === 'sposta') {
       let df = Math.round((x - q.x0) / this.ppf);
       const moving = q.base.filter((c) => q.ids.has(c.id));
@@ -1810,6 +2077,34 @@ export class Timeline {
     menuContesto(x, y, voci);
   }
 
+  /** le voci dei suoni di un blocco: passandoci sopra si sentono, clic = quello */
+  private vociSuoni(b: Clip): VoceMenu[] {
+    const fb = b.fxb!;
+    const cambia = (label: string, fn: (c: Clip) => void) => store.edit(label, (pp) => fn(clipById(pp, b.id)!));
+    return [
+      { nome: fb.audio ? '🔇 Spegni il suono' : '🔊 Accendi il suono', disattiva: !fb.suono, fn: () => this.alternaSuono(b.id) },
+      { sep: true },
+      { nome: 'Nessun suono', spunta: !fb.suono, fn: () => cambia('Suono dell\'FX', (c) => { c.fxb!.suono = undefined; c.fxb!.audio = false; }) },
+      ...SUONI.map((x) => ({
+        nome: x.nome, spunta: fb.suono === x.id,
+        sopra: () => ascoltaSuono(x.id, fb.volume ?? 0),
+        fn: () => { cambia('Suono dell\'FX', (c) => { c.fxb!.suono = x.id; c.fxb!.audio = true; }); avviso(`🔊 ${x.nome} su ${nomeBlocco(fb)}`, 'tasto', 1000); },
+      })),
+      { sep: true },
+      ...([[-12, 'Piano (−12 dB)'], [-6, 'Medio (−6 dB)'], [0, 'Normale'], [4, 'Forte (+4 dB)']] as [number, string][]).map(([v, n]) => ({
+        nome: n, spunta: (fb.volume ?? 0) === v, disattiva: !fb.suono,
+        sopra: () => { if (fb.suono) ascoltaSuono(fb.suono, v); },
+        fn: () => cambia('Volume del suono', (c) => { c.fxb!.volume = v; c.fxb!.audio = true; }),
+      })),
+    ];
+  }
+
+  /** il menu piccolo dei suoni (tasto destro sull'altoparlante del blocco) */
+  menuSuoni(x: number, y: number, b: Clip) {
+    if (!store.sel.has(b.id)) store.select([b.id]);
+    menuContesto(x, y, this.vociSuoni(b));
+  }
+
   /** tasto destro su un blocchetto FX: durata, sul taglio, cambia, suono, colore, forza */
   private menuBlocco(x: number, y: number, b: Clip) {
     const p = store.doc;
@@ -1836,22 +2131,7 @@ export class Timeline {
             .map((v) => ({ nome: v.nome, spunta: fb.id === v.id, fn: () => cambiaBlocco('Cambia transizione', (c) => { c.fxb = cambiaModello(c.fxb!, v.id); c.name = nomeBlocco(c.fxb); }) }))
           : EFFETTI_TEMPO.map((e) => ({ nome: e.nome, spunta: fb.id === e.id, fn: () => cambiaBlocco('Cambia effetto', (c) => { c.fxb = cambiaModello(c.fxb!, e.id); c.name = e.nome; }) })),
       },
-      {
-        nome: 'Suono' + (fb.suono ? `: ${suono(fb.suono)?.nome ?? ''}${fb.audio ? '' : ' (spento)'}` : ''), sotto: [
-          { nome: fb.audio ? '🔇 Spegni il suono' : '🔊 Accendi il suono', disattiva: !fb.suono, fn: () => this.alternaSuono(b.id) },
-          { sep: true },
-          { nome: 'Nessun suono', spunta: !fb.suono, fn: () => cambiaBlocco('Suono dell\'FX', (c) => { c.fxb!.suono = undefined; c.fxb!.audio = false; }) },
-          ...SUONI.map((x) => ({
-            nome: x.nome, spunta: fb.suono === x.id,
-            fn: () => { cambiaBlocco('Suono dell\'FX', (c) => { c.fxb!.suono = x.id; c.fxb!.audio = true; }); ascoltaSuono(x.id, fb.volume ?? 0); },
-          })),
-          { sep: true },
-          ...[[-12, 'Piano (−12 dB)'], [-6, 'Medio (−6 dB)'], [0, 'Normale'], [4, 'Forte (+4 dB)']].map(([v, n]) => ({
-            nome: n as string, spunta: (fb.volume ?? 0) === v, disattiva: !fb.suono,
-            fn: () => { cambiaBlocco('Volume del suono', (c) => { c.fxb!.volume = v as number; c.fxb!.audio = true; }); ascoltaSuono(fb.suono!, v as number); },
-          })),
-        ],
-      },
+      { nome: 'Suono' + (fb.suono ? `: ${suono(fb.suono)?.nome ?? ''}${fb.audio ? '' : ' (spento)'}` : ''), sotto: this.vociSuoni(b) },
     ];
     if (usaColore) voci.push({ nome: 'Colore', sotto: colori.map(([n, col]) => ({ nome: n, spunta: fb.colore === col, fn: () => cambiaBlocco('Colore', (c) => { c.fxb!.colore = col; }) })) });
     if (!tr) voci.push({ nome: 'Forza', sotto: [0.35, 0.6, 1, 1.4].map((k) => ({ nome: Math.round(k * 100) + '%', spunta: Math.abs(fb.forza - k) < 0.01, fn: () => cambiaBlocco('Forza', (c) => { c.fxb!.forza = k; }) })) });

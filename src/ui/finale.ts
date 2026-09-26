@@ -6,7 +6,7 @@ import type { LookFinale, Master, Project, Sottotitoli } from '../core/tipi';
 import { MASTER0, TITLE0, end, isVideoClip, masterDi, newClip, projectEnd, trackOf, uid } from '../core/progetto';
 import * as M from '../core/montaggio';
 import { nuovoBlocco, posaBlocco } from '../core/blocchi';
-import { LINGUE, SOTTO0, creaSrt, leggiSrt, righeDaiDialoghi, sottotitoliDi } from '../core/sottotitoli';
+import { LINGUE, SOTTO0, bordoRiga, creaSrt, dividiRiga, leggiSrt, righeDaiDialoghi, sottotitoliDi, unisciRighe } from '../core/sottotitoli';
 import { MODELLI, fermaVoce, sottotitoliAI, type OpzioniVoce } from '../media/voce';
 import { salvaTesto } from '../platform';
 import { importaDialogo } from '../progetti';
@@ -235,10 +235,20 @@ export class Finale {
       });
       t.addEventListener('focus', () => { motore.setMonitor('recorder'); motore.vaiA(x.da + 1); });
       t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ((t.closest('.sott-riga')?.nextElementSibling as HTMLElement | null)?.querySelector('textarea') as HTMLTextAreaElement | null)?.focus(); } });
+      // i tempi a portata di dito: la trascrizione a volte sbaglia di poco, qui si aggiusta al volo
+      const tasto = (testo: string, title: string, fn: () => void) => h('button', { class: 'sott-t', title, on: { click: fn } }, testo);
+      const ultima = righe[righe.length - 1]?.id === x.id;
       return h('div', { class: 'sott-riga', 'data-id': x.id },
         h('button', { class: 'sott-tc', title: 'Vai qui', on: { click: () => { motore.setMonitor('recorder'); motore.vaiA(x.da); } } }, frameToTc(x.da, p.rate, p.drop), h('small', null, ((x.a - x.da) / r).toFixed(1).replace('.', ',') + ' s')),
         t,
-        h('button', { class: 'sott-via', title: 'Togli la riga', on: { click: () => this.cambiaSott('Togli riga', (s) => { s.righe = s.righe.filter((y) => y.id !== x.id); }) } }, '✕'));
+        h('div', { class: 'sott-tasti' },
+          tasto('⇤', 'Inizia al cursore', () => this.cambiaSott('Inizio del sottotitolo', (s) => bordoRiga(s, x.id, 'da', store.head))),
+          tasto('⇥', 'Finisci al cursore', () => this.cambiaSott('Fine del sottotitolo', (s) => bordoRiga(s, x.id, 'a', store.head))),
+          tasto('−', 'Un po\' prima (0,1 s)', () => this.cambiaSott('Sottotitolo prima', (s) => { const z = s.righe.find((y) => y.id === x.id)!; const d = Math.max(1, Math.round(r / 10)); bordoRiga(s, x.id, 'da', z.da - d); bordoRiga(s, x.id, 'a', z.a - d); })),
+          tasto('+', 'Un po\' dopo (0,1 s)', () => this.cambiaSott('Sottotitolo dopo', (s) => { const z = s.righe.find((y) => y.id === x.id)!; const d = Math.max(1, Math.round(r / 10)); bordoRiga(s, x.id, 'a', z.a + d); bordoRiga(s, x.id, 'da', z.da + d); })),
+          ultima ? null : tasto('⤓', 'Unisci con la riga dopo: appaiono insieme', () => this.cambiaSott('Unisci sottotitoli', (s) => { unisciRighe(s, [x.id]); })),
+          tasto('✂', 'Dividi al cursore', () => { if (!(store.head > x.da + 1 && store.head < x.a - 1)) { avviso('Porta il cursore dentro la riga (clic sul tempo per andarci)', 'info'); return; } this.cambiaSott('Dividi sottotitolo', (s) => { dividiRiga(s, x.id, Math.round(store.head)); }); }),
+          h('button', { class: 'sott-via', title: 'Togli la riga', on: { click: () => this.cambiaSott('Togli riga', (s) => { s.righe = s.righe.filter((y) => y.id !== x.id); }) } }, '✕')));
     }));
     this.segnaRigaCorrente();
   }

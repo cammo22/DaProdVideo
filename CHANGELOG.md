@@ -4,6 +4,48 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.6] — 2026-09-26 · LIVE: registri lo schermo, più timeline, effetti che si fondono 🔴
+
+### LIVE: la terza pagina, per registrare lo schermo
+- **In alto c'è LIVE**, accanto a MONTAGGIO e FINALE (o **F10**, o *Vista → LIVE*). Tre tasti e basta: **REGISTRA**, **PAUSA** (e riprendi), **FERMA**.
+- Scegli cosa registrare (tutto lo schermo, una finestra, una scheda) e parte. Il tempo va solo quando registri: le pause non finiscono nel video.
+- **Microfono** e **audio del computer** si accendono e spengono prima di partire; se il microfono non si apre registra lo stesso, senza.
+- Quando fermi, la registrazione **entra nel contenitore** e, se vuoi, **va in coda alla timeline** da sola. Sul computer il file resta anche in *Video → DaProd Video*.
+- La lista delle registrazioni di oggi: un clic e la riapri nel monitor.
+- Sul telefono (Android) registrare lo schermo non si può: la pagina te lo dice.
+
+### Più timeline nello stesso progetto
+- **Sopra la timeline ci sono le schede**: il **+** ne fa una nuova (o una copia di quella che hai), un clic passa dall'una all'altra.
+- Doppio clic per **rinominarla**, tasto destro per **duplicarla** o **eliminarla**. Il contenitore è uno solo per tutte.
+- Il trailer, la versione corta per i social, quella lunga: tutto nello stesso progetto. Ctrl+Z vale anche qui.
+
+### Gli effetti si sommano e si fondono
+- **Gli effetti della clip ora si sommano**: Vivace + Caldo + Vignetta + Pellicola stanno insieme e si fondono, invece di prendere il posto uno dell'altro. Ricliccando un effetto lo togli; "Azzera" li toglie tutti.
+- **Otto effetti nuovi sulla clip**: Pop, Contrasto forte, Cinema, Tramonto, Notte, Gelo, Sbiadito, Sogno (e tutti i look di prima, che ora si possono mescolare fra loro).
+- **Anche gli FX a blocchetti si fondono**: due o tre blocchi sullo stesso punto non si pestano i piedi, i lampi si sommano in luce, gli zoom si moltiplicano, le distorsioni si mettono una dentro l'altra. Ogni combinazione fa un effetto diverso.
+
+### Più effetti, più transizioni, più titoli
+- **💡 Luci**: Bagliore, Riflesso d'obiettivo, Luce che trema, Sovraesposto, Luce arcobaleno, Contorni neon, Sogno.
+- **🌀 Distorsioni**: Onda, Bolla, Vortice, Caleidoscopio, Aria calda, Zoom sfocato.
+- **Nove transizioni nuove**: Zoom sfocato, Frusta (whip pan), Rotazione, Lama di luce, Caleidoscopio, Aria calda, Tenda, Sovraesposta, Polvere. Quelle che fanno rumore hanno già il loro suono (da accendere).
+- **Sei titoli nuovi**, che si muovono da soli: **Neon** (si accende tremando), **Cinema** (lettere larghe che si avvicinano), **Macchina da scrivere** (una lettera alla volta, col cursore), **Rimbalzo**, **Social** (la fascia colorata che entra di lato), **Citazione**.
+
+### Gli FX: muti di partenza, più grandi, e le impostazioni a destra
+- **Gli FX nascono senza suono.** L'altoparlante sul blocco lo accende con un clic.
+- **Tasto destro sull'altoparlante** → si apre subito il **menu dei suoni**: **passaci sopra e li senti**, clic per sceglierlo (c'è anche "Nessun suono").
+- **I blocchetti sono più grandi e squadrati**: si prendono al volo, anche per allungarli dai bordi.
+- **Clic su un FX o su una clip → il pannello di destra si apre** con le sue impostazioni: effetto, forza, colore, suono e volume per gli FX; info, colore, audio ed effetti per le clip.
+- **📌 Il tasto per tenerlo sempre in vista**: il pannello di destra va a tutta altezza e resta lì (è la stessa cosa del tasto V). Chiuso, resta una linguetta "‹ Proprietà" sul bordo per riaprirlo.
+
+### I menu non vanno più sotto la barra di Windows
+- Il tasto destro vicino al fondo dello schermo **apre il menu verso l'alto**, e anche i sottomenu si spostano per restare dentro lo schermo (a destra, a sinistra, in basso).
+
+### Sottotitoli: si sistemano in timeline
+- **Fra le tracce video e quelle audio c'è la riga SOTT** (compare appena ci sono sottotitoli), coi sottotitoli come blocchetti: **trascinali** per spostarli, **tira i bordi** per i tempi, **doppio clic** per correggere il testo.
+- **Tasto destro**: **unisci** (con la riga dopo, o tutte quelle scelte con Shift+clic: appaiono insieme), **dividi qui**, **inizia/finisci al cursore**, **allunga fino alla dopo**, togli.
+- **Nella pagina Finale** ogni riga ha i suoi tasti: ⇤ inizia al cursore, ⇥ finisci al cursore, − e + per spostarla di un decimo, ⤓ unisci con la dopo, ✂ dividi, ✕ togli. Così la trascrizione dell'AI si aggiusta mentre guardi.
+- Dalla testata SOTT: occhio per mostrarli o no nel video, **+** per una riga nuova al cursore.
+
 ## [1.0.5] — 2026-09-25 · FX sopra le clip, coi loro suoni, e i sottotitoli che li scrive l'AI ✨
 
 ### Gli FX stanno sopra le clip (niente più corsia a parte)

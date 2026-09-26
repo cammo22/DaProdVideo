@@ -99,6 +99,8 @@ export interface VideoFx {
   vignette?: number;
   /** specchia in orizzontale */
   mirror?: boolean;
+  /** gli effetti al volo accesi sulla clip (vivace, caldo, b/n, vhs…): si sommano tutti (src/core/effettiClip.ts) */
+  effetti?: string[];
   /** zoom lento lungo la clip (Ken Burns): 0.15 = arriva al 115% */
   zoom?: number;
 }
@@ -135,8 +137,10 @@ export interface Transform {
 
 export interface TitleSpec {
   text: string;
-  /** 'fisso' | 'sottopancia' (lower third) | 'rullo' (scorre in su) | 'crawl' (scorre di lato) */
-  style: 'fisso' | 'sottopancia' | 'rullo' | 'crawl';
+  /** 'fisso' | 'sottopancia' (lower third) | 'rullo' (scorre in su) | 'crawl' (scorre di lato) · animati: 'neon'
+   *  (si accende tremando), 'cinema' (lettere larghe che si avvicinano), 'macchina' (da scrivere, lettera per
+   *  lettera), 'rimbalzo' (entra con un salto), 'social' (fascia colorata che entra di lato), 'citazione' */
+  style: 'fisso' | 'sottopancia' | 'rullo' | 'crawl' | 'neon' | 'cinema' | 'macchina' | 'rimbalzo' | 'social' | 'citazione';
   font: string;
   size: number;
   color: string;
@@ -146,6 +150,8 @@ export interface TitleSpec {
   boxColor: string;
   align: 'left' | 'center' | 'right';
   y: number;
+  /** solo per disegnare la macchina da scrivere: il testo intero (per la misura e il cursore) */
+  intero?: string;
 }
 
 export interface GenSpec {
@@ -305,8 +311,24 @@ export interface Project {
   master?: Master;
   /** i sottotitoli (pagina Finale) */
   sottotitoli?: Sottotitoli;
+  /** le timeline del progetto (src/core/sequenze.ts): quella aperta vive nei campi qui sopra, le altre qui dentro */
+  sequenze?: Sequenza[];
+  /** l'id della timeline aperta */
+  seqAttiva?: string;
   created: number;
   saved: number;
+}
+
+/** una timeline del progetto: tracce, clip, marcatori, attacco/stacco e sottotitoli (i media sono di tutti) */
+export interface Sequenza {
+  id: string;
+  nome: string;
+  tracks?: Track[];
+  clips?: Clip[];
+  markers?: Marker[];
+  inF?: number | null;
+  outF?: number | null;
+  sottotitoli?: Sottotitoli;
 }
 
 export const FORMATI = [
