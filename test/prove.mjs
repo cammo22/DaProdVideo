@@ -896,7 +896,10 @@ try {
     // LIVE: registra (con uno schermo finto), pausa, riprendi, ferma: finisce nel contenitore e in fondo alla timeline
     await page.evaluate(() => {
       window.__dpvTest.LV.impostaSorgenteLive(async () => {
-        const c = document.createElement('canvas'); c.width = 640; c.height = 360;
+        // la tela sta nella pagina (piccola in un angolo): staccata, Chromium smette presto di darne i fotogrammi
+        const c = document.createElement('canvas'); c.width = 640; c.height = 360; c.className = 'tela-live-prova';
+        c.style.cssText = 'position:fixed;left:0;top:0;width:64px;height:36px;z-index:9999;pointer-events:none';
+        document.body.append(c);
         const x = c.getContext('2d'); let n = 0;
         window.__giroLive = setInterval(() => { n++; x.fillStyle = `hsl(${n * 4 % 360} 70% 45%)`; x.fillRect(0, 0, 640, 360); }, 33);
         return c.captureStream(30);
@@ -914,11 +917,17 @@ try {
     await page.waitForTimeout(900);
     await page.click('.live-btn.ferma');
     await page.evaluate(() => window.__dpvTest.ui().live.ultima);
-    await page.evaluate(() => clearInterval(window.__giroLive));
+    await page.evaluate(() => { clearInterval(window.__giroLive); document.querySelector('.tela-live-prova')?.remove(); });
     dd = await doc();
-    const reg = dd.media.slice(nm).find((m) => m.name.startsWith('Registrazione'));
+    const regs = dd.media.slice(nm).filter((m) => m.name.startsWith('Registrazione'));
+    const reg = regs[0];
+    // quanto ha registrato l'app (pause escluse): il file deve durare quello, non quello più la pausa (~0,9 s)
+    const registrato = await page.evaluate(() => window.__dpvTest.ui().live.durataUltima / 1000);
+    const tracce = reg && await page.evaluate(async (id) => { const r = window.__dpvTest.mediaRT(id); return { v: await r.v.computeDuration(), a: r.a ? await r.a.computeDuration() : 0 }; }, reg.id);
     const inTl = reg && dd.clips.some((c) => c.media === reg.id && c.start === fineP);
-    prova('LIVE: registra, pausa (senza buchi), ferma: nel contenitore e in fondo alla timeline', inPausa && !!reg && reg.duration > 1.8 && reg.duration < 3.6 && reg.hasAudio && inTl, JSON.stringify({ reg: reg && [reg.name, reg.duration, reg.hasAudio], fineP, inTl }));
+    prova('LIVE: registra, pausa (senza buchi), ferma: un file solo, nel contenitore e in fondo alla timeline',
+      inPausa && regs.length === 1 && Math.abs(reg.duration - registrato) < 0.5 && tracce.v > reg.duration - 0.5 && reg.hasAudio && inTl,
+      JSON.stringify({ reg: regs.map((m) => [m.name, m.duration, m.hasAudio]), registrato, tracce, fineP, inTl }));
     await page.click('.pagina-btn[data-p=montaggio]');
     await page.waitForTimeout(300);
   }

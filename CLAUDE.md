@@ -30,9 +30,9 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   attacco/stacco, sottotitoli) così tutto il resto non cambia; le altre aspettano in `p.sequenze`. Schede sopra la
   timeline. I sottotitoli hanno la loro riga **SOTT** fra video e audio (sposta, bordi, unisci, dividi:
   `src/core/sottotitoli.ts`).
-- **LIVE** (`src/ui/live.ts`, F10): `getDisplayMedia` + microfono, `MediaRecorder` con pausa, Mediabunny rimette in
-  ordine il file e l'app lo salva in Video/DaProd Video (`registrazione_percorso` in `lib.rs`; permessi del Mac in
-  `src-tauri/Info.plist`). Nelle prove la sorgente è una tela finta (`impostaSorgenteLive`).
+- **LIVE** (`src/ui/live.ts`, F10): `getDisplayMedia` + microfono, `MediaRecorder` a pezzi (la PAUSA chiude un pezzo:
+  non ci si fida della pausa del browser, alcuni lasciano il buco), Mediabunny cuce i pezzi in un file solo e
+  l'app lo salva in Video/DaProd Video (`registrazione_percorso` in `lib.rs`; permessi del Mac in `src-tauri/Info.plist`). Nelle prove la sorgente è una tela finta (`impostaSorgenteLive`).
 - Si parte con **2 tracce video e 2 audio**. **Alt+Shift+trascina** = la clip e tutto quello dopo, su tutte le tracce.
   **V** = timeline stretta (la colonna di destra scende fino in fondo).
 - **Sottotitoli AI**: Whisper via transformers.js in `src/media/voce.worker.ts` (libreria dalla CDN, modello da
