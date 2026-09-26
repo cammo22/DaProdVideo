@@ -1,0 +1,1 @@
+import{c as e}from"./window-mNTNlBf7.js";export{e as getCurrentWindow};
