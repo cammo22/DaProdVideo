@@ -675,6 +675,8 @@ button svg { pointer-events: none; }
 .stretto .jog { width: 38px; height: 38px; }
 .stretto .mon-segni { display: none; }
 .stretto .mon-comandi { grid-template-columns: auto minmax(0, 1fr) auto; }
+/* sul telefono il trasporto tiene l'essenziale: fotogramma e play (lo shuttle lo fa la manopola accanto) */
+.stretto .mon-trasporto .estremo, .stretto .mon-trasporto .loop, .stretto .mon-trasporto .shuttle { display: none; }
 .stretto .tasto-num { width: 54px; height: 44px; }
 @media (pointer: coarse) {
   .tasto-trasporto { width: 38px; height: 34px; }

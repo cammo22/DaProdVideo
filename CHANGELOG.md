@@ -4,6 +4,63 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.0.7] — 2026-09-27 · Il pacchetto .daprod, LIVE con la webcam, il contenitore a cartelle e le dissolvenze che hanno una forma 📦
+
+### Il pacchetto .daprod: il progetto con dentro tutti i suoi file
+- **File → Salva il pacchetto .daprod (con tutti i file)**: il montaggio e tutti i video, le musiche e le immagini in **un file solo**. Lo porti su un altro computer, lo apri con DaProd Video (doppio clic o File → Apri) e ritrovi **tutto identico**.
+- È uno **zip vero** (si apre anche con 7-Zip o Esplora risorse): dentro c'è `progetto.json`, la cartella `media/` e un LEGGIMI. I file entrano **così come sono**, senza perdere qualità, e DaProd li legge direttamente da dentro, senza scompattare niente. Funziona anche oltre i 4 GB.
+- Si può mettere **solo quello che usi nel montaggio** (il contenitore si alleggerisce). Barra di avanzamento e tasto Annulla.
+- **Cos'è il .dpv?** È il progetto "leggero" di DaProd Video (**D**a**P**rod **V**ideo): tiene il montaggio ma **non i file**, che restano dove sono sul tuo computer. Va bene per lavorare ogni giorno; il .daprod è per portarsi via tutto.
+
+### LIVE: webcam, conto alla rovescia, segni, telecomando
+- **La webcam**: accendila e la vedi subito nell'anteprima. Si registra **in un file suo** e finisce **sulla traccia sopra lo schermo**, come **bolla tonda** o **riquadro**, nell'angolo che scegli (↘ ↙ ↗ ↖). Dopo la sposti, la ingrandisci o la togli come una clip qualsiasi.
+- **3-2-1 prima di partire**, grande sull'anteprima col suo bip (si spegne se non lo vuoi).
+- **Tasti**: **R** registra, **Spazio** pausa e riprendi, **M** mette un **segno** (in timeline diventa un marcatore rosso: così ritrovi i punti importanti), **F** ferma.
+- **Telecomando**: una barretta **sempre sopra le altre finestre** col tempo, pausa, segno e ferma. Registri un altro programma e comandi da lì (nel browser Chrome/Edge è una finestrella, nell'app la finestra diventa piccola e poi torna com'era).
+- **Il VU del microfono** a LED (clic per provarlo prima di partire) e la **scelta di microfono e webcam** se ne hai più d'uno.
+- **Qualità**: 720p, 1080p, 1440p o 4K, **30 o 60 fps**, cursore del mouse sì o no.
+- **Stile presentazione**: lo schermo un po' più piccolo, **angoli tondi e ombra**, sopra uno **sfondo sfumato** (Notte, Tramonto, Mare, Prato, Carta, DaProd). Lo vedi già nell'anteprima mentre registri.
+- Le registrazioni vanno nella **cartella Registrazioni** del contenitore e nella lista di LIVE **con la miniatura**. Schermo, audio, webcam e sfondo sono **legati**: si spostano insieme.
+- Col pannello di destra fissato (📌) la pagina LIVE non si rompe più.
+
+### Il contenitore come un esplora risorse
+- **A sinistra l'albero**, a destra quello che c'è dentro: Tutti i file, Video, Musica, Immagini, **le tue cartelle** (anche una dentro l'altra) e la libreria con Transizioni, Titoli ed Effetti, ognuno coi suoi gruppi.
+- **Le cartelle**: *Nuova cartella*, rinomina, elimina (i file non si cancellano: salgono di un piano). I file ci si **trascinano** dentro, o col tasto destro → *Sposta in*.
+- **Importa dritto dove sei**: dentro una cartella il file entra lì; da **Video**, **Musica** o **Immagini** la finestra mostra solo quei file.
+- Le schede si fanno **piccole, medie o grandi** col tasto in alto a destra.
+
+### Transizioni ed effetti: più compatti, con le anteprime vere
+- **Le anteprime usano il tuo montaggio**: passa col mouse su una transizione e la vedi fatta **fra il fotogramma dove sta il cursore e quello dopo il taglio**. Lo stesso per gli effetti FX e i titoli.
+- **Via le scritte**: in alto restano solo **Durata** (Auto, 0,5 s … 10 s), **Forza** (50%, 100%, 150%) e **Suono** (acceso o muto). Valgono per tutto quello che posi.
+- Gli effetti sono in gruppi (Rapidi, Lunghi, Luci, Distorsioni, Stile della clip, Audio), come le transizioni (Dissolvenze, Movimento, 3D e forme, Luce, Stile, Tendine SMPTE).
+
+### Titoli e countdown
+- **Il countdown arriva a 1** e poi finisce (prima si fermava a 2), **col bip a ogni numero**.
+- **Quattro countdown**: Pellicola (5), Moderno (5), Neon (3), Minimal (10).
+- **I titoli pronti** in due gruppi: *Titoli* (Titolo, Cinema, Neon, Rimbalzo, Macchina da scrivere, Citazione) e *TV e social* (Sottopancia, Social, Crawl, Rullo titoli). Il crawl e il rullo nascono già lunghi quanto serve.
+
+### Le dissolvenze hanno una forma (audio e video)
+- **Trascina la linea della dissolvenza in su o in giù** e cambia forma: **analogica** (parte piano piano, come un fader vero), **morbida**, **veloce**, **a S**. La linea diventa dorata quando è curva; **doppio clic** la raddrizza.
+- **Tasto destro sul quadratino della dissolvenza**: le forme pronte e le durate (0,5, 1, 2, 4 secondi), o *Togli*.
+- Vale uguale nel monitor e nell'export, anche per la trasparenza delle clip video.
+
+### Timeline e schermo intero
+- **A schermo pieno le tracce crescono** con lo spazio: niente più timeline minuscola sui monitor grandi.
+- **Ctrl+Shift+rotella** (o *Vista → Tracce più alte / più basse*) per alzarle o abbassarle quanto vuoi; *Adatta* le rimette.
+- **Nell'app, Ctrl + e Ctrl −** ingrandiscono **tutta l'interfaccia** (*Vista → Grandezza dell'interfaccia*, Ctrl 0 torna al 100%).
+- **Il riquadro di selezione prende anche i sottotitoli**: più righe insieme, da spostare o togliere in un colpo (Canc).
+
+### Monitor e pulsantiera più puliti
+- **Il tasto play col clic funziona** (prima andava solo lo Spazio).
+- Il monitor ha **una riga sola** di comandi: più spazio all'immagine, meno grigio intorno.
+- **IN e OUT si vedono solo quando ci sono**, con la **✕ per toglierli** (o **Alt+X**).
+- Via **INS, SOVR, LIFT, EXTRACT, REVIEW** e i tasti IN/OUT dalla pulsantiera (i tasti rapidi restano).
+- **ELASTICO ora si chiama TRASPARENZA** (tasto **B**): acceso, sui video compare la linea gialla della trasparenza; clic per mettere un punto e tiralo giù per far sparire e riapparire la clip piano piano, a mano (come il volume sull'audio).
+
+### Clip: angoli tondi, ombra, sfondi sfumati
+- Nelle proprietà della clip: **Bolla ↘**, **Presentazione**, e i cursori **Angoli tondi** e **Ombra**.
+- Il **colore pieno** può **sfumare** verso un secondo colore, con gli sfondi pronti.
+
 ## [1.0.6] — 2026-09-26 · LIVE: registri lo schermo, più timeline, effetti che si fondono 🔴
 
 ### LIVE: la terza pagina, per registrare lo schermo

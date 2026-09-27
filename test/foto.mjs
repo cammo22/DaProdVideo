@@ -39,6 +39,14 @@ async function scatta(nome, viewport, extra = {}) {
     await p.mouse.move(fx.x + fx.width / 2, fx.y + fx.height / 2);
     await p.waitForTimeout(500);
     await p.locator('.contenitore').screenshot({ path: path.join(OUT, nome + '-contenitore.png') });
+    // le transizioni: col mouse sopra al cubo, l'anteprima coi fotogrammi veri del cursore
+    await p.click('.bin-cat[data-c=transizioni]');
+    await p.waitForTimeout(400);
+    const tr = p.locator('.carta.tr[data-tr="dve:401"]').first();
+    if (await tr.count()) { await tr.scrollIntoViewIfNeeded(); await tr.hover(); } else await p.locator('.carta.tr').first().hover();
+    await p.waitForTimeout(1300);
+    await p.locator('.contenitore').screenshot({ path: path.join(OUT, nome + '-transizioni.png') });
+    await p.mouse.move(5, 5);
     await p.click('.bin-cat[data-c=tutto]');
     // la pagina Finale: il look Cinema, un sottotitolo e il menu a destra
     await p.evaluate(() => { window.__motore.vaiA(210); window.__dpv.select([]); });
@@ -90,17 +98,51 @@ async function scatta(nome, viewport, extra = {}) {
           x.fillStyle = '#ff4d6d'; x.beginPath(); x.arc(900 + Math.sin(n / 10) * 120, 420 + Math.cos(n / 13) * 80, 18, 0, 7); x.fill();
         }, 33);
         return c.captureStream(30);
-      }, async () => { const ctx = new AudioContext(); const d = ctx.createMediaStreamDestination(); return d.stream; });
+      }, async () => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const g = ctx.createGain(); g.gain.value = 0.3; const d = ctx.createMediaStreamDestination(); o.connect(g).connect(d); o.start(); return d.stream; },
+      async () => {
+        // la webcam finta: una faccina che respira
+        const c = document.createElement('canvas'); c.width = 640; c.height = 360;
+        c.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01';
+        document.body.append(c);
+        const x = c.getContext('2d'); let n = 0;
+        setInterval(() => {
+          n++;
+          const g = x.createLinearGradient(0, 0, 0, 360); g.addColorStop(0, '#3d6f8f'); g.addColorStop(1, '#1d3446');
+          x.fillStyle = g; x.fillRect(0, 0, 640, 360);
+          const y = 190 + Math.sin(n / 12) * 5;
+          x.fillStyle = '#2a2230'; x.beginPath(); x.ellipse(320, 420, 170, 120, 0, 0, 7); x.fill();
+          x.fillStyle = '#f0c29a'; x.beginPath(); x.arc(320, y - 20, 88, 0, 7); x.fill();
+          x.fillStyle = '#3a2418'; x.beginPath(); x.arc(320, y - 60, 90, Math.PI, 0); x.fill();
+          x.fillStyle = '#222'; x.beginPath(); x.arc(290, y - 22, 8, 0, 7); x.arc(350, y - 22, 8, 0, 7); x.fill();
+          x.strokeStyle = '#8a3b2a'; x.lineWidth = 5; x.beginPath(); x.arc(320, y + 10, 26, 0.2, Math.PI - 0.2); x.stroke();
+        }, 40);
+        return c.captureStream(25);
+      });
     });
     await p.click('.pagina-btn[data-p=live]');
+    await p.click('.live .fin-interruttore:has-text("Webcam")');
+    await p.click('.live .fin-interruttore:has-text("Stile presentazione")');
+    await p.click('.live-sfondo[title=Tramonto]');
+    await p.evaluate(() => { document.querySelector('.live-comandi').scrollTop = 0; });
     await p.click('.live-btn.reg');
-    await p.waitForTimeout(3300);
+    await p.waitForTimeout(1300);
     await p.mouse.move(5, 5);
+    await p.screenshot({ path: path.join(OUT, nome + '-live-conto.png') });
+    await p.waitForTimeout(3000);
+    await p.keyboard.press('m');
+    await p.waitForTimeout(500);
     await p.screenshot({ path: path.join(OUT, nome + '-live.png') });
     await p.click('.live-btn.ferma');
     await p.evaluate(() => window.__dpvTest.ui().live.ultima);
-    await p.click('.pagina-btn[data-p=montaggio]');
     await p.waitForTimeout(600);
+    await p.screenshot({ path: path.join(OUT, nome + '-live-fatto.png') });
+    await p.click('.pagina-btn[data-p=montaggio]');
+    // la registrazione in timeline: sfondo, schermo con gli angoli tondi, la bolla della webcam
+    await p.evaluate(() => { const d = window.__dpv.doc; const c = d.clips.find((x) => x.kind === 'color' && x.name.startsWith('Sfondo')); if (c) { window.__motore.vaiA(c.start + Math.floor(c.len / 2)); window.__dpv.select([]); } });
+    await p.waitForTimeout(3000);
+    await p.locator('.monitor .schermo').screenshot({ path: path.join(OUT, nome + '-live-montaggio.png') });
+    await p.screenshot({ path: path.join(OUT, nome + '-live-timeline.png') });
+    await p.waitForTimeout(300);
     // le novità della versione
     await p.click('.voce-menu:has-text("Aiuto")');
     await p.click('.tendina .voce:has-text("Novità della")');
