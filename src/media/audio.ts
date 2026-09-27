@@ -243,7 +243,9 @@ class Banco {
   /** secondi di timeline adesso (l'orologio è quello della scheda audio: il video lo segue) */
   ora(): number {
     if (!this.ctx || !this.attivo) return this.startSec;
-    return this.startSec + (this.ctx.currentTime - this.t0);
+    // nei primi 60 ms (prima che il suono parta davvero) l'orologio sta fermo sul punto di partenza: se tornasse
+    // indietro anche di un fotogramma, il flusso video già scaldato si butterebbe e ripartirebbe dal fotogramma chiave
+    return this.startSec + Math.max(0, this.ctx.currentTime - this.t0);
   }
 
   get suonando() { return this.attivo; }

@@ -17,6 +17,8 @@ const CODA = 5;
 const conti = { flussi: 0 };
 
 interface Lettore { vs: VideoSampleSink; ps: EncodedPacketSink }
+/** il cursore di una ricerca passato a un flusso: il fotogramma che si vede, quello dopo e il decoder già in posizione */
+interface Cursore { iter: AsyncGenerator<VideoSample, void, unknown>; current: VideoSample; dopo: VideoSample | null }
 
 class Flusso {
   queue: VideoSample[] = [];
@@ -33,9 +35,16 @@ class Flusso {
   private pumping = false;
   private controllo = 0;
 
-  constructor(private l: Lettore, public from: number) {
+  constructor(private l: Lettore, public from: number, cursore?: Cursore | null) {
     conti.flussi++;
-    this.iter = l.vs.samples(Math.max(0, from));
+    if (cursore) {
+      // si riparte da dove la ricerca si è fermata: con i fotogrammi chiave radi (le registrazioni LIVE) si
+      // risparmia di ridecodificare tutto dal fotogramma chiave, e il play parte subito
+      this.iter = cursore.iter;
+      this.current = cursore.current;
+      if (cursore.dopo) this.queue.push(cursore.dopo);
+      this.partito = true;
+    } else this.iter = l.vs.samples(Math.max(0, from));
     void this.pump();
   }
 
@@ -106,6 +115,8 @@ const copre = (c: VideoSample | null, t: number) => !!c && c.timestamp <= t + 1e
 class Ricerca {
   current: VideoSample | null = null;
   want: number | null = null;
+  /** il punto a cui sta decodificando adesso */
+  verso: number | null = null;
   busy = false;
   dead = false;
   lastUse = performance.now();
@@ -125,6 +136,19 @@ class Ricerca {
   }
 
   copre(t: number) { return copre(this.current, t); }
+
+  /** sta ancora decodificando verso un punto poco prima di t: conviene aspettarla invece di ripartire dal fotogramma chiave */
+  arrivaA(t: number) { return this.busy && this.verso !== null && this.verso <= t + 0.05 && t - this.verso < 3; }
+
+  /** passa il cursore a un flusso che parte da t (il play da dove si è fermi), se è lì o poco prima e non sta lavorando */
+  cedi(t: number): Cursore | null {
+    const c0 = this.current;
+    if (this.busy || this.dead || !this.iter || !c0 || c0.timestamp > t + 1e-4 || t - c0.timestamp > 3) return null;
+    const c: Cursore = { iter: this.iter, current: c0.clone(), dopo: this.dopo };
+    this.iter = null;
+    this.dopo = null;
+    return c;
+  }
 
   /** chiude il cursore (libera il decoder) ma tiene il fotogramma mostrato */
   riposa() {
@@ -149,6 +173,7 @@ class Ricerca {
     while (this.want !== null && !this.dead) {
       const t = this.want;
       this.want = null;
+      this.verso = t;
       try {
         const c = this.current;
         const avanti = !!this.iter && !!c && t >= c.timestamp && t - c.timestamp < 3;
@@ -172,6 +197,7 @@ class Ricerca {
       }
       if (!this.dead) avvisa();
     }
+    this.verso = null;
     this.busy = false;
   }
 
@@ -226,8 +252,20 @@ function ricerca(k: string, l: Lettore): Ricerca {
   return rc;
 }
 
+/**
+ * Un flusso nuovo da t. Se la ricerca della stessa voce è già lì (il play da fermo) prende il suo cursore; se ci sta
+ * ancora arrivando si aspetta lei (null): ripartire dal fotogramma chiave vorrebbe dire rifare lo stesso lavoro due volte.
+ */
+function nuovoFlusso(k: string, l: Lettore, t: number): Flusso | null {
+  const rc = ricerche.get(k);
+  if (rc?.arrivaA(t)) return null;
+  const f = new Flusso(l, t, rc?.cedi(t));
+  flussi.set(k, f);
+  return f;
+}
+
 /** il flusso della voce k: nuovo se non c'è, se si è tornati indietro o se conviene ripartire più avanti */
-function flussoDi(k: string, l: Lettore, t: number): Flusso {
+function flussoDi(k: string, l: Lettore, t: number): Flusso | null {
   let f = flussi.get(k);
   if (f) {
     const indietro = t < f.from - 0.05 || (!!f.current && t < f.current.timestamp - 0.05);
@@ -237,8 +275,7 @@ function flussoDi(k: string, l: Lettore, t: number): Flusso {
     // ricomincia di continuo e si butta via la decodifica già fatta)
     else if (f.partito && f.ahead(t) < -0.6) f.valuta(t);
   }
-  if (!f) { f = new Flusso(l, t); flussi.set(k, f); }
-  return f;
+  return f ?? nuovoFlusso(k, l, t);
 }
 
 /**
@@ -258,10 +295,10 @@ export function fotogramma(key: string, mediaId: string, t: number, flusso: bool
   const k = base + q;
   if (flusso) {
     const f = flussoDi(k, l, t);
-    const s = f.at(t);
+    const s = f?.at(t);
     if (s) return s;
     // mentre il flusso parte si mostra quello che la ricerca aveva già (di una qualità o dell'altra)
-    return ricerche.get(k)?.current ?? ricerche.get(base + (q === 'p' ? 'o' : 'p'))?.current ?? f.current;
+    return ricerche.get(k)?.current ?? ricerche.get(base + (q === 'p' ? 'o' : 'p'))?.current ?? f?.current ?? null;
   }
   const fl = flussi.get(k);
   const veloce = ricerca(k, l).at(t);
@@ -307,7 +344,8 @@ export function prepara(key: string, mediaId: string, t: number) {
   const f = flussi.get(k);
   if (f && Math.abs(f.from - t) < 0.5 && !f.dead) { f.lastUse = performance.now(); return; }
   f?.close();
-  flussi.set(k, new Flusso(l, t));
+  flussi.delete(k);
+  nuovoFlusso(k, l, t);
 }
 
 /** chiude i flussi non usati da un po' (libera i decoder e la memoria video) */

@@ -4,6 +4,17 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.1] — 2026-09-27 · Il play parte subito anche sulle registrazioni lunghe ▶
+
+> 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).
+
+### Riproduzione
+- **Play da metà di una registrazione LIVE** (o di una ripresa con i fotogrammi chiave radi): parte subito da dove sei
+  fermo, senza rifare da capo il lavoro che il monitor aveva già fatto per mostrarti quel fotogramma.
+- Sistemato un difetto che al play buttava via il video già pronto: nei primi 60 ms l'orologio dell'audio tornava
+  indietro di un soffio, e il video ripartiva dal fotogramma chiave (su quelle riprese: partenza lenta e immagine
+  che saltava).
+
 ## [1.1.0] — 2026-09-27 · Sposti e ingrandisci sull'immagine, le cose si muovono, le transizioni si sommano 🎯
 
 > 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).

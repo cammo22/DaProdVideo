@@ -298,7 +298,8 @@ try {
     prova('a metà del cubo il Recorder mostra le due facce', lum > 8, lum.toFixed(1));
     await page.locator('.gen-voce', { hasText: '121 · Cuore' }).click();
     dd = await doc();
-    prova('clic su "Cuore": diventa una tendina 121', bloccoSul(dd, taglio2.start)?.fxb.tr.pattern === 121 && bloccoSul(dd, taglio2.start)?.fxb.tr.type === 'wipe');
+    const sul2 = dd.clips.filter((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= taglio2.start && c.start + c.len >= taglio2.start);
+    prova('clic su "Cuore": la tendina 121 si somma al cubo sullo stesso taglio', sul2.some((c) => c.fxb.tr.pattern === 121 && c.fxb.tr.type === 'wipe') && sul2.some((c) => c.fxb.tr.pattern === 401), JSON.stringify(sul2.map((c) => c.fxb.id)));
     await page.locator('.gen-voce', { hasText: 'Mosaico' }).click();
     const edl2 = await page.evaluate(() => window.__dpvTest.creaEdl(window.__dpv.doc));
     prova('la EDL annota l\'effetto digitale', edl2.includes('* EFFETTO: Mosaico'));
@@ -1205,8 +1206,11 @@ try {
       const testa = window.__dpv.head;
       const inizio = performance.now();
       m.play(1);
+      // il play aspetta i decoder al massimo 0,9 s (poi parte comunque); nel banco di prova appena importato il
+      // proxy si sta facendo e il disegno è lento, quindi si danno 2 s. Quello che conta è che poi il video si
+      // muova senza ripartire (nati): prima l'orologio tornava indietro di 60 ms e il flusso si buttava
       const partito = await new Promise((ok) => {
-        const scade = setTimeout(() => ok(false), 1200);
+        const scade = setTimeout(() => ok(false), 2000);
         const controlla = () => {
           if (window.__dpv.head > testa) { clearTimeout(scade); ok(true); }
           else requestAnimationFrame(controlla);
@@ -1226,7 +1230,7 @@ try {
       };
     }, da);
     const a = await suona(250);
-    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.partito && a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
+    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove (senza ripartire dal fotogramma chiave)', a.partito && a.diversi >= 4 && a.nati <= 2, JSON.stringify(a));
     const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
     prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
