@@ -8,7 +8,7 @@ import { ALTEZZA, MASTER0, newProject } from './core/progetto';
 import { migraBlocchi } from './core/blocchi';
 import { apri as apriMedia, chiudi as chiudiMedia, importa, mediaRT } from './media/libreria';
 import { dimenticaMedia } from './media/fotogrammi';
-import { dialogoApri, invoke, isTauri, nomeDaPercorso, salvaTesto, scegliFileBrowser, scegliMedia, type FileScelto } from './platform';
+import { dialogoApri, ESTENSIONI_DI, invoke, isTauri, nomeDaPercorso, salvaTesto, scegliFileBrowser, scegliMedia, type FileScelto, type TipoMedia } from './platform';
 import { leggiPacchetto, pianoPacchetto, scriviPacchetto, type Sorgente } from './pacchetto';
 import { avviso, conferma, dialogo, h } from './ui/dom';
 import { motore } from './motore';
@@ -93,18 +93,22 @@ async function propostaFormato(m: MediaItem) {
 }
 
 /** il pulsante "Importa": finestra di sistema (app) o del browser */
-export async function importaDialogo(cartella?: string) {
+export async function importaDialogo(cartella?: string, tipo?: TipoMedia) {
   const w = window as unknown as { showOpenFilePicker?: (o: object) => Promise<Maniglia[]> };
   if (!isTauri && w.showOpenFilePicker) {
     try {
-      const hs = await w.showOpenFilePicker({ multiple: true, types: [{ description: 'Video, audio e immagini', accept: { 'video/*': ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.mts', '.m2ts', '.ts'], 'audio/*': ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.ac3'], 'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'] } }], excludeAcceptAllOption: false });
+      // dritti nella categoria aperta: da Musica si vedono solo gli audio, da Immagini solo le immagini
+      const tutti: Record<string, string[]> = { 'video/*': ESTENSIONI_DI.video.map((e) => '.' + e), 'audio/*': ESTENSIONI_DI.audio.map((e) => '.' + e), 'image/*': ESTENSIONI_DI.image.map((e) => '.' + e) };
+      const accept = tipo ? { [`${tipo}/*`]: tutti[`${tipo}/*`] } : tutti;
+      const descr = { video: 'Video', audio: 'Musica e audio', image: 'Immagini' };
+      const hs = await w.showOpenFilePicker({ multiple: true, types: [{ description: tipo ? descr[tipo] : 'Video, audio e immagini', accept }], excludeAcceptAllOption: false });
       const lista = await Promise.all(hs.map(async (hh) => { const f = await hh.getFile(); return { name: f.name, file: f, maniglia: hh }; }));
       return importaFile(lista, { cartella });
     } catch (e) {
       if ((e as Error).name === 'AbortError') return [];
     }
   }
-  return importaFile(await scegliMedia(), { cartella });
+  return importaFile(await scegliMedia(tipo), { cartella });
 }
 
 /** file lasciati cadere sulla finestra dal sistema */

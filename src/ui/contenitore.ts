@@ -104,7 +104,7 @@ export class Contenitore {
     }, icona('griglia', 15));
     this.el = h('section', { class: 'pannello contenitore' },
       h('header', { class: 'bin-testa' },
-        h('button', { class: 'btn primario piccolo', title: 'Importa video, audio e immagini (Ctrl+I) · nella cartella aperta', on: { click: () => void importaDialogo(this.cartellaAperta()) } }, icona('importa', 15), 'Importa'),
+        h('button', { class: 'btn primario piccolo', title: 'Importa (Ctrl+I): nella cartella aperta; da Video, Musica o Immagini si scelgono solo quei file', on: { click: () => void importaDialogo(this.cartellaAperta(), this.tipoAperto()) } }, icona('importa', 15), 'Importa'),
         h('button', { class: 'btn-icona piccolo', title: 'Nuova cartella', on: { click: () => void this.nuovaCartella(this.cartellaAperta()) } }, icona('cartellaPiu', 17)),
         cerca, grand),
       h('div', { class: 'bin-corpo' }, this.albero, h('div', { class: 'bin-destra' }, this.barra, this.corpo)));
@@ -151,6 +151,8 @@ export class Contenitore {
 
   /** la cartella aperta a destra (per importare e creare lì dentro) */
   private cartellaAperta() { return this.nodo.startsWith('dir:') ? this.nodo.slice(4) : undefined; }
+  /** la categoria aperta: l'import mostra solo quel tipo di file */
+  private tipoAperto() { return ({ video: 'video', audio: 'audio', immagini: 'image' } as const)[this.nodo as 'video'] as 'video' | 'audio' | 'image' | undefined; }
 
   private voceSotto(x: number, y: number): HTMLElement | null {
     const el = document.elementFromPoint(x, y)?.closest('.bin-cat') as HTMLElement | null;

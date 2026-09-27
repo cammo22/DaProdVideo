@@ -197,13 +197,16 @@ export const STILI_CONTO: { id: StileConto; nome: string; secondi: number }[] = 
  * Pellicola = la coda del cinema (settori che girano, croce, cerchi, graffi); moderno = anello che si svuota;
  * neon = anello luminoso che pulsa; minimal = numero nero su bianco che respira.
  */
+/** il numero del countdown al secondo t (N..1: l'ultimo secondo è 1, poi finisce) */
+export const numeroConto = (t: number, durata: number) => Math.max(1, Math.ceil(Math.max(1e-3, durata - t) - 1e-6));
+
 export function disegnaCountdown(W: number, H: number, t: number, durata: number, stile: StileConto = 'pellicola'): Tela {
   const w = Math.min(W, 1280), h = Math.round(w * H / W);
   if (!telaCountdown || telaCountdown.width !== w || telaCountdown.height !== h) telaCountdown = nuovaTela(w, h);
   const ctx = telaCountdown.getContext('2d') as Ctx2D;
   const restante = Math.max(1e-3, durata - t);
   // il numero di adesso (N..1) e quanto manca al prossimo (1 → 0 dentro il secondo)
-  const n = Math.max(1, Math.ceil(restante - 1e-6));
+  const n = numeroConto(t, durata);
   const fraz = Math.max(0, Math.min(1, restante - (n - 1)));
   const dentro = 1 - fraz; // 0 → 1 dentro il secondo
   const cx = w / 2, cy = h / 2;

@@ -133,6 +133,10 @@ export interface Transform {
   cropR: number;
   cropT: number;
   cropB: number;
+  /** angoli tondi: 0 = dritti, 1 = tutto tondo (con un ritaglio quadrato diventa un cerchio, la bolla della webcam) */
+  angoli?: number;
+  /** ombra morbida sotto la clip 0..1 (si vede quando la clip è più piccola del quadro) */
+  ombra?: number;
 }
 
 export interface TitleSpec {
@@ -156,6 +160,8 @@ export interface TitleSpec {
 
 export interface GenSpec {
   color?: string;
+  /** colore pieno sfumato: il secondo colore (in basso a destra) */
+  color2?: string;
   /** barre: 'smpte' | 'ebu' */
   bars?: 'smpte' | 'ebu';
   /** tono: frequenza e livello */

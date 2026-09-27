@@ -88,6 +88,7 @@ export class PannelloMonitor {
         h('div', { class: 'mon-segni', title: 'Attacco, stacco e durata · Alt+X toglie attacco e stacco' },
           h('span', { class: 'segno-io in' }, h('label', null, 'IN'), this.tcIn),
           h('span', { class: 'segno-io out' }, h('label', null, 'OUT'), this.tcOut),
+          h('button', { class: 'segno-via', title: 'Togli attacco e stacco (Alt+X)', on: { click: () => esegui('togliInOut') } }, '✕'),
           h('span', { class: 'segno-io' }, h('label', null, 'DUR'), this.tcDur)),
         jog.el));
 

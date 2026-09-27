@@ -907,6 +907,7 @@ try {
     });
     const fineP = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
     const nm = (await doc()).media.length;
+    await page.evaluate(() => { window.__dpvTest.ui().live.opz.conto = false; });
     await page.click('.pagina-btn[data-p=live]');
     await page.click('.live-btn.reg');
     await page.waitForTimeout(1600);
@@ -931,6 +932,235 @@ try {
       JSON.stringify({ reg: regs.map((m) => [m.name, m.duration, m.hasAudio]), registrato, tracce, fineP, inTl }));
     await page.click('.pagina-btn[data-p=montaggio]');
     await page.waitForTimeout(300);
+  }
+
+  console.log('▶ 1.0.7: play col clic, countdown, curve, cartelle, anteprime vere, riquadro sui sottotitoli, pacchetto, LIVE');
+  {
+    await page.evaluate(() => { window.__dpv.select([]); window.__motore.setMonitor('recorder'); window.__motore.vaiA(0); });
+    // il tasto play del monitor col clic (non solo con lo Spazio)
+    await page.locator('.monitor .tasto-trasporto.play:visible').first().click();
+    await page.waitForTimeout(700);
+    const v1 = await page.evaluate(() => window.__dpvTest.motore.speed);
+    await page.locator('.monitor .tasto-trasporto.play:visible').first().click();
+    await page.waitForTimeout(300);
+    const v2 = await page.evaluate(() => window.__dpvTest.motore.speed);
+    prova('il tasto play col clic suona e ferma', v1 !== 0 && v2 === 0, JSON.stringify({ v1, v2 }));
+    // niente più INS/SOVR/LIFT/EXTRACT/REVIEW nella pulsantiera
+    const puls = await page.textContent('.pulsantiera');
+    prova('la pulsantiera senza INS, SOVR, LIFT, EXTRACT, REVIEW', !/\bLIFT\b|\bEXTRACT\b|\bREVIEW\b|\bSOVR\b/.test(puls), puls.slice(0, 200));
+    // il countdown arriva a 1 e poi finisce; il bip suona un colpo al secondo
+    const cd = await page.evaluate(() => {
+      const G = window.__dpvTest.G;
+      const n = [0, 1.2, 3.5, 4.2, 4.99].map((t) => G.numeroConto(t, 5));
+      const ids = window.__dpvTest.Z.inserisciGeneratore('countdown', 0, undefined, { conto: { stile: 'neon', secondi: 3 } }) ?? [];
+      const d = window.__dpv.doc;
+      const cs = d.clips.filter((c) => c.kind === 'countdown' || c.gen?.ogni);
+      const c = cs.find((x) => x.kind === 'countdown' && x.gen?.conto === 'neon');
+      const b = cs.find((x) => x.gen?.ogni && x.link && x.link === c?.link);
+      return { n, nome: c?.name, len: c?.len, bip: b ? [b.len, b.gen.ogni] : null, ids };
+    });
+    prova('il countdown conta 5, 4, 2, 1, 1 e finisce (niente stop a 2)', cd.n.join(',') === '5,4,2,1,1', cd.n.join(','));
+    prova('il countdown neon da 3 secondi, col bip legato (un colpo al secondo)', cd.nome === 'Countdown Neon 3…1' && cd.len === 75 && cd.bip && cd.bip[0] === 75 && cd.bip[1] === 1, JSON.stringify(cd));
+    await tasto('Control+z');
+    // le forme delle dissolvenze: analogica parte piano, veloce sale subito, a S è dolce ai lati
+    const cv = await page.evaluate(() => {
+      const P = window.__dpvTest.P;
+      return { dritta: P.curvaFade(0.5, undefined), analogica: P.curvaFade(0.5, { k: -0.6 }), veloce: P.curvaFade(0.5, { k: 1 }), s1: P.curvaFade(0.1, { k: 0, s: true }), s9: P.curvaFade(0.9, { k: 0, s: true }), nomi: P.CURVE.map((c) => c.nome) };
+    });
+    prova('dissolvenze con la forma: analogica sotto la dritta, veloce sopra, a S dolce ai lati', Math.abs(cv.dritta - 0.5) < 1e-6 && cv.analogica < 0.35 && cv.veloce > 0.7 && cv.s1 < 0.1 && cv.s9 > 0.9, JSON.stringify(cv));
+    let dd = await doc();
+    const au = dd.clips.find((c) => dd.tracks.find((t) => t.id === c.track).kind === 'audio' && c.kind === 'media' && c.len > 60);
+    const gv = await page.evaluate((id) => {
+      const T = window.__dpvTest, s = window.__dpv;
+      s.edit('fade', (p) => { const c = p.clips.find((x) => x.id === id); c.fadeOut = 40; c.curvaOut = undefined; });
+      const c1 = s.doc.clips.find((x) => x.id === id);
+      const lf = c1.len - 20;
+      const dritta = T.guadagnoClip(c1, lf, 0);
+      s.edit('curva', (p) => { p.clips.find((x) => x.id === id).curvaOut = { k: -0.6 }; });
+      const analogica = T.guadagnoClip(s.doc.clips.find((x) => x.id === id), lf, 0);
+      return { dritta, analogica };
+    }, au.id);
+    prova('la curva cambia davvero il volume a metà dissolvenza (audio)', gv.analogica < gv.dritta * 0.8 && gv.dritta > 0, JSON.stringify(gv));
+    await tasto('Control+z'); await tasto('Control+z');
+    // le cartelle del contenitore: se ne fa una, ci si mette un file, il file si trova lì
+    const cartella = await page.evaluate(() => {
+      const s = window.__dpv;
+      s.edit('cartella di prova', (p) => { (p.cartelle ??= []).push({ id: 'dprova', nome: 'B-roll' }); });
+      const bin = window.__dpvTest.ui().bin;
+      bin.sposta(s.doc.media[0].id, 'dprova');
+      bin.mostra('dir:dprova');
+      return s.doc.media[0].cartella;
+    });
+    await page.waitForTimeout(300);
+    const carte = await page.locator('.contenitore .bin-griglia .carta[data-id]').count();
+    prova('una cartella nel contenitore: il file spostato si vede lì dentro (e solo lui)', cartella === 'dprova' && carte === 1 && (await page.locator('.bin-cat[data-c="dir:dprova"]').count()) === 1, JSON.stringify({ cartella, carte }));
+    await page.screenshot({ path: path.join(OUT, 'cartelle.png') });
+    await page.evaluate(() => window.__dpvTest.ui().bin.mostra('tutto'));
+    // le anteprime delle transizioni col fotogramma vero del cursore
+    await page.evaluate(() => { window.__motore.vaiA(60); window.__dpvTest.ui().bin.mostra('transizioni'); });
+    await page.waitForTimeout(400);
+    await page.locator('.contenitore .carta.tr').first().hover();
+    await page.waitForTimeout(1200);
+    const pv = await page.evaluate(() => {
+      const c = document.querySelector('.contenitore canvas.provino');
+      return { c: !!c, vero: !!c?.classList.contains('vero'), w: c?.width ?? 0 };
+    });
+    prova('passando sopra una transizione l\'anteprima usa i fotogrammi veri del cursore', pv.c && pv.vero && pv.w > 0, JSON.stringify(pv));
+    await page.screenshot({ path: path.join(OUT, 'provino.png') });
+    await page.mouse.move(800, 900);
+    await page.evaluate(() => window.__dpvTest.ui().bin.mostra('tutto'));
+    // il riquadro prende anche i sottotitoli (e si spostano insieme)
+    const E = await page.evaluate(() => window.__dpvTest.P.projectEnd(window.__dpv.doc));
+    await page.evaluate((E) => window.__dpv.edit('sottotitoli dopo la fine', (p) => { p.sottotitoli = { righe: [{ id: 'ra', da: E + 10, a: E + 40, testo: 'Uno' }, { id: 'rb', da: E + 50, a: E + 80, testo: 'Due' }], nelVideo: true, dimensione: 46, fascia: true, alto: false, lingua: 'it' }; }), E);
+    await page.waitForTimeout(300);
+    const geo = await page.evaluate((E) => {
+      const tl = window.__dpvTest.ui().tl;
+      const W = document.querySelector('.tl-tela').getBoundingClientRect().width;
+      for (let i = 0; i < 8 && (E + 100 - tl.scrollF) * tl.ppf > W - 20; i++) tl.zoom(0.67);
+      tl.righe(window.__dpv.doc);
+      const v2 = window.__dpv.doc.tracks.find((t) => t.name === 'V2').id;
+      const r = tl.riga(v2);
+      return { x0: (E + 5 - tl.scrollF) * tl.ppf, x1: (E + 90 - tl.scrollF) * tl.ppf, y0: r.y + r.h / 2, y1: tl.rigaSott.y + tl.rigaSott.h / 2 };
+    }, E);
+    const bt = await page.locator('.tl-tela').boundingBox();
+    await page.mouse.move(bt.x + geo.x0, bt.y + geo.y0);
+    await page.mouse.down();
+    await page.mouse.move(bt.x + geo.x1, bt.y + geo.y1, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const selS = await page.evaluate(() => [...window.__dpvTest.ui().tl.selSott].sort().join(','));
+    prova('il riquadro di selezione prende anche le righe dei sottotitoli', selS === 'ra,rb', selS);
+    await tasto('Delete');
+    dd = await doc();
+    prova('Canc toglie i sottotitoli scelti col riquadro', (dd.sottotitoli?.righe.length ?? 0) === 0, JSON.stringify(dd.sottotitoli?.righe));
+    await tasto('Control+z'); await tasto('Control+z');
+    // la timeline si allarga in altezza (Ctrl+Shift+rotella) e torna
+    const k0 = await page.evaluate(() => window.__dpvTest.ui().tl.kV());
+    await page.evaluate(() => window.__dpvTest.ui().tl.zoomVerticale(1.25));
+    const k1 = await page.evaluate(() => window.__dpvTest.ui().tl.kV());
+    await page.evaluate(() => window.__dpvTest.ui().tl.adattaTutto());
+    const k2 = await page.evaluate(() => window.__dpvTest.ui().tl.kV());
+    prova('le tracce si alzano con lo zoom verticale e "adatta" le rimette', k1 > k0 && Math.abs(k2 - k0) < 1e-6, JSON.stringify({ k0, k1, k2 }));
+  }
+
+  console.log('▶ Pacchetto .daprod: salva con tutti i file e riapri identico');
+  {
+    const pg = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    pg.on('pageerror', (e) => errori.push(e.message));
+    await pg.goto(srv.url + '/app/');
+    await pg.waitForSelector('.pulsantiera');
+    await pg.click('text=Prova con il montaggio dimostrativo');
+    await pg.waitForFunction(() => window.__dpv.doc.clips.length >= 8, null, { timeout: 90000 });
+    await pg.waitForTimeout(800);
+    const r = await pg.evaluate(async () => {
+      const T = window.__dpvTest, s = window.__dpv;
+      const prima = { clip: s.doc.clips.length, media: s.doc.media.map((m) => [m.name, m.size]) };
+      // "dove salvo": un finto file che tiene i byte
+      let pacco = null;
+      window.showSaveFilePicker = async () => ({ createWritable: async () => { const pezzi = []; return new WritableStream({ write(c) { pezzi.push(c); }, close() { pacco = new Blob(pezzi); } }); } });
+      const piano = await T.PK.pianoPacchetto(false);
+      await T.PK.scriviPacchetto('prova.daprod', piano, false, () => {}, () => false);
+      delete window.showSaveFilePicker;
+      const file = new File([pacco], 'prova.daprod');
+      // lo zip si rilegge: ogni file al suo posto e col suo CRC
+      const voci = await T.PK.indicePacchetto({ file });
+      const nomi = [...voci.keys()];
+      let crcOk = true;
+      for (const x of piano.voci) {
+        const v = voci.get(x.nome);
+        const dentro = new Uint8Array(await file.slice(v.off, v.off + v.len).arrayBuffer());
+        const fuori = new Uint8Array(await x.f.file.arrayBuffer());
+        if (T.PK.crc32(dentro) !== T.PK.crc32(fuori) || dentro.length !== fuori.length) crcOk = false;
+      }
+      // e si riapre al posto del montaggio (come su un altro computer)
+      s.dirty = false;
+      await T.apriFile({ file });
+      await new Promise((ok) => setTimeout(ok, 1500));
+      const dopo = { clip: s.doc.clips.length, media: s.doc.media.map((m) => [m.name, m.size]), stati: s.doc.media.map((m) => T.mediaRT(m.id)?.stato) };
+      return { prima, dopo, nomi, crcOk, byte: pacco.size };
+    });
+    prova('il pacchetto è uno zip con progetto.json, LEGGIMI e i media (byte identici)', r.nomi.includes('progetto.json') && r.nomi.includes('LEGGIMI.txt') && r.nomi.filter((n) => n.startsWith('media/')).length === 3 && r.crcOk, JSON.stringify({ nomi: r.nomi, crc: r.crcOk, byte: r.byte }));
+    prova('il pacchetto si riapre identico, con tutti i file collegati', r.dopo.clip === r.prima.clip && JSON.stringify(r.dopo.media) === JSON.stringify(r.prima.media) && r.dopo.stati.every((x) => x === 'ok'), JSON.stringify(r.dopo));
+    await pg.close();
+  }
+
+  console.log('▶ LIVE con webcam, conto alla rovescia, segni e stile presentazione');
+  {
+    const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+    pg.on('pageerror', (e) => errori.push(e.message));
+    await pg.goto(srv.url + '/app/');
+    await pg.waitForSelector('.pulsantiera');
+    await pg.evaluate(() => {
+      const tela = (w, hh, fn) => {
+        const c = document.createElement('canvas'); c.width = w; c.height = hh;
+        c.style.cssText = 'position:fixed;left:0;top:0;width:32px;height:18px;z-index:9999;pointer-events:none';
+        document.body.append(c);
+        const x = c.getContext('2d'); let n = 0;
+        setInterval(() => { n++; fn(x, n); }, 33);
+        return c.captureStream(30);
+      };
+      window.__dpvTest.LV.impostaSorgenteLive(
+        async () => tela(1280, 720, (x, n) => { x.fillStyle = '#e9eef6'; x.fillRect(0, 0, 1280, 720); x.fillStyle = `hsl(${n * 4 % 360} 70% 50%)`; x.fillRect(80 + (n * 6) % 900, 300, 200, 200); }),
+        async () => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const d = ctx.createMediaStreamDestination(); o.connect(d); o.start(); return d.stream; },
+        async () => tela(640, 360, (x, n) => { x.fillStyle = '#6b4f3a'; x.fillRect(0, 0, 640, 360); x.fillStyle = '#f2c9a0'; x.beginPath(); x.arc(320, 170 + Math.sin(n / 5) * 8, 90, 0, 7); x.fill(); }),
+      );
+    });
+    await pg.click('.pagina-btn[data-p=live]');
+    await pg.waitForTimeout(300);
+    await pg.click('.live .fin-interruttore:has-text("Webcam")');
+    await pg.click('.live .fin-interruttore:has-text("Stile presentazione")');
+    await pg.waitForTimeout(500);
+    const camSu = await pg.evaluate(() => document.querySelector('.live').classList.contains('con-cam'));
+    await pg.keyboard.press('r');
+    await pg.waitForTimeout(1200);
+    const conto = await pg.evaluate(() => ({ su: document.querySelector('.live-conto').classList.contains('su'), n: document.querySelector('.live-conto').textContent, reg: window.__dpvTest.ui().live.registrando }));
+    await pg.screenshot({ path: path.join(OUT, 'live-conto.png') });
+    await pg.waitForTimeout(2400);
+    await pg.keyboard.press('m');
+    await pg.waitForTimeout(800);
+    await pg.keyboard.press('Space');
+    await pg.waitForTimeout(600);
+    const pausa = await pg.evaluate(() => document.querySelector('.live').classList.contains('in-pausa'));
+    await pg.keyboard.press('Space');
+    await pg.waitForTimeout(800);
+    await pg.screenshot({ path: path.join(OUT, 'live.png') });
+    await pg.keyboard.press('f');
+    await pg.evaluate(() => window.__dpvTest.ui().live.ultima);
+    const r = await pg.evaluate(() => {
+      const d = window.__dpv.doc;
+      const regs = d.media.filter((m) => m.name.startsWith('Registrazione'));
+      const cam = regs.find((m) => m.name.includes('webcam'));
+      const sch = regs.find((m) => !m.name.includes('webcam'));
+      const tipo = (c) => d.tracks.find((t) => t.id === c.track);
+      const ordine = (c) => d.tracks.filter((t) => t.kind === 'video').reverse().findIndex((t) => t.id === c.track);
+      const cSch = d.clips.find((c) => c.media === sch?.id && tipo(c).kind === 'video');
+      const cCam = d.clips.find((c) => c.media === cam?.id);
+      const sf = d.clips.find((c) => c.kind === 'color');
+      const cart = d.cartelle?.find((c) => c.nome === 'Registrazioni');
+      return {
+        n: regs.length, camAudio: cam?.hasAudio, schAudio: sch?.hasAudio,
+        cartella: !!cart && regs.every((m) => m.cartella === cart.id),
+        sfondo: sf && { gen: sf.gen, start: sf.start, len: sf.len, o: ordine(sf) },
+        schermo: cSch && { tf: cSch.tf, start: cSch.start, len: cSch.len, o: ordine(cSch), link: cSch.link },
+        cam: cCam && { tf: cCam.tf, start: cCam.start, len: cCam.len, o: ordine(cCam), link: cCam.link },
+        segni: d.markers.map((m) => [m.name, m.f]),
+        lista: document.querySelectorAll('.live-voce img').length,
+      };
+    });
+    prova('LIVE: la webcam si accende nell\'anteprima, il 3-2-1 prima di partire (tasto R)', camSu && conto.su && ['3', '2'].includes(conto.n), JSON.stringify({ camSu, conto }));
+    prova('LIVE: schermo e webcam in due file, nella cartella Registrazioni', r.n === 2 && r.schAudio && r.camAudio === false && r.cartella, JSON.stringify(r));
+    prova('LIVE: dal basso sfondo sfumato, schermo con angoli e ombra, webcam a bolla sopra; tutto legato',
+      r.sfondo?.o === 0 && !!r.sfondo.gen.color2 && r.schermo?.o === 1 && r.schermo.tf.angoli > 0 && r.schermo.tf.ombra > 0 && r.schermo.tf.scale < 1 &&
+      r.cam?.o === 2 && r.cam.tf.angoli === 1 && r.cam.tf.cropL > 0 && r.cam.tf.x > 0 && r.cam.tf.y > 0 && r.cam.len <= r.schermo.len &&
+      r.schermo.link && r.cam.link === r.schermo.link && r.sfondo.start === r.schermo.start, JSON.stringify(r));
+    prova('LIVE: il tasto M mette un segno (marcatore in timeline) e la pausa col tasto Spazio', r.segni.length === 1 && r.segni[0][0] === 'Segno 1' && r.segni[0][1] > r.schermo.start && pausa, JSON.stringify({ segni: r.segni, pausa }));
+    prova('LIVE: la registrazione nella lista con la miniatura', r.lista === 1);
+    // il fotogramma composto: sfondo, schermo, bolla
+    await pg.click('.pagina-btn[data-p=montaggio]');
+    await pg.evaluate((f) => window.__motore.vaiA(f), r.schermo.start + Math.floor(r.schermo.len / 2));
+    await pg.waitForTimeout(2500);
+    await pg.screenshot({ path: path.join(OUT, 'live-montaggio.png') });
+    await pg.close();
   }
 
   console.log('▶ Riproduzione');

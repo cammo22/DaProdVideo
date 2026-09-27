@@ -53,12 +53,22 @@ export async function dialogoSalva(nome: string, estensione: string, mime: strin
 }
 
 /** sceglie i file da importare: nell'app con il dialogo di sistema (percorsi), nel browser con <input type=file> */
-export async function scegliMedia(): Promise<FileScelto[]> {
+/** i tipi del contenitore, per importare dritti in Video, Musica o Immagini */
+export type TipoMedia = 'video' | 'audio' | 'image';
+export const ESTENSIONI_DI: Record<TipoMedia, string[]> = {
+  video: ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'mts', 'm2ts', 'ts', 'mpg'],
+  audio: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'ac3'],
+  image: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'],
+};
+
+export async function scegliMedia(tipo?: TipoMedia): Promise<FileScelto[]> {
+  const nome = { video: 'Importa video', audio: 'Importa musica e audio', image: 'Importa immagini' };
   if (isTauri) {
-    const list = await dialogoApri({ multiple: true, title: 'Importa nel contenitore', estensioni: ESTENSIONI, mime: ['video/*', 'audio/*', 'image/*'] });
+    const list = await dialogoApri({ multiple: true, title: tipo ? nome[tipo] : 'Importa nel contenitore', estensioni: tipo ? ESTENSIONI_DI[tipo] : ESTENSIONI, mime: tipo ? [`${tipo}/*`] : ['video/*', 'audio/*', 'image/*'] });
     return list.map((p) => ({ name: nomeDaPercorso(p), path: p }));
   }
-  return scegliFileBrowser('video/*,audio/*,image/*,.mts,.m2ts,.mkv,.mov,.ac3,.flac', true).then((fs) => fs.map((f) => ({ name: f.name, file: f })));
+  const accetta = tipo ? `${tipo}/*,${ESTENSIONI_DI[tipo].map((e) => '.' + e).join(',')}` : 'video/*,audio/*,image/*,.mts,.m2ts,.mkv,.mov,.ac3,.flac';
+  return scegliFileBrowser(accetta, true).then((fs) => fs.map((f) => ({ name: f.name, file: f })));
 }
 
 /** il nome del file da un percorso o da un indirizzo content:// di Android ("video:1234" → "video 1234") */

@@ -69,6 +69,7 @@ export function avvia(radice: HTMLElement) {
     if (radice.dataset.pagina === pg) return;
     if (radice.dataset.pagina === 'live' && live.registrando) avviso('La registrazione continua: torna su LIVE per fermarla', 'info', 2600);
     radice.dataset.pagina = pg;
+    live.mostrata(pg === 'live');
     // i VU vanno dove si guarda: nelle proprietà durante il montaggio, nel Finale alla fine
     if (pg === 'finale') finale.el.insertBefore(vuCornice, finale.el.children[1] ?? null);
     else pannelloLato.insertBefore(vuCornice, pannelloLato.firstChild);
@@ -363,5 +364,5 @@ export function avvia(radice: HTMLElement) {
   if (isTauri) void import('@tauri-apps/api/event').then(({ listen }) => listen<string>('apri-file', (e) => { void invoke<string | null>('file_di_avvio'); void apriFile({ path: e.payload }); })).catch(() => {});
   setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   void esegui;
-  return { tl, monitor, finale, live };
+  return { tl, monitor, finale, live, bin };
 }
