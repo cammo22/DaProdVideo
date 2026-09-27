@@ -783,7 +783,12 @@ try {
       await page.click('.tendina .voce:has-text("Novità della")');
       await page.waitForSelector('.dialogo.novita');
       const testo = await page.textContent('.dialogo.novita');
-      prova('Aiuto → Novità: le novità della versione dal CHANGELOG', testo.includes('FX') && (await page.locator('.dialogo.novita li').count()) > 5, testo.slice(0, 120));
+      // le voci della versione che gira, tutte (e le righe che vanno a capo restano dentro la loro voce)
+      const versione = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+      const attese = await page.evaluate((v) => (window.__dpvTest.AG.noteDi(v)?.note.match(/^\s*[-*]\s/gm) ?? []).length, versione);
+      const voci = await page.locator('.dialogo.novita li').count();
+      const paragrafi = await page.locator('.dialogo.novita .novita-testo p').count();
+      prova('Aiuto → Novità: le novità della versione dal CHANGELOG', testo.includes(versione) && attese > 0 && voci === attese && paragrafi <= 2, JSON.stringify({ versione, attese, voci, paragrafi, testo: testo.slice(0, 80) }));
       await page.keyboard.press('Escape');
       await page.waitForTimeout(250);
     }

@@ -44,6 +44,7 @@ export function noteDi(versione: string, testo = CHANGELOG): { titolo: string; n
 export function markdown(md: string): HTMLElement {
   const box = h('div', { class: 'novita-testo' });
   let lista: HTMLElement | null = null;
+  let voce: HTMLElement | null = null;
   const inline = (t: string) => {
     const el = h('span');
     const re = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
@@ -63,12 +64,15 @@ export function markdown(md: string): HTMLElement {
     const li = r.match(/^(\s*)[-*]\s+(.*)$/);
     if (li) {
       if (!lista) { lista = h('ul'); box.append(lista); }
-      const voce = h('li', null, inline(li[2]));
+      voce = h('li', null, inline(li[2]));
       if (li[1].length >= 2) voce.classList.add('sotto');
       lista.append(voce);
       continue;
     }
+    // una riga rientrata sotto una voce è il seguito della voce (le frasi lunghe del CHANGELOG vanno a capo)
+    if (lista && voce && /^\s+\S/.test(r)) { voce.append(' ', inline(r.trim())); continue; }
     lista = null;
+    voce = null;
     if (!r.trim()) continue;
     if (r.startsWith('### ')) box.append(h('h4', null, inline(r.slice(4))));
     else if (r.startsWith('## ')) box.append(h('h3', null, inline(r.slice(3))));
