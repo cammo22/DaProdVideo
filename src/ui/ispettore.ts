@@ -10,10 +10,10 @@ import * as M from '../core/montaggio';
 import { esegui, modi, mettiBlocco } from '../azioni';
 import { EFFETTI, TENDINE } from '../render/transizioni';
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto } from '../effetti';
-import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, nomeBlocco, nuovoBlocco, posaBlocco, taglioDelBlocco, taglioVicino, transizioneSul } from '../core/blocchi';
+import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, haCentro, nomeBlocco, nuovoBlocco, posaBlocco, taglioDelBlocco, taglioVicino, transizioneSul } from '../core/blocchi';
 import { SUONI } from '../core/suoni';
 import { ascoltaSuono } from '../media/audio';
-import { bolla, presentazione, SFONDI } from '../core/cornici';
+import { bolla, MOVIMENTI, movimentoPronto, presentazione, SFONDI } from '../core/cornici';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
 
@@ -104,6 +104,14 @@ export class Ispettore {
           ['Bolla ↘', () => store.edit('Bolla', () => { for (const c of video) c.tf = bolla(p, mediaOf(p, c), 'bd'); })],
           ['Presentazione', () => store.edit('Presentazione', () => { for (const c of video) c.tf = presentazione(); })],
         ]),
+        h('p', { class: 'nota' }, 'Sull\'immagine del monitor: trascina per spostare, tira un angolo per ingrandire, il pallino in alto la gira.'),
+        h('div', { class: 'isp-riga' }, h('label', null, 'Movimento'),
+          h('div', { class: 'isp-chips' }, MOVIMENTI.map((m) => h('button', {
+            class: 'chip' + ((m.id === 'fermo') === !video[0].tfFine && m.id === 'fermo' ? ' acceso' : ''),
+            title: m.id === 'fermo' ? 'Resta dov\'è' : 'Dall\'inizio alla fine della clip, partendo (o arrivando) dove sta adesso',
+            on: { click: () => store.edit('Movimento: ' + m.nome, (pp) => { for (const c of video) { const x = clipById(pp, c.id); if (x) movimentoPronto(pp, x, m.id); } }) },
+          }, m.nome)))),
+        video[0].tfFine ? h('p', { class: 'nota' }, 'Si muove: all\'inizio della clip sta dove l\'hai messa col cursore all\'inizio, alla fine dove l\'hai messa alla fine (sul monitor: ◀ Inizio / Fine ▶).') : null,
         this.cursore('Angoli tondi', 0, 100, 1, (c) => Math.round((c.tf.angoli ?? 0) * 100), (c, v) => { c.tf.angoli = v / 100; }, '%', video),
         this.cursore('Ombra', 0, 100, 1, (c) => Math.round((c.tf.ombra ?? 0) * 100), (c, v) => { c.tf.ombra = v / 100; }, '%', video),
         video.some((c) => c.opKeys.length) ? h('p', { class: 'nota' }, 'Questa clip ha una linea elastica: la trasparenza cambia nel tempo. Muovere l\'opacità la toglie.') : null,
@@ -148,6 +156,19 @@ export class Ispettore {
     }
     const titoli = cs.filter((c) => c.kind === 'title');
     if (titoli.length) out.push(this.titolatrice(titoli));
+    // il suono dentro titoli, countdown e colori: niente clip audio a parte, sta tutto su una riga
+    const sonore = cs.filter((c) => c.kind === 'title' || c.kind === 'countdown' || c.kind === 'color');
+    if (sonore.length) {
+      const s0 = sonore[0].sfx ?? {};
+      const suoni: [string, string][] = [['', 'Nessun suono'], ...SUONI.map((x) => [x.id, x.nome] as [string, string])];
+      out.push(this.gruppo('csuono', 'Suono della clip', [
+        this.spunta('Suono acceso', (c) => !!c.sfx?.audio && !!c.sfx.suono, (c, v) => { c.sfx ??= {}; if (c.sfx.suono) c.sfx.audio = v; }, sonore),
+        this.scelta('Suono', suoni, (c) => c.sfx?.suono ?? '', (c, v) => { c.sfx ??= {}; c.sfx.suono = v || undefined; c.sfx.audio = !!v; if (v && c.id === sonore[0].id) ascoltaSuono(v, c.sfx.volume ?? 0); }, sonore),
+        this.cursore('Volume', -24, 6, 1, (c) => c.sfx?.volume ?? 0, (c, v) => { c.sfx ??= {}; c.sfx.volume = v; }, ' dB', sonore),
+        h('div', { class: 'isp-chips' }, h('button', { class: 'chip', disabled: !s0.suono, on: { click: () => { if (s0.suono) ascoltaSuono(s0.suono, s0.volume ?? 0); } } }, '▶ Ascolta')),
+        h('p', { class: 'nota' }, sonore[0].kind === 'countdown' ? 'Il countdown fa un bip a ogni numero (scegli "Bip" per quello classico).' : 'Parte con la clip. Si accende anche dall\'altoparlante sulla clip nella timeline.'),
+      ]));
+    }
     if (video.length) {
       out.push(this.gruppo('avanzate', 'Avanzate (posizione, ritaglio, chiave)', [
         this.cursore('Orizzontale', -p.w, p.w, 1, (c) => Math.round(c.tf.x), (c, v) => { c.tf.x = v; }, 'px', video),
@@ -238,6 +259,11 @@ export class Ispettore {
         this.scelta('Effetto', EFFETTI_TEMPO.map((e) => [e.id, `${e.nome} · ${e.info}`] as [string, string]), (c) => c.fxb?.id ?? 'flash', (c, v) => { c.fxb = cambiaModello(c.fxb!, v); c.name = effettoTempo(v)!.nome; }, bs),
         this.cursore('Forza', 10, 150, 1, (c) => Math.round((c.fxb?.forza ?? 1) * 100), (c, v) => { c.fxb!.forza = v / 100; }, '%', bs),
         colori ? this.colore('Colore', (c) => c.fxb?.colore ?? '#ffffff', (c, v) => { c.fxb!.colore = v; }, bs) : null,
+        haCentro(fb.id) ? h('p', { class: 'nota' }, 'Il centro dell\'effetto è il mirino sul monitor: trascinalo dove vuoi. Con "Movimento" parte da un punto e arriva a un altro.') : null,
+        haCentro(fb.id) ? this.pulsanti([
+          [fb.posFine ? 'Movimento spento' : 'Movimento', () => store.edit('Movimento dell\'effetto', () => { for (const c of bs) { if (c.fxb!.posFine) delete c.fxb!.posFine; else { c.fxb!.pos ??= [0.5, 0.5]; c.fxb!.posFine = [...c.fxb!.pos] as [number, number]; } } })],
+          ['Al centro', () => store.edit('Effetto al centro', () => { for (const c of bs) { delete c.fxb!.pos; delete c.fxb!.posFine; } })],
+        ]) : null,
       ]));
     }
     // il suono dentro l'FX: acceso/spento, quale, quanto forte

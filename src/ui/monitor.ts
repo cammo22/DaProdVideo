@@ -7,6 +7,7 @@ import { Compositore } from '../render/compositore';
 import { fps, frameToTc, parseTc, s2f, f2s } from '../core/timecode';
 import { end, projectEnd, isVideoClip } from '../core/progetto';
 import { esegui, modi } from '../azioni';
+import { Posiziona } from './posiziona';
 import { avviso, h, icona } from './dom';
 import { suTastierino } from './tastiera';
 import { banco } from '../media/audio';
@@ -17,6 +18,7 @@ export class PannelloMonitor {
   canvas: HTMLCanvasElement;
   canvasSorgente: HTMLCanvasElement;
   sopra: HTMLCanvasElement;
+  private pos: Posiziona | null = null;
   private titolo: HTMLElement;
   private tc: HTMLElement;
   private tcIn: HTMLElement;
@@ -132,10 +134,12 @@ export class PannelloMonitor {
       setTimeout(() => this.adatta(), 60);
     });
     new ResizeObserver(() => this.adatta()).observe(this.schermo);
+    // sposta, ingrandisci e fai muovere quello che vedi, direttamente sull'immagine
+    this.pos = new Posiziona(this.schermo, this.sopra, () => this.disegnaSopra());
     motore.rec = new Compositore(this.canvas);
     motore.playerCanvas = this.canvasSorgente;
     store.on('status', () => this.aggiorna());
-    store.on('head', () => this.aggiorna());
+    store.on('head', () => { this.aggiorna(); this.disegnaSopra(); });
     store.on('doc', () => { this.aggiorna(); this.adatta(); });
     this.aggiorna();
   }
@@ -281,6 +285,7 @@ export class PannelloMonitor {
   disegnaSopra() {
     const c = this.sopra, ctx = c.getContext('2d')!;
     ctx.clearRect(0, 0, c.width, c.height);
+    this.pos?.disegna(ctx, c.width, c.height);
     if (motore.attivo !== 'recorder' || !modi.zoneSicure) return;
     const W = c.width, H = c.height;
     ctx.lineWidth = Math.max(1, W / 900);

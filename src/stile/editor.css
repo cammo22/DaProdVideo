@@ -429,6 +429,15 @@ button svg { pointer-events: none; }
 .monitor.sorgente .schermo canvas.schermo-tela.programma { display: none; }
 .monitor.sorgente .schermo canvas.schermo-tela.sorgente { display: block; }
 .schermo-sopra { pointer-events: none; }
+/* la barretta di quello che si sposta sull'immagine (clip o centro di un effetto) */
+.pos-barra { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 3; display: none; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 16px; background: rgba(14, 13, 18, 0.82); border: 1px solid rgba(255, 213, 74, 0.35); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px); max-width: calc(100% - 12px); }
+.pos-barra.su { display: flex; }
+.pos-nome { font: 700 11px var(--ui); color: var(--oro); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 4px; }
+.pos-btn { height: 22px; padding: 0 9px; border-radius: 11px; border: 1px solid #000; background: #26242f; color: var(--testo2); font: 700 11px var(--ui); white-space: nowrap; }
+.pos-btn:hover { color: var(--testo); }
+.pos-btn.acceso { background: linear-gradient(180deg, #ff8ff8, #d42ccc); color: #fff; }
+.pos-btn[hidden] { display: none; }
+.monitor.sorgente .pos-barra { display: none; }
 .schermo::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(160deg, rgba(255, 255, 255, 0.05), transparent 30%); }
 .schermo.pieno { margin: 0; border-radius: 0; }
 /* a schermo intero: la timeline in piccolo e i VU, sotto l'immagine */

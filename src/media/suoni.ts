@@ -176,6 +176,49 @@ function voce(id: string, durata: number): Voce {
         return [v, v * 0.92 + Math.sin(2 * Math.PI * 1320.8 * t) * 0.04 * Math.exp(-t * 2.2)];
       };
     }
+    case 'bip': {
+      // il bip del countdown: 1 kHz pulito, attacco e coda di pochi millisecondi
+      return (t) => { const env = liscio(t / 0.003) * liscio((0.1 - t) / 0.004); const v = Math.sin(2 * Math.PI * 1000 * t) * env; return [v, v]; };
+    }
+    case 'tasti': {
+      // i tasti della macchina da scrivere: colpetti secchi a caso, e il campanello alla fine
+      const colpi: number[] = [];
+      const nn = rumore(23);
+      for (let x = 0.02; x < durata - 0.25; x += 0.07 + (nn() + 1) * 0.035) colpi.push(x);
+      const hp = new Filtro('bp', 2.5); hp.imposta(2600);
+      return (t) => {
+        let e = 0;
+        for (const c of colpi) { const d = t - c; if (d >= 0 && d < 0.03) e += Math.exp(-d * 260); }
+        let v = hp.passa(n1()) * e * 1.6;
+        const d = t - (durata - 0.22);
+        if (d > 0) v += Math.sin(2 * Math.PI * 2400 * d) * Math.exp(-d * 9) * 0.35;
+        return [v, v * 0.95];
+      };
+    }
+    case 'ronzio': {
+      // il neon che si accende: scatti, poi il ronzio a 100 Hz con le sue armoniche
+      return (t) => {
+        const acceso = t < 0.25 ? (Math.sin(t * 90) > 0.3 ? 1 : 0) : 1;
+        const env = acceso * Math.min(1, (durata - t) / 0.3);
+        let v = 0;
+        for (let k = 1; k <= 6; k++) v += Math.sin(2 * Math.PI * 100 * k * t) / (k * 1.3);
+        v = Math.tanh(v * 1.4) * env * 0.5 + n1() * 0.04 * env;
+        return [v, v];
+      };
+    }
+    case 'pop': {
+      let ph = 0;
+      return (t) => { ph += (2 * Math.PI * esp(900, 180, t / 0.08)) / SR; const v = Math.sin(ph) * Math.exp(-t * 28) * liscio(t / 0.002); return [v, v]; };
+    }
+    case 'ding': {
+      return (t) => {
+        const a = Math.sin(2 * Math.PI * 1760 * t) * Math.exp(-t * 4) + Math.sin(2 * Math.PI * 2637 * t) * 0.4 * Math.exp(-t * 6);
+        const d = t - 0.12;
+        const b = d > 0 ? Math.sin(2 * Math.PI * 2349 * d) * Math.exp(-d * 4.5) * 0.8 : 0;
+        const v = (a + b) * liscio(t / 0.002) * 0.5;
+        return [v, v * 0.97];
+      };
+    }
     case 'riverso': {
       const hp = new Filtro('hp', 0.7); hp.imposta(3200);
       const hp2 = new Filtro('hp', 0.7); hp2.imposta(3000);
@@ -227,6 +270,18 @@ export function suoniFx(p: Project): SuonoFx[] {
   const accese = new Set(p.tracks.filter((t) => t.kind === 'video' && !t.mute).map((t) => t.id));
   const out: SuonoFx[] = [];
   for (const c of p.clips) {
+    // il suono dentro titoli, countdown e generatori: parte con la clip (il countdown fa un bip a ogni numero)
+    const sx = c.sfx;
+    if (c.kind !== 'fx' && sx?.audio && sx.suono && accese.has(c.track)) {
+      const s = suono(sx.suono), buf = bufferSuono(sx.suono);
+      if (!s || !buf) continue;
+      const t0 = f2s(c.start, p.rate), g = dbToGain(sx.volume ?? 0);
+      if (c.kind === 'countdown' && sx.suono === 'bip') {
+        const n = Math.max(1, Math.round(f2s(c.len, p.rate)));
+        for (let k = 0; k < n; k++) out.push({ id: c.id + ':' + k, buf, at: t0 + k, gain: g });
+      } else out.push({ id: c.id, buf, at: Math.max(t0 - s.picco, t0 + 0.15 - s.picco), gain: g });
+      continue;
+    }
     const b = c.fxb;
     if (c.kind !== 'fx' || !b?.audio || !b.suono || !accese.has(c.track)) continue;
     const s = suono(b.suono), buf = bufferSuono(b.suono);

@@ -15,7 +15,7 @@ import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
 import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco, bloccoNuovo } from '../azioni';
-import { cambiaModello, centro, durataBlocco, durataDelBlocco, nomeBlocco, nuovoBlocco, piccoDi, posaBlocco, postoBlocco, tagliFra, taglioDelBlocco, taglioVicino, tracciaPerBlocco, transizioneSul, EFFETTI_TEMPO, type Dove, type Taglio } from '../core/blocchi';
+import { cambiaModello, centro, durataBlocco, durataDelBlocco, nomeBlocco, nuovoBlocco, piccoDi, posaBlocco, postoBlocco, tagliFra, taglioDelBlocco, taglioVicino, tracciaPerBlocco, transizioneSul, transizioniSul, EFFETTI_TEMPO, type Dove, type Taglio } from '../core/blocchi';
 import { SUONI, suono } from '../core/suoni';
 import { attivaDi, eliminaSequenza, nuovaSequenza, passaA, rinominaSequenza, sequenzeDi } from '../core/sequenze';
 
@@ -36,6 +36,11 @@ const NAV = 24;
 const BORDO = 8;
 /** larghezza del tasto "fx" in fondo alle clip */
 const FX_W = 22;
+/** le clip che si portano il suono dentro (niente clip audio a parte): titoli, countdown, colori */
+const SONORE = new Set(['title', 'countdown', 'color']);
+/** chi tiene il suono: il blocchetto FX o la clip stessa */
+const sonoro = (c: Clip) => c.fxb ?? c.sfx;
+const sonoroScrivi = (c: Clip) => c.fxb ?? (c.sfx ??= {});
 /** il volume sulle clip audio: da −40 a +12 dB sull'altezza del corpo */
 const DB_MIN = -40, DB_MAX = 12;
 
@@ -330,6 +335,13 @@ export class Timeline {
     return { x: x + w - s - 5, y: top + (alt - s) / 2, s };
   }
 
+  /** l'altoparlante sulle clip che hanno il suono dentro (titoli, countdown, colori): in alto a destra nel corpo */
+  private altoparlanteClip(c: Clip, x: number, w: number, g: { corpoY: number; corpoH: number }) {
+    if (!SONORE.has(c.kind) || w < 60 || g.corpoH < 14) return null;
+    const s = Math.min(18, g.corpoH - 6);
+    return { x: x + w - s - 6, y: g.corpoY + 3, s };
+  }
+
   /** geometria di una clip dentro la sua riga: testa (nome) e corpo (miniature, onda, volume) */
   private geo(y: number, hh: number) {
     const top = y + 2, alt = hh - 4;
@@ -386,6 +398,11 @@ export class Timeline {
       }
     }
     const g = this.geo(riga.y, riga.h);
+    // l'altoparlante delle clip che suonano da sole
+    for (const c of on) {
+      const sp = this.altoparlanteClip(c, this.fX(c.start), c.len * this.ppf, g);
+      if (sp && x >= sp.x - 2 && x <= sp.x + sp.s + 2 && y >= sp.y - 2 && y <= sp.y + sp.s + 2) return { track: t, clip: c, zona: 'suono', f };
+    }
     // il tasto fx in fondo alla testa della clip
     for (const c of on) {
       const xr = this.fX(end(c));
@@ -1135,6 +1152,9 @@ export class Timeline {
       ctx.textAlign = 'left';
       accesi.forEach((_, i) => { ctx.fillStyle = '#ffd54a'; ctx.beginPath(); ctx.arc(bx - 5 - i * 7, top + testa / 2, 2.4, 0, Math.PI * 2); ctx.fill(); });
     }
+    // l'altoparlante del suono dentro la clip (titoli, countdown)
+    const spc = this.altoparlanteClip(c, x, w, { corpoY, corpoH });
+    if (spc) this.disegnaAltoparlante(ctx, spc.x, spc.y, spc.s, !!c.sfx?.audio && !!c.sfx?.suono);
     // il volume sulle clip audio è sempre in vista; la trasparenza del video con B (linee elastiche)
     if (this.haVolume(c, t) && corpoH > 12) this.volume(ctx, c, x, w, corpoY, corpoH);
     else if ((modi.elastico || c.opKeys.length) && isVideoClip(c) && corpoH > 10) this.elastico(ctx, c, t, x, w, corpoY, corpoH);
@@ -1373,7 +1393,7 @@ export class Timeline {
         cv.title = `Volume ${db > 0 ? '+' : ''}${db} dB · trascina su/giù · doppio clic = un punto · Alt+clic sul punto = toglilo`;
       } else if (c.zona === 'fx') cv.title = 'Effetti al volo per questa clip';
       else if (c.zona === 'sott') cv.title = c.sott ? 'Sottotitolo: trascina per spostarlo, tira i bordi per i tempi, doppio clic per scrivere, Shift+clic per sceglierne altri, tasto destro per unire e dividere' : 'La riga dei sottotitoli: tasto destro per aggiungerne uno qui';
-      else if (c.zona === 'suono') cv.title = c.clip?.fxb?.suono ? `Suono dell'FX: ${suono(c.clip.fxb.suono)?.nome ?? ''} · clic = ${c.clip.fxb.audio ? 'spegnilo' : 'accendilo'} · tasto destro = scegli un altro suono` : 'Nessun suono · clic o tasto destro = scegline uno';
+      else if (c.zona === 'suono') { const so = c.clip && sonoro(c.clip); cv.title = so?.suono ? `Suono ${c.clip!.kind === 'fx' ? 'dell\'FX' : 'della clip'}: ${suono(so.suono)?.nome ?? ''} · clic = ${so.audio ? 'spegnilo' : 'accendilo'} · tasto destro = scegli un altro suono` : 'Nessun suono · clic o tasto destro = scegline uno'; }
       else if (c.clip?.kind === 'fx' && c.zona === 'corpo') cv.title = `${nomeBlocco(c.clip.fxb!)}: trascinalo dove vuoi (si attacca al taglio, all'inizio o alla fine della clip) · allungalo dai bordi · tasto destro = durata, suono, modello`;
       else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cv.title = (c.zona === 'fadeIn' ? 'Dissolvenza in entrata: trascina verso destra' : 'Dissolvenza in uscita: trascina verso sinistra') + ' · tasto destro: la forma';
       else if (c.zona === 'curvaIn' || c.zona === 'curvaOut') cv.title = 'Trascina su o giù per piegare la dissolvenza (su = subito, giù = piano piano) · tasto destro: le forme · doppio clic: dritta';
@@ -1418,7 +1438,7 @@ export class Timeline {
         this.menuEffetti(e.clientX, e.clientY, c.clip);
         return;
       } else if (c.clip && c.zona === 'suono') {
-        if (c.clip.fxb?.suono) this.alternaSuono(c.clip.id);
+        if (sonoro(c.clip)?.suono) this.alternaSuono(c.clip.id);
         else this.menuSuoni(e.clientX, e.clientY, c.clip);
         return;
       } else if (c.clip && (c.zona === 'fadeIn' || c.zona === 'fadeOut')) {
@@ -1915,9 +1935,11 @@ export class Timeline {
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
     const track = riga?.t.kind === 'video' ? riga.t.id : tracciaPerBlocco(p, f, tipo === 'transizione' && tagliFra(p, f - 16 / this.ppf, f + 16 / this.ppf).length > 0);
     const { start, taglio, dove } = postoBlocco(p, tipo, f, len, 16 / this.ppf, track);
-    // la transizione che c'è già su quel taglio si cambia (non se ne mette un'altra sopra)
-    const gia = tipo === 'transizione' && taglio ? transizioneSul(p, taglio) : undefined;
-    if (gia) return { track: gia.track, start: gia.start, len: gia.len, tipo, taglio, dove, nome: nomeBlocco(nuovoBlocco(tipo, id)) + ' (al posto di ' + nomeBlocco(gia.fxb!) + ')', gia: gia.id };
+    // sullo stesso taglio le transizioni si sommano (la nuova si mette sopra, stessa durata); la stessa c'è già
+    const tutte = tipo === 'transizione' && taglio ? transizioniSul(p, taglio) : [];
+    const uguale = tutte.find((c) => c.fxb!.id === id);
+    if (uguale) return { track: uguale.track, start: uguale.start, len: uguale.len, tipo, taglio, dove, nome: nomeBlocco(uguale.fxb!) + ' (c\'è già)', gia: uguale.id };
+    if (tutte.length) return { track: tutte[0].track, start: tutte[0].start, len: tutte[0].len, tipo, taglio, dove, nome: nomeBlocco(nuovoBlocco(tipo, id)) + ' + ' + tutte.map((c) => nomeBlocco(c.fxb!)).join(' + '), gia: undefined as string | undefined };
     return { track, start, len, tipo, taglio, dove, nome: nomeBlocco(nuovoBlocco(tipo, id)), gia: undefined as string | undefined };
   }
 
@@ -1937,11 +1959,12 @@ export class Timeline {
   /** l'altoparlante del blocchetto: acceso/spento (acceso = lo fa sentire subito) */
   alternaSuono(id: string) {
     const c = clipById(store.doc, id);
-    if (!c?.fxb?.suono) return;
-    const on = !c.fxb.audio;
-    store.edit(on ? 'Suono dell\'FX acceso' : 'Suono dell\'FX spento', (pp) => { clipById(pp, id)!.fxb!.audio = on; });
-    if (on) ascoltaSuono(c.fxb.suono, c.fxb.volume ?? 0);
-    avviso(`${on ? '🔊' : '🔇'} ${suono(c.fxb.suono)?.nome ?? 'Suono'} ${on ? 'acceso' : 'spento'} su ${nomeBlocco(c.fxb)}`, 'tasto', 1200);
+    const so = c && sonoro(c);
+    if (!c || !so?.suono) return;
+    const on = !so.audio;
+    store.edit(on ? 'Suono acceso' : 'Suono spento', (pp) => { sonoroScrivi(clipById(pp, id)!).audio = on; });
+    if (on) ascoltaSuono(so.suono, so.volume ?? 0);
+    avviso(`${on ? '🔊' : '🔇'} ${suono(so.suono)?.nome ?? 'Suono'} ${on ? 'acceso' : 'spento'} su ${c.fxb ? nomeBlocco(c.fxb) : c.name}`, 'tasto', 1200);
   }
 
   /** la clip su cui cade un effetto (se l'effetto è audio e la clip è video, la sua audio legata) */
@@ -2205,22 +2228,22 @@ export class Timeline {
 
   /** le voci dei suoni di un blocco: passandoci sopra si sentono, clic = quello */
   private vociSuoni(b: Clip): VoceMenu[] {
-    const fb = b.fxb!;
+    const fb = sonoro(b) ?? {};
     const cambia = (label: string, fn: (c: Clip) => void) => store.edit(label, (pp) => fn(clipById(pp, b.id)!));
     return [
       { nome: fb.audio ? '🔇 Spegni il suono' : '🔊 Accendi il suono', disattiva: !fb.suono, fn: () => this.alternaSuono(b.id) },
       { sep: true },
-      { nome: 'Nessun suono', spunta: !fb.suono, fn: () => cambia('Suono dell\'FX', (c) => { c.fxb!.suono = undefined; c.fxb!.audio = false; }) },
+      { nome: 'Nessun suono', spunta: !fb.suono, fn: () => cambia('Suono', (c) => { const s = sonoroScrivi(c); s.suono = undefined; s.audio = false; }) },
       ...SUONI.map((x) => ({
         nome: x.nome, spunta: fb.suono === x.id,
         sopra: () => ascoltaSuono(x.id, fb.volume ?? 0),
-        fn: () => { cambia('Suono dell\'FX', (c) => { c.fxb!.suono = x.id; c.fxb!.audio = true; }); avviso(`🔊 ${x.nome} su ${nomeBlocco(fb)}`, 'tasto', 1000); },
+        fn: () => { cambia('Suono', (c) => { const s = sonoroScrivi(c); s.suono = x.id; s.audio = true; }); avviso(`🔊 ${x.nome} su ${b.fxb ? nomeBlocco(b.fxb) : b.name}`, 'tasto', 1000); },
       })),
       { sep: true },
       ...([[-12, 'Piano (−12 dB)'], [-6, 'Medio (−6 dB)'], [0, 'Normale'], [4, 'Forte (+4 dB)']] as [number, string][]).map(([v, n]) => ({
         nome: n, spunta: (fb.volume ?? 0) === v, disattiva: !fb.suono,
         sopra: () => { if (fb.suono) ascoltaSuono(fb.suono, v); },
-        fn: () => cambia('Volume del suono', (c) => { c.fxb!.volume = v; c.fxb!.audio = true; }),
+        fn: () => cambia('Volume del suono', (c) => { const s = sonoroScrivi(c); s.volume = v; s.audio = true; }),
       })),
     ];
   }

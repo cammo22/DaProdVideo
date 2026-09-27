@@ -47,6 +47,13 @@ export const EFFETTI: Modello[] = [
   { p: 481, nome: 'Tenda', info: 'la vecchia si apre in due dal centro' },
   { p: 491, nome: 'Sovraesposta', info: 'un colpo di luce e sei dall\'altra parte' },
   { p: 521, nome: 'Polvere', info: 'la vecchia si sgretola in granelli' },
+  { p: 531, nome: 'Persiane', info: 'le stecche girano una dopo l\'altra' },
+  { p: 541, nome: 'Scacchiera', info: 'le caselle si girano a caso' },
+  { p: 551, nome: 'Tuffo', info: 'la vecchia si allontana girando, la nuova arriva da dietro' },
+  { p: 561, nome: 'Inchiostro', info: 'la nuova si spande come una goccia nell\'acqua' },
+  { p: 571, nome: 'Colori sdoppiati', info: 'entra di lato col rosso e il blu che scappano' },
+  { p: 581, nome: 'Bolle', info: 'tanti cerchi si aprono e si uniscono' },
+  { p: 591, nome: 'Rimbalzo', info: 'la nuova cade dall\'alto e rimbalza' },
 ];
 
 export const nomeModello = (tipo: string, p: number) =>

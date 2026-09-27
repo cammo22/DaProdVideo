@@ -77,6 +77,23 @@ export function anteprima(dest: HTMLCanvasElement, tr: Transition, p: number) {
   ctx.drawImage(s.tela as CanvasImageSource, 0, 0, dest.width, dest.height);
 }
 
+/** l'anteprima ferma in un punto che si capisce: a metà, o poco prima se lì è tutto nero (passaggio al nero),
+ *  tutto bianco (lampo) o di taglio (la cartolina che si gira) */
+export function anteprimaChiara(dest: HTMLCanvasElement, tr: Transition) {
+  const ctx = dest.getContext('2d', { willReadFrequently: true });
+  for (const p of [0.5, 0.4, 0.32, 0.6, 0.25, 0.7]) {
+    anteprima(dest, tr, p);
+    if (!ctx) return;
+    let d: Uint8ClampedArray;
+    try { d = ctx.getImageData(0, 0, dest.width, dest.height).data; } catch { return; }
+    let n = 0, s = 0, s2 = 0;
+    for (let i = 0; i < d.length; i += 4 * 7) { const y = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255; s += y; s2 += y * y; n++; }
+    const media = s / n, dev = Math.sqrt(Math.max(0, s2 / n - media * media));
+    if (dev > 0.07 && media > 0.06 && media < 0.94) return;
+  }
+  anteprima(dest, tr, 0.35);
+}
+
 /** anteprima ferma a metà; al passaggio del mouse (o al tocco) si anima */
 export function anteprimaViva(dest: HTMLCanvasElement, tr: Transition) {
   anteprima(dest, tr, 0.5);

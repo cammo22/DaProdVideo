@@ -9,7 +9,8 @@ import { avviso } from './ui/dom';
 import type { Clip, Transition } from './core/tipi';
 import { STILI_CONTO, type StileConto } from './render/grafica';
 import { applicaPresetTitolo, presetTitolo } from './core/generatori';
-import { cambiaModello, durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioneSul } from './core/blocchi';
+import { suonoTitolo } from './core/suoni';
+import { durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioniSul } from './core/blocchi';
 
 export interface Azione {
   id: string;
@@ -207,17 +208,21 @@ export function mettiBlocco(tipo: 'effetto' | 'transizione', id: string, f = hea
   const tg = taglioVicino(p, rif, soglia, tk);
   if (tipo === 'transizione') {
     if (!tg) { avviso('Non c\'è un taglio vicino al cursore: portalo su un taglio (↑ ↓) o trascina la transizione sopra', 'info', 2600); return null; }
-    const gia = transizioneSul(p, tg);
-    if (gia) {
-      if (gia.fxb!.id === id) {
-        store.edit('Togli transizione', (pp) => { pp.clips = pp.clips.filter((c) => c.id !== gia.id); });
-        avviso(`${nomeBlocco(gia.fxb!)} tolta`, 'tasto', 1200);
-        return null;
-      }
-      store.edit('Cambia transizione', (pp) => { const c = clipById(pp, gia.id)!; c.fxb = cambiaModello(c.fxb!, id); c.name = nomeBlocco(c.fxb); });
-      store.select([gia.id]);
-      avviso(`✦ ${nomeBlocco(clipById(store.doc, gia.id)!.fxb!)} al posto di prima`, 'tasto', 1400);
-      return gia.id;
+    // sullo stesso taglio le transizioni si sommano; la stessa una seconda volta la toglie
+    const gia = transizioniSul(p, tg);
+    const uguale = gia.find((c) => c.fxb!.id === id);
+    if (uguale) {
+      store.edit('Togli transizione', (pp) => { pp.clips = pp.clips.filter((c) => c.id !== uguale.id); });
+      avviso(`${nomeBlocco(uguale.fxb!)} tolta`, 'tasto', 1200);
+      return null;
+    }
+    if (gia.length) {
+      // la nuova prende la stessa durata e lo stesso posto della prima: lavorano insieme
+      const g0 = gia[0];
+      const c = store.edit('Somma transizione', (pp) => posaBlocco(pp, bloccoNuovo(tipo, id), g0.start, g0.len, g0.track));
+      store.select([c.id]);
+      avviso(`✦ ${nomeBlocco(c.fxb!)} si somma a ${gia.map((x) => nomeBlocco(x.fxb!)).join(' + ')}`, 'tasto', 1600);
+      return c.id;
     }
   }
   const posto = postoBlocco(p, tipo, rif, len, soglia, tk, tipo === 'effetto');
@@ -534,17 +539,17 @@ export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'titl
       const c = newClip('bars', tv(len), f, len, { name: 'Barre colore SMPTE', gen: { bars: 'smpte' }, link: l }); pp.clips.push(c); out.push(c.id);
       const t = newClip('tone', ta(len), f, len, { name: 'Tono 1 kHz −18 dBFS', gen: { freq: 1000, level: -18 }, link: l }); pp.clips.push(t); out.push(t.id);
     } else if (kind === 'countdown') {
-      // da N a 1, un numero al secondo, con un bip a ogni numero (legato: si sposta insieme)
+      // da N a 1, un numero al secondo, col bip a ogni numero dentro la clip (una riga sola, niente clip audio)
       const len = Math.round(rr * conto.secondi);
-      const l = uid('l');
       const nome = STILI_CONTO.find((x) => x.id === conto.stile)?.nome ?? 'Countdown';
-      const c = newClip('countdown', tv(len), f, len, { name: `Countdown ${nome} ${conto.secondi}…1`, gen: { conto: conto.stile }, link: l }); pp.clips.push(c); out.push(c.id);
-      const b = newClip('beep', ta(len), f, len, { name: 'Bip del countdown', gen: { freq: 1000, level: -20, ogni: 1, bip: 0.08 }, link: l }); pp.clips.push(b); out.push(b.id);
+      const c = newClip('countdown', tv(len), f, len, { name: `Countdown ${nome} ${conto.secondi}…1`, gen: { conto: conto.stile }, sfx: { suono: 'bip', audio: true, volume: -8 } }); pp.clips.push(c); out.push(c.id);
     } else if (kind === 'title') {
       const len = Math.round(rr * 5 * (opz.titolo ? presetTitolo(opz.titolo)?.volte ?? 1 : 1));
       // i titoli stanno sopra: si parte dalla traccia video più alta
       const c = newClip('title', tv(len, trackId ?? pp.tracks.find((t) => t.kind === 'video' && !t.lock)?.id ?? null), f, len, { name: 'Titolo', gen: { title: { ...TITLE0 } } });
       if (opz.titolo) applicaPresetTitolo(c, opz.titolo);
+      // il suono del titolo sta dentro la clip, spento: si accende dall'altoparlante (come gli FX)
+      c.sfx = { suono: suonoTitolo(c.gen?.title?.style), audio: false };
       pp.clips.push(c); out.push(c.id);
     } else {
       const len = Math.round(rr * 5);

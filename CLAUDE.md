@@ -5,7 +5,8 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
 
 - **Si scrive in italiano parlato**: commenti, CHANGELOG, README, messaggi dell'interfaccia. Nomi tecnici in inglese dove serve.
 - **Una versione = `version` in `package.json` + voce in `CHANGELOG.md`.** Unita su `main`, la CI (`.github/workflows/app.yml`)
-  compila EXE portatile e setup, DMG, APK e pubblica la release da sola. Il numero sale di 0.0.1 (1.0.9 → 1.1.0).
+  compila EXE portatile e setup e il DMG e pubblica la release da sola (le prove girano ma non la fermano; **Android è in
+  pausa**: il job c'è ma è spento con `if: false`). Il numero sale di 0.0.1 (1.0.9 → 1.1.0). Cammo vuole il push dritto su `main`.
 - **Le prove si fanno girare**: `npm run build` e poi `node test/prove.mjs` (Chromium: WebM/VP9, niente H.264).
   `node test/foto.mjs` fa le foto in `test/.out/`: si guardano prima di pubblicare.
 - I tasti numerici sono sacri: **1 taglia, 2 elimina** (li ha chiesti Cammo). **S** separa/unisce, **Q/W** tolgono lo scarto,
@@ -39,12 +40,27 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   le prove vecchie lo spengono); telecomando = Document PiP nel browser, finestra piccola `setAlwaysOnTop` nell'app
   (permessi in `capabilities/default.json`). Le scelte stanno in localStorage `dpv-live`; le registrazioni vanno
   nella cartella *Registrazioni* e non propongono il formato del progetto.
+- **Sposta e ingrandisci sull'immagine** (`src/ui/posiziona.ts`, dentro il monitor): clic sull'immagine sceglie la clip più
+  in alto lì sotto (`riquadroClip` fa lo stesso conto del compositore; i titoli si stringono attorno alle lettere),
+  trascina = sposta, angoli = grandezza, pallino = gira, aggancio al centro/bordi (Alt = libero). **Movimento**: `c.tfFine`
+  = la posizione alla fine, `tfAl(c, lf)` in `src/core/progetto.ts` va da `tf` a `tfFine` con la S; movimenti pronti in
+  `src/core/cornici.ts` (`movimentoPronto`). Gli **effetti col centro** (bolla, vortice, caleido, zoom, riflesso:
+  `haCentro` in `blocchi.ts`) hanno `fxb.pos`/`fxb.posFine` (frazioni del quadro): il mirino sul monitor, `u_centro` e
+  `u_sole` nello shader FX.
+- **Transizioni che si sommano**: più blocchi sullo stesso taglio (`transizioniSul`) vanno in catena nel compositore
+  (buffer 5 e 6): la prima fa A→B, le "effetto" (`eEffetto` in `piano.ts`: lampo, luce, onda, glitch…) si applicano sopra
+  il risultato (vecchia = nuova = risultato), le altre vanno da A al risultato. `Strato.altre`.
+- **Suono dentro le clip**: titoli, countdown e colori hanno `c.sfx` (come `fxb.suono/audio/volume`), suonato da
+  `suoniFx` (il countdown con `bip` fa un colpo al secondo); in timeline l'altoparlante sulla clip (`altoparlanteClip`).
 - **Angoli tondi e ombra** sono campi del Transform (`tf.angoli`, `tf.ombra`): lo shader del livello fa la distanza da
   un rettangolo arrotondato (`u_box`, `u_round`, `u_feather`) e l'ombra è una passata nera più grande prima della clip.
 - **Contenitore a esplora risorse** (`src/ui/contenitore.ts`): albero a sinistra (`bin-cat[data-c]`: tutto, video,
   audio, immagini, `dir:<id>`, transizioni/`tr:*`, titoli/`tit:*`, effetti/`fx:*`), cartelle in `p.cartelle` e
   `m.cartella`; l'import va nella cartella aperta e da Video/Musica/Immagini filtra i file. Le anteprime al passaggio
-  (`src/render/provino.ts`) usano i fotogrammi veri del cursore e del taglio dopo (canvas `.provino.vero`). Titoli e
+  (`src/render/provino.ts`) usano i fotogrammi veri del cursore e del taglio dopo (canvas `.provino.vero`), fatti col
+  montaggio "pulito" (solo riprese e colori: niente titoli, FX, transizioni, sottotitoli, logo); se lì è nero si prende
+  il primo fotogramma buono più avanti. Le anteprime ferme delle transizioni si fermano dove si capisce (`anteprimaChiara`),
+  quelle dei titoli sono il titolo vero disegnato piccolo. Titoli e
   countdown pronti in `src/core/generatori.ts`; il countdown conta N..1 (`numeroConto`) col bip legato.
 - **Dissolvenze con la forma**: `c.curvaIn/curvaOut` (`Curva {k, s}`), `curvaFade`/`fadeAl`/`CURVE` in
   `src/core/progetto.ts`, uguali per volume e trasparenza; in timeline si piega la linea, tasto destro = menu.

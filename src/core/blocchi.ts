@@ -27,6 +27,10 @@ export interface StatoFx {
   bagliore: number; flare: number; flarePh: number; arco: number; arcoPh: number; espo: number; neon: number;
   // distorsioni
   onda: number; bolla: number; vortice: number; caleido: number; calore: number; zblur: number;
+  /** il centro di zoom e distorsioni (frazioni del quadro, y in basso): quello degli effetti che l'hanno spostato */
+  cx: number; cy: number;
+  /** dove sta il sole del riflesso d'obiettivo, se l'hai messo tu (NaN = passa da solo in alto) */
+  soleX: number; soleY: number;
 }
 
 const neutro = (): StatoFx => ({
@@ -34,7 +38,22 @@ const neutro = (): StatoFx => ({
   flash: 0, flashCol: [1, 1, 1], fade: 0, fadeCol: [0, 0, 0], luce: 0, lucePh: 0, bande: 0, vhs: 0,
   bagliore: 0, flare: 0, flarePh: 0, arco: 0, arcoPh: 0, espo: 0, neon: 0,
   onda: 0, bolla: 0, vortice: 0, caleido: 0, calore: 0, zblur: 0,
+  cx: 0.5, cy: 0.5, soleX: NaN, soleY: NaN,
 });
+
+/** gli effetti che hanno un centro da mettere dove vuoi sul quadro (e da far muovere lungo il blocco) */
+const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare']);
+export const haCentro = (id: string) => { const e = effettoTempo(id); return !!e && CENTRATI.has(e.motore); };
+
+/** il centro del blocco al fotogramma f: fermo in pos, o in viaggio da pos a posFine (partenza e arrivo dolci) */
+export function centroBlocco(bl: Clip, f: number): [number, number] {
+  const b = bl.fxb!;
+  const a = b.pos ?? [0.5, 0.5];
+  if (!b.posFine) return a;
+  const x = Math.max(0, Math.min(1, (f - bl.start + 0.5) / Math.max(1, bl.len)));
+  const t = x * x * (3 - 2 * x);
+  return [a[0] + (b.posFine[0] - a[0]) * t, a[1] + (b.posFine[1] - a[1]) * t];
+}
 
 type Motore = 'flash' | 'scossa' | 'camera' | 'zoomColpo' | 'battito' | 'zoomLento' | 'glitch' | 'rgb' | 'negativo' | 'strobo'
   | 'pixel' | 'sfocaEntra' | 'sfocaEsce' | 'dalColore' | 'alColore' | 'luce' | 'bande' | 'bn' | 'tornaColore' | 'vhs'
@@ -359,11 +378,21 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
  *  Valgono per la traccia e per tutto quello che sta sotto (come un livello di regolazione). */
 export function statoEffetti(p: Project, f: number, track?: string): StatoFx | null {
   let st: StatoFx | null = null;
+  // il centro comune: la media dei centri degli effetti che ce l'hanno (pesata sulla forza)
+  let px = 0, py = 0, peso = 0;
   for (const c of blocchiAccesi(p, 'effetto', track)) {
     if (f < c.start || f >= end(c)) continue;
     st ??= neutro();
     applica(st, p, c, f);
+    const e = effettoTempo(c.fxb!.id);
+    if (e && CENTRATI.has(e.motore) && c.fxb!.pos) {
+      const [x, y] = centroBlocco(c, f);
+      const w = Math.max(0.05, c.fxb!.forza);
+      if (e.motore === 'flare') { st.soleX = x; st.soleY = y; continue; }
+      px += x * w; py += y * w; peso += w;
+    }
   }
+  if (st && peso > 0) { st.cx = px / peso; st.cy = py / peso; }
   if (st) {
     // il tetto: sommati restano belli (oltre, l'immagine si romperebbe e basta)
     st.desat = Math.min(1, st.desat); st.invert = Math.min(1, st.invert);
@@ -392,9 +421,14 @@ export function blocchiDi(p: Project, c: Clip): Clip[] {
   });
 }
 
-/** la transizione che lavora già su quel taglio (una sola per taglio) */
+/** la transizione che lavora già su quel taglio (la prima: se ce ne sono più d'una si sommano) */
 export function transizioneSul(p: Project, tg: Taglio): Clip | undefined {
-  return p.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.track === tg.track && c.start <= tg.f && end(c) >= tg.f
+  return transizioniSul(p, tg)[0];
+}
+
+/** tutte le transizioni di quel taglio: lavorano in catena, una sopra l'altra (si sommano) */
+export function transizioniSul(p: Project, tg: Taglio): Clip[] {
+  return p.clips.filter((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.track === tg.track && c.start <= tg.f && end(c) >= tg.f
     && taglioDelBlocco(p, c)?.f === tg.f);
 }
 

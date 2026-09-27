@@ -1,7 +1,7 @@
 // Le cornici pronte di una clip: la bolla della webcam in un angolo e lo stile presentazione (lo schermo
 // registrato un po' più piccolo, con gli angoli tondi e l'ombra, sopra uno sfondo sfumato). Sono solo
 // numeri del Transform (src/core/tipi.ts): il compositore li disegna uguali nel monitor e nell'export.
-import type { MediaItem, Project, Transform } from './tipi';
+import type { Clip, MediaItem, Project, Transform } from './tipi';
 import { TF0 } from './progetto';
 
 export type Angolo = 'bd' | 'bs' | 'ad' | 'as';
@@ -56,3 +56,32 @@ export const SFONDI: { id: string; nome: string; a: string; b: string }[] = [
   { id: 'carta', nome: 'Carta', a: '#f4efe6', b: '#cfc6b5' },
   { id: 'daprod', nome: 'DaProd', a: '#ffcf3a', b: '#e0532b' },
 ];
+
+/** i movimenti pronti: partono dalla posizione che la clip ha adesso (che diventa l'arrivo, o la partenza) */
+export const MOVIMENTI: { id: string; nome: string }[] = [
+  { id: 'fermo', nome: 'Fermo' },
+  { id: 'daSinistra', nome: 'Entra da sinistra' },
+  { id: 'daDestra', nome: 'Entra da destra' },
+  { id: 'dalBasso', nome: 'Sale dal basso' },
+  { id: 'dallAlto', nome: 'Scende dall\'alto' },
+  { id: 'avvicina', nome: 'Si avvicina' },
+  { id: 'allontana', nome: 'Si allontana' },
+  { id: 'scivola', nome: 'Scivola (Ken Burns)' },
+  { id: 'gira', nome: 'Gira e arriva' },
+];
+
+export function movimentoPronto(p: Project, c: Clip, id: string) {
+  const base = structuredClone(c.tfFine && id !== 'fermo' ? c.tfFine : c.tf);
+  const con = (d: Partial<Transform>): Transform => ({ ...base, ...d });
+  switch (id) {
+    case 'fermo': delete c.tfFine; return;
+    case 'daSinistra': c.tf = con({ x: base.x - p.w }); c.tfFine = base; break;
+    case 'daDestra': c.tf = con({ x: base.x + p.w }); c.tfFine = base; break;
+    case 'dalBasso': c.tf = con({ y: base.y + p.h }); c.tfFine = base; break;
+    case 'dallAlto': c.tf = con({ y: base.y - p.h }); c.tfFine = base; break;
+    case 'avvicina': c.tf = base; c.tfFine = con({ scale: base.scale * 1.25 }); break;
+    case 'allontana': c.tf = con({ scale: base.scale * 1.25 }); c.tfFine = base; break;
+    case 'scivola': c.tf = con({ scale: base.scale * 1.12, x: base.x - p.w * 0.05 }); c.tfFine = con({ scale: base.scale * 1.12, x: base.x + p.w * 0.05 }); break;
+    case 'gira': c.tf = con({ scale: base.scale * 0.2, rot: base.rot - 180 }); c.tfFine = base; break;
+  }
+}

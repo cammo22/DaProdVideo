@@ -191,7 +191,8 @@ jobs:
           path: uscita/*
 
   release:
-    needs: [versione, prove, desktop]
+    # le prove girano lo stesso (si guardano nel loro job) ma non fermano la release
+    needs: [versione, desktop]
     if: needs.versione.outputs.pubblica == 'true'
     runs-on: ubuntu-latest
     steps:

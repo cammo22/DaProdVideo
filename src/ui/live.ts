@@ -185,7 +185,7 @@ const bitrate = (q: number, f: number) => Math.round((q <= 720 ? 5 : q <= 1080 ?
 interface Nastro { fatto: Promise<Tratto>; ferma: (taglio: number) => void }
 function nastro(flusso: MediaStream, tipo: string, vbps: number): Nastro {
   const tracce = flusso.getTracks().map((t) => t.clone());
-  const rec = new MediaRecorder(new MediaStream(tracce), { mimeType: tipo || undefined, videoBitsPerSecond: vbps, audioBitsPerSecond: 160_000 });
+  const rec = new MediaRecorder(new MediaStream(tracce), { mimeType: tipo || undefined, videoBitsPerSecond: vbps, audioBitsPerSecond: 192_000 });
   const dati: Blob[] = [];
   let taglio = Infinity, fermo = false, tardivi = 0, attesa = 0;
   const fatto = new Promise<Tratto>((ok) => {
@@ -622,6 +622,10 @@ export class Live {
     motore.stop();
     this.fermaProvaMic();
     const o = this.opz;
+    // il mixer dell'audio si accende adesso, col clic: dopo la scelta dello schermo il browser lo terrebbe spento
+    // (e l'audio del computer mescolato al microfono usciva muto o a singhiozzo)
+    let mixer: AudioContext | null = null;
+    try { mixer = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' }); void mixer.resume().catch(() => {}); } catch { mixer = null; }
     let schermo: MediaStream;
     try {
       schermo = sorgenteProva ? await sorgenteProva(o.sistema) : await navigator.mediaDevices.getDisplayMedia({
@@ -629,11 +633,14 @@ export class Live {
           frameRate: { ideal: o.fps }, height: { ideal: o.qualita }, width: { ideal: Math.round(o.qualita * 16 / 9) },
           ...({ cursor: o.cursore ? 'always' : 'never' } as object),
         },
-        audio: o.sistema,
-        // Chrome: niente "questa scheda" in cima, l'audio del sistema se c'è
-        ...({ selfBrowserSurface: 'exclude', systemAudio: 'include', surfaceSwitching: 'include' } as object),
+        // l'audio del computer così com'è: niente cancellazione dell'eco, niente filtri anti-rumore, niente volume
+        // automatico (sono fatti per la voce e rovinano musica e suoni), in stereo
+        audio: o.sistema ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, sampleRate: 48000, ...({ suppressLocalAudioPlayback: false } as object) } as MediaTrackConstraints : false,
+        // Chrome: niente "questa scheda" in cima, l'audio del sistema (anche registrando una finestra sola)
+        ...({ selfBrowserSurface: 'exclude', systemAudio: 'include', windowAudio: 'system', surfaceSwitching: 'include' } as object),
       } as DisplayMediaStreamOptions);
     } catch {
+      void mixer?.close().catch(() => {});
       this.stato.textContent = 'Registrazione annullata';
       this.aggiornaTasti();
       return;
@@ -651,21 +658,34 @@ export class Live {
         audio.push(mic);
       } catch { avviso('Il microfono non si apre: registro senza', 'info', 2400); }
     }
-    if (audio.length === 1) tracce.push(...audio[0].getAudioTracks());
+    let mix: MediaStream | null = null;
+    if (audio.length === 1) { tracce.push(...audio[0].getAudioTracks()); void mixer?.close().catch(() => {}); }
     else if (audio.length > 1) {
-      const ctx = new AudioContext();
+      const ctx = mixer ?? new AudioContext({ sampleRate: 48000 });
+      void ctx.resume().catch(() => {});
       this.audioCtx = ctx;
       const dest = ctx.createMediaStreamDestination();
-      for (const a of audio) ctx.createMediaStreamSource(a).connect(dest);
+      dest.channelCount = 2;
+      // un limitatore alla fine: voce e computer insieme non vanno mai in distorsione
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = -3; lim.knee.value = 2; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
+      lim.connect(dest);
+      for (const a of audio) {
+        const g = ctx.createGain();
+        // il microfono (mono) un filo più su, il computer com'è
+        g.gain.value = a === mic ? 1.15 : 1;
+        ctx.createMediaStreamSource(a).connect(g).connect(lim);
+      }
       tracce.push(...dest.stream.getAudioTracks());
-    }
+      mix = dest.stream;
+    } else void mixer?.close().catch(() => {});
     if (o.cam && !this.cam) await this.apriCam();
     this.flusso = new MediaStream(tracce);
     this.tipo = formato();
     this.tipoCam = formato(true);
     this.video.srcObject = schermo;
     void this.video.play().catch(() => {});
-    if (audio.length) this.avviaVu(mic ?? audio[0], mic ? 'microfono' : 'audio del computer');
+    if (audio.length) this.avviaVu(mix ?? mic ?? audio[0], mix ? 'microfono + computer' : mic ? 'microfono' : 'audio del computer');
     const st = schermo.getVideoTracks()[0]?.getSettings?.() ?? {};
     this.info.textContent = [st.width && st.height ? `${st.width}×${st.height}` : '', st.frameRate ? `${Math.round(st.frameRate)} fps` : '', mic ? 'microfono' : '', schermo.getAudioTracks().length ? 'audio del computer' : '', this.cam ? 'webcam' : ''].filter(Boolean).join(' · ');
     // se si ferma la condivisione dalla barra del sistema, è come premere FERMA

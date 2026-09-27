@@ -47,8 +47,9 @@ ed elimini. Gira su **Windows, Mac e Android** e, in versione prova, **nel brows
 11. **`F10`** apre la pagina **LIVE**: **REGISTRA** (`R`, col 3-2-1), **PAUSA** (`Spazio`), **SEGNA** (`M`), **FERMA** (`F`). Col microfono (VU e scelta del microfono), l'audio del computer e la **webcam**, che si registra a parte e va sulla traccia sopra come **bolla** nell'angolo che scegli; lo **stile presentazione** mette lo schermo con angoli tondi e ombra su uno sfondo sfumato. Il **TELECOMANDO** resta sopra le altre finestre mentre registri. Tutto finisce nella cartella *Registrazioni* e in fondo alla timeline, legato insieme.
 12. **`V`** stringe la timeline: **proprietà, mixer e VU scendono fino in fondo** a destra (di nuovo `V` per tornare larga). La **barra a destra** della timeline scorre su e giù fra le tracce.
 13. **`P`** fa un'**istantanea** del fotogramma nel contenitore, da allungare quanto vuoi (**`Shift+P`**: fermo immagine al cursore).
-14. **File → Salva il pacchetto .daprod**: il progetto **con dentro tutti i suoi file** (uno zip vero, i file restano identici). Lo apri su un altro computer e ritrovi tutto. Il **.dpv** invece è il progetto leggero: tiene il montaggio, i file restano dove sono.
-15. A **schermo pieno** le tracce crescono da sole; **`Ctrl+Shift`+rotella** le alza e le abbassa. Nell'app **`Ctrl +`** e **`Ctrl −`** ingrandiscono tutta l'interfaccia.
+14. **Sull'immagine del monitor**: clic su quello che vedi e lo scegli; trascina per spostarlo, tira un angolo per ingrandirlo, il pallino in alto lo gira. **↝ Movimento** gli dà una posizione d'inizio e una di fine (◀ Inizio / Fine ▶) e ci va piano piano; nelle proprietà ci sono i movimenti pronti (entra da sinistra, sale dal basso, si avvicina…). Gli effetti come **bolla**, **vortice** e **zoom** hanno un mirino: mettilo dove vuoi, anche in movimento. Più **transizioni sullo stesso taglio si sommano**.
+15. **File → Salva il pacchetto .daprod**: il progetto **con dentro tutti i suoi file** (uno zip vero, i file restano identici). Lo apri su un altro computer e ritrovi tutto. Il **.dpv** invece è il progetto leggero: tiene il montaggio, i file restano dove sono.
+16. A **schermo pieno** le tracce crescono da sole; **`Ctrl+Shift`+rotella** le alza e le abbassa. Nell'app **`Ctrl +`** e **`Ctrl −`** ingrandiscono tutta l'interfaccia.
 
 ### 🎛 La pulsantiera
 

@@ -26,7 +26,30 @@ export const SUONI: Suono[] = [
   { id: 'battito', nome: 'Battito', durata: 0.9, picco: 0.02 },
   { id: 'campanella', nome: 'Campanella', durata: 1.8, picco: 0.01 },
   { id: 'riverso', nome: 'Piatto al contrario', durata: 1.6, picco: 1.55 },
+  // quelli dei titoli e dei generatori
+  { id: 'bip', nome: 'Bip (1 kHz)', durata: 0.12, picco: 0 },
+  { id: 'tasti', nome: 'Macchina da scrivere', durata: 1.4, picco: 0 },
+  { id: 'ronzio', nome: 'Neon che si accende', durata: 1.1, picco: 0.05 },
+  { id: 'pop', nome: 'Pop', durata: 0.3, picco: 0.01 },
+  { id: 'ding', nome: 'Ding (notifica)', durata: 1.2, picco: 0.01 },
 ];
+
+/** il suono che va bene con un titolo (acceso dall'altoparlante sulla clip) */
+export function suonoTitolo(stile?: string): string {
+  switch (stile) {
+    case 'macchina': return 'tasti';
+    case 'neon': return 'ronzio';
+    case 'rimbalzo': return 'pop';
+    case 'social': return 'ding';
+    case 'cinema': return 'impatto';
+    case 'crawl': case 'rullo': return 'riser';
+    case 'etichetta': return 'pop';
+    case 'rivela': return 'swish';
+    case 'glitch': return 'glitch';
+    case 'grande': return 'impatto';
+    default: return 'whoosh';
+  }
+}
 
 export const suono = (id: string | undefined) => (id ? SUONI.find((s) => s.id === id) : undefined);
 
@@ -35,6 +58,9 @@ export function suonoTransizione(id: string): string | undefined {
   if (id === 'mix' || id === 'dip') return undefined;
   if (id.startsWith('wipe')) return 'swish';
   if (id === 'dve:351') return 'zap';
+  if (id === 'dve:581' || id === 'dve:591') return 'pop';
+  if (id === 'dve:571') return 'glitch';
+  if (id === 'dve:561') return 'riverso';
   if (id === 'dve:371') return 'glitch';
   if (id === 'dve:361') return 'riverso';
   if (id === 'dve:451' || id === 'dve:491') return 'zap';

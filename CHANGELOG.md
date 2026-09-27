@@ -4,6 +4,45 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.0] — 2026-09-27 · Sposti e ingrandisci sull'immagine, le cose si muovono, le transizioni si sommano 🎯
+
+> 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).
+
+### Sposta, ingrandisci e fai muovere, direttamente sull'immagine
+- **Clic su quello che vedi nel monitor** e lo scegli: la ripresa, la bolla della webcam, il titolo, il colore.
+- **Trascina** per spostarlo, **tira un angolo** per ingrandirlo o rimpicciolirlo, **il pallino in alto** lo gira. Si aggancia da solo al centro e ai bordi del quadro (e al 100%); con **Alt** è libero.
+- **↝ Movimento**: accendilo dalla barretta sopra l'immagine e la clip ha **due posizioni**, quella d'inizio e quella di fine. Con **◀ Inizio** e **Fine ▶** vai all'una o all'altra e la sistemi; lungo la clip ci va piano piano, partendo e arrivando dolce. Sul monitor vedi il riquadro di arrivo, quello di partenza tratteggiato e la freccia del percorso.
+- **Movimenti pronti** nelle proprietà: *Entra da sinistra*, *Entra da destra*, *Sale dal basso*, *Scende dall'alto*, *Si avvicina*, *Si allontana*, *Scivola (Ken Burns)*, *Gira e arriva*. ⟲ rimette tutto com'era.
+- **Anche gli effetti hanno il loro centro**: la **bolla**, il **vortice**, il **caleidoscopio**, gli **zoom** e il **riflesso d'obiettivo** hanno un **mirino** sul monitor. Mettilo dove vuoi (la bolla sulla faccia, lo zoom su un dettaglio, il sole in un angolo); col **Movimento** parte da un punto e arriva a un altro.
+
+### Le transizioni si sommano
+- **Più transizioni sullo stesso taglio lavorano insieme**: il cubo che gira **e** il lampo **e** l'onda. Trascinane una sopra un taglio che ne ha già una e si aggiunge (prende la stessa durata); la stessa una seconda volta la toglie.
+- Quelle che portano dalla vecchia alla nuova (cubo, spinte, tendine, dissolvenza) fanno il passaggio; quelle che sono "un effetto" (lampo, luce, onda, glitch, sfocata, vortice, mosaico…) si mettono **sopra**, così si vedono tutte.
+
+### Sette transizioni nuove
+- **Persiane** (le stecche girano una dopo l'altra), **Scacchiera** (le caselle si girano a caso), **Tuffo** (la vecchia si allontana girando), **Inchiostro** (la nuova si spande come una goccia nell'acqua), **Colori sdoppiati**, **Bolle**, **Rimbalzo** (la nuova cade dall'alto e rimbalza).
+
+### Titoli nuovi, e anteprime vere
+- **Sfumato** (lettere che sfumano da un colore all'altro, con l'alone), **Rivela** (il testo si scopre dietro una barra colorata), **Glitch** (colori sdoppiati che saltano), **Grande** (enorme, con due righe sottili), **Etichetta** (la pillola "NUOVO VIDEO" che salta dentro).
+- Le schede dei titoli nel contenitore sono **disegnate col titolo vero**: quello che vedi è quello che esce.
+
+### Il suono sta dentro la clip (una riga sola)
+- **Titoli, countdown e colori portano il loro suono dentro**, come gli FX: niente più clip audio a parte. Sulla clip c'è l'**altoparlante**: clic = acceso/spento, tasto destro = scegli il suono (e passandoci sopra li senti).
+- **Il countdown fa il bip dentro di sé**, uno a ogni numero.
+- Ogni titolo nasce col suo suono giusto, spento: whoosh, **macchina da scrivere**, **neon che si accende**, **pop**, **ding**, impatto, glitch…
+- Video e audio delle riprese restano come prima, su righe separate.
+
+### Anteprime del contenitore sistemate
+- Le anteprime al passaggio del mouse usano l'**immagine pulita** del montaggio al cursore: senza i titoli, gli FX e le transizioni che ci sono già (prima il titolo di prova finiva sopra quello vero, e un effetto sopra un lampo).
+- Col cursore su un punto nero o vuoto prende il primo fotogramma buono poco più in là, invece delle immagini di prova "A/B".
+- Le anteprime ferme delle transizioni non sono più tutte nere o tutte bianche (il passaggio al nero, la girata, il lampo): si fermano in un punto dove si capisce.
+- Nei progetti verticali l'anteprima non si schiaccia più, e un'anteprima non resta a girare di nascosto.
+
+### LIVE: l'audio del computer come si deve
+- L'audio del sistema si prende **così com'è**, in stereo: niente cancellazione dell'eco, niente filtri anti-rumore, niente volume automatico (sono fatti per la voce e rovinavano musica e suoni).
+- Col microfono insieme, il mixer parte al clic su REGISTRA (prima poteva restare spento e l'audio usciva muto o a singhiozzo), con un limitatore che non lo fa mai distorcere. Il VU mostra la somma.
+- In Chrome/Edge c'è l'audio anche registrando **una finestra sola**.
+
 ## [1.0.7] — 2026-09-27 · Il pacchetto .daprod, LIVE con la webcam, il contenitore a cartelle e le dissolvenze che hanno una forma 📦
 
 > 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser). L'APK torna più avanti.

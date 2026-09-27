@@ -43,15 +43,26 @@ let tenute: { chiave: string; a: ImageBitmap; b: ImageBitmap } | null = null;
 let inCorso: { chiave: string; lavoro: Promise<{ a: ImageBitmap; b: ImageBitmap } | null> } | null = null;
 let prova: Promise<[ImageBitmap, ImageBitmap]> | null = null;
 
-/** il primo taglio dopo f su una traccia video (dove comincia la clip dopo) */
+/** le immagini "pulite" del montaggio: le riprese e i colori, senza titoli, FX, transizioni, sottotitoli e logo
+ *  (se no l'anteprima di un titolo finisce sopra il titolo che c'è già, e un effetto sopra un lampo) */
+const PULITE = new Set(['media', 'color', 'bars', 'countdown']);
+function pulito(p: Project): Project {
+  return {
+    ...p, clips: p.clips.filter((c) => PULITE.has(c.kind)).map((c) => (c.trIn || c.trOut ? { ...c, trIn: undefined, trOut: undefined } : c)),
+    sottotitoli: undefined, master: { ...MASTER0, ...(p.master ?? {}), logo: null },
+  };
+}
+
+/** il primo taglio dopo f su una traccia video (dove comincia la ripresa dopo: non un titolo, non un FX) */
 function prossimoTaglio(p: Project, f: number): number | null {
   let t: number | null = null;
-  for (const c of p.clips) if (isVideoClip(c, p) && c.start > f + 1 && (t === null || c.start < t)) t = c.start;
+  for (const c of p.clips) if (PULITE.has(c.kind) && isVideoClip(c, p) && c.start > f + 1 && (t === null || c.start < t)) t = c.start;
   return t;
 }
 
 /** fotografa il montaggio al fotogramma f, piccolo (null se lì non c'è immagine) */
-async function scatta(p: Project, f: number): Promise<ImageBitmap | null> {
+async function scatta(p0: Project, f: number): Promise<ImageBitmap | null> {
+  const p = pulito(p0);
   const strati = pianoVideo(p, f);
   if (!strati.length) return null;
   const lettori = new Lettori();
@@ -104,9 +115,17 @@ export async function fotogrammiAlCursore(): Promise<{ a: ImageBitmap; b: ImageB
     inCorso = {
       chiave,
       lavoro: (async () => {
-        const a = await scatta(p, f);
+        // al cursore può non esserci immagine (dal nero, un buco, dopo la fine): si prende la prima buona poco più in là
+        const r = fps(p.rate);
+        const prima = p.clips.filter((c) => PULITE.has(c.kind) && isVideoClip(c, p)).sort((x, y) => x.start - y.start)[0];
+        let fa = f, a: ImageBitmap | null = null;
+        for (const g of [f, f + Math.round(r * 0.5), f + r, prima ? prima.start + Math.round(prima.len / 2) : -1]) {
+          if (g < 0) continue;
+          a = await scatta(p, g);
+          if (a) { fa = g; break; }
+        }
         if (!a) return null;
-        const t = prossimoTaglio(p, f);
+        const t = prossimoTaglio(p, fa);
         const b = (t !== null ? await scatta(p, t) : null) ?? a;
         return { a, b };
       })(),
@@ -221,13 +240,16 @@ export function scenaSala(kind: 'bars' | 'color' | 'nero'): Costruttore {
 // ——— il provino che gira: uno alla volta, quello sotto il mouse ———
 let attivo: (() => void) | null = null;
 
-/** disegna la scena nella tela di destinazione al fotogramma f */
+/** disegna la scena nella tela di destinazione al fotogramma f (senza deformarla: bande nere se serve) */
 function disegna(dest: HTMLCanvasElement, s: Scena, f: number, a: ImageBitmap, b: ImageBitmap): boolean {
   const fg = fotografoPer(s.p);
   if (!fg) return false;
   fg.comp.render(s.p, pianoVideo(s.p, f), false, f, (x) => (x.clip.media === 'provB' ? b : a));
   const ctx = dest.getContext('2d')!;
-  ctx.drawImage(fg.tela, 0, 0, dest.width, dest.height);
+  const k = Math.min(dest.width / fg.tela.width, dest.height / fg.tela.height);
+  const w = fg.tela.width * k, h = fg.tela.height * k;
+  if (w < dest.width - 1 || h < dest.height - 1) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, dest.width, dest.height); }
+  ctx.drawImage(fg.tela, (dest.width - w) / 2, (dest.height - h) / 2, w, h);
   return true;
 }
 
@@ -247,6 +269,8 @@ export function suonaProvino(dest: HTMLCanvasElement, fai: Costruttore): () => v
   });
   const giro = (now: number) => {
     if (!vivo) return;
+    // la scheda non c'è più (la pagina si è ridisegnata): il giro si ferma, non resta a girare di nascosto
+    if (!dest.isConnected) { ferma(); return; }
     if (scena && a && b) {
       if (!t0) t0 = now;
       const r = fps(scena.p.rate);

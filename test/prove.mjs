@@ -583,7 +583,7 @@ try {
     // i suoni degli FX: ci sono tutti, e nel mixaggio si sentono solo se accesi
     {
       const buf = await page.evaluate(() => window.__dpvTest.SU.tuttiISuoni().map((x) => { const d = x.buf?.getChannelData(0); let pk = 0; if (d) for (const v of d) pk = Math.max(pk, Math.abs(v)); return [x.id, Math.round(pk * 100) / 100, x.buf?.duration ?? 0]; }));
-      prova('tredici suoni per gli FX, tutti pronti e a −6 dB', buf.length === 13 && buf.every(([, pk, d]) => pk > 0.3 && pk <= 0.51 && d > 0.3), JSON.stringify(buf));
+      prova('diciotto suoni per FX, titoli e countdown, tutti pronti e a −6 dB', buf.length === 18 && buf.every(([, pk, d]) => pk > 0.3 && pk <= 0.51 && d > 0.1), JSON.stringify(buf));
       const mix = await page.evaluate(async () => {
         const { SU, mixaggio } = window.__dpvTest;
         const d = structuredClone(window.__dpv.doc);
@@ -955,13 +955,12 @@ try {
       const n = [0, 1.2, 3.5, 4.2, 4.99].map((t) => G.numeroConto(t, 5));
       const ids = window.__dpvTest.Z.inserisciGeneratore('countdown', 0, undefined, { conto: { stile: 'neon', secondi: 3 } }) ?? [];
       const d = window.__dpv.doc;
-      const cs = d.clips.filter((c) => c.kind === 'countdown' || c.gen?.ogni);
-      const c = cs.find((x) => x.kind === 'countdown' && x.gen?.conto === 'neon');
-      const b = cs.find((x) => x.gen?.ogni && x.link && x.link === c?.link);
-      return { n, nome: c?.name, len: c?.len, bip: b ? [b.len, b.gen.ogni] : null, ids };
+      const c = d.clips.find((x) => x.kind === 'countdown' && x.gen?.conto === 'neon');
+      const bip = window.__dpvTest.SU.suoniFx(d).filter((e) => e.id.startsWith(c?.id + ':')).length;
+      return { n, nome: c?.name, len: c?.len, bip: c?.sfx?.suono === 'bip' && c.sfx.audio ? [c.len, bip] : null, ids };
     });
     prova('il countdown conta 5, 4, 2, 1, 1 e finisce (niente stop a 2)', cd.n.join(',') === '5,4,2,1,1', cd.n.join(','));
-    prova('il countdown neon da 3 secondi, col bip legato (un colpo al secondo)', cd.nome === 'Countdown Neon 3…1' && cd.len === 75 && cd.bip && cd.bip[0] === 75 && cd.bip[1] === 1, JSON.stringify(cd));
+    prova('il countdown neon da 3 secondi, col bip dentro la clip (tre colpi, uno al secondo)', cd.nome === 'Countdown Neon 3…1' && cd.len === 75 && cd.bip && cd.bip[1] === 3, JSON.stringify(cd));
     await tasto('Control+z');
     // le forme delle dissolvenze: analogica parte piano, veloce sale subito, a S è dolce ai lati
     const cv = await page.evaluate(() => {

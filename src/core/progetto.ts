@@ -149,6 +149,22 @@ export function nomeCurva(cv?: Curva): string {
 }
 
 /** quanto passa della clip al fotogramma locale lf per le sue dissolvenze (0..1) */
+/** la S dei movimenti: parte e arriva piano */
+export const dolceMoto = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
+
+/** la posizione della clip al fotogramma locale lf: ferma (tf) o in movimento verso tfFine lungo tutta la clip */
+export function tfAl(c: Clip, lf: number): Transform {
+  const b = c.tfFine;
+  if (!b) return c.tf;
+  const a = c.tf, t = dolceMoto(lf / Math.max(1, c.len - 1));
+  const m = (u: number, v: number) => u + (v - u) * t;
+  return {
+    x: m(a.x, b.x), y: m(a.y, b.y), scale: m(a.scale, b.scale), rot: m(a.rot, b.rot),
+    cropL: m(a.cropL, b.cropL), cropR: m(a.cropR, b.cropR), cropT: m(a.cropT, b.cropT), cropB: m(a.cropB, b.cropB),
+    angoli: m(a.angoli ?? 0, b.angoli ?? 0), ombra: m(a.ombra ?? 0, b.ombra ?? 0),
+  };
+}
+
 export function fadeAl(c: Clip, lf: number): number {
   let g = 1;
   if (c.fadeIn > 0 && lf < c.fadeIn) g *= curvaFade(lf / c.fadeIn, c.curvaIn);

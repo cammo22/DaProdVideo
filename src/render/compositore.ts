@@ -6,7 +6,7 @@ import { fotogramma, type Fotogramma } from '../media/fotogrammi';
 
 /** chi fornisce i fotogrammi esatti (l'export); senza, si usano quelli dei monitor */
 export type Fornitore = (s: Sorgente) => Fotogramma | null;
-import { autoColore, masterDi, mediaOf } from '../core/progetto';
+import { autoColore, masterDi, mediaOf, tfAl } from '../core/progetto';
 import { mediaRT } from '../media/libreria';
 import { gradeDi, gradeNeutro } from './colore';
 import { statoEffetti, type StatoFx } from '../core/blocchi';
@@ -228,6 +228,8 @@ uniform vec2 u_res, u_off;
 uniform float u_zoom, u_rot, u_blur, u_pixel, u_rgb, u_glitch, u_seme, u_desat, u_invert, u_flash, u_fade, u_luce, u_lucePh, u_bande, u_vhs, u_time;
 uniform float u_bagliore, u_flare, u_flarePh, u_arco, u_arcoPh, u_espo, u_neon, u_onda, u_bolla, u_vortice, u_caleido, u_calore, u_zblur;
 uniform vec3 u_flashCol, u_fadeCol;
+uniform vec2 u_centro;   // il centro di zoom e distorsioni (lo sceglie chi posa l'effetto)
+uniform vec2 u_sole;     // il sole del riflesso d'obiettivo (x < -1 = passa da solo)
 out vec4 o;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec3 campione(vec2 uv) { return texture(u_src, clamp(uv, vec2(0.0005), vec2(0.9995))).rgb; }
@@ -235,7 +237,7 @@ vec3 tinta(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) -
 void main() {
   float asp = u_res.x / u_res.y;
   // zoom e rotazione attorno al centro, poi lo spostamento (scossa, camera a mano)
-  vec2 c = (v_uv - 0.5) * vec2(asp, 1.0);
+  vec2 c = (v_uv - u_centro) * vec2(asp, 1.0);
   float cr = cos(u_rot), sr = sin(u_rot);
   c = vec2(cr * c.x - sr * c.y, sr * c.x + cr * c.y) / u_zoom;
   // le distorsioni: tutte sulle coordinate, così si sommano fra loro e con lo zoom
@@ -251,7 +253,7 @@ void main() {
     c = vec2(cos(ang) * c.x - sin(ang) * c.y, sin(ang) * c.x + cos(ang) * c.y);
   }
   if (u_bolla > 0.0) c *= 1.0 - u_bolla * 0.45 * (1.0 - smoothstep(0.0, 0.55, rr));
-  vec2 uv = c / vec2(asp, 1.0) + 0.5 + u_off;
+  vec2 uv = c / vec2(asp, 1.0) + u_centro + u_off;
   if (u_onda > 0.0) uv += vec2(sin(uv.y * 22.0 + u_time * 7.0) * 0.018, sin(uv.x * 16.0 + u_time * 5.0) * 0.01) * u_onda;
   if (u_calore > 0.0) uv += vec2(sin(uv.y * 70.0 + u_time * 13.0) + sin(uv.y * 31.0 - u_time * 9.0), cos(uv.x * 55.0 + u_time * 11.0)) * 0.0022 * u_calore;
   if (u_glitch > 0.0) {
@@ -278,7 +280,7 @@ void main() {
   } else if (u_zblur > 0.0) {
     // zoom sfocato: la scia verso il centro
     col = vec3(0.0);
-    for (int i = 0; i < 16; i++) col += campione(mix(uv, vec2(0.5), float(i) / 15.0 * u_zblur * 0.22));
+    for (int i = 0; i < 16; i++) col += campione(mix(uv, u_centro, float(i) / 15.0 * u_zblur * 0.22));
     col /= 16.0;
   } else col = campione(uv);
   float sp = u_rgb * 0.014 + u_glitch * 0.012 + u_vhs * 0.004;
@@ -325,7 +327,7 @@ void main() {
   }
   if (u_flare > 0.0) {
     // il riflesso d'obiettivo: la sorgente che passa in alto, la striscia orizzontale e gli aloni verso il centro
-    vec2 sole = vec2(mix(-0.1, 1.1, u_flarePh), 0.28);
+    vec2 sole = u_sole.x < -1.0 ? vec2(mix(-0.1, 1.1, u_flarePh), 0.28) : u_sole;
     vec2 d = (v_uv - vec2(sole.x, 1.0 - sole.y)) * vec2(asp, 1.0);
     vec3 fl = vec3(1.0, 0.92, 0.75) * exp(-dot(d, d) * 60.0) * 1.4 + vec3(1.0, 0.8, 0.55) * exp(-abs(d.y) * 90.0) * exp(-abs(d.x) * 1.8) * 0.55;
     for (int i = 1; i <= 3; i++) {
@@ -364,6 +366,23 @@ vec4 tB(vec2 q) { return fuori(q) ? vec4(0.0) : texture(u_b, vec2(q.x, 1.0 - q.y
 vec4 sopra(vec4 b, vec4 a) { return b + a * (1.0 - b.a); }
 float caso(float x) { return fract(sin(x * 91.3458) * 47453.5453); }
 float dolce(float t) { return t * t * (3.0 - 2.0 * t); }
+// il rumore morbido (per l'inchiostro): valori a caso sulla griglia, sfumati in mezzo
+float rumoreV(vec2 x) {
+  vec2 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = caso(i.x + i.y * 57.0), b = caso(i.x + 1.0 + i.y * 57.0);
+  float c = caso(i.x + (i.y + 1.0) * 57.0), d = caso(i.x + 1.0 + (i.y + 1.0) * 57.0);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+// la palla che cade e rimbalza (0 in alto, 1 a terra)
+float rimbalzo(float x) {
+  float n1 = 7.5625, d1 = 2.75;
+  if (x < 1.0 / d1) return n1 * x * x;
+  if (x < 2.0 / d1) { x -= 1.5 / d1; return n1 * x * x + 0.75; }
+  if (x < 2.5 / d1) { x -= 2.25 / d1; return n1 * x * x + 0.9375; }
+  x -= 2.625 / d1;
+  return n1 * x * x + 0.984375;
+}
 
 float campo(vec2 uv) {
   vec2 c = uv - 0.5;
@@ -585,6 +604,88 @@ vec4 effetto(vec2 q, float p) {
     float soglia = q.y * 0.35 + n * 0.65;
     return p > soglia ? tB(q) : tA(q + vec2(0.0, -max(0.0, p - soglia + 0.25) * 0.15));
   }
+  if (u_pattern == 531) {
+    // persiane: le stecche girano una dopo l'altra, dall'alto in basso
+    float n = 10.0;
+    float riga = floor(q.y * n);
+    float yl = fract(q.y * n);
+    float t = clamp(p * 1.6 - riga / n * 0.6, 0.0, 1.0);
+    float ang = dolce(t) * 3.14159265;
+    float hh = abs(cos(ang));
+    float d = (yl - 0.5) / max(hh, 0.001);
+    if (abs(d) > 0.5) return vec4(0.0);
+    vec2 qq = vec2(q.x, (riga + d + 0.5) / n);
+    float luce = 0.55 + 0.45 * hh;
+    return (ang < 1.5707963 ? tA(qq) : tB(qq)) * vec4(vec3(luce), 1.0);
+  }
+  if (u_pattern == 541) {
+    // scacchiera: le caselle si girano a caso, una alla volta
+    vec2 n = vec2(12.0, 7.0);
+    vec2 cella = floor(q * n);
+    float r0 = caso(cella.x * 7.13 + cella.y * 31.7);
+    float t = clamp((p - r0 * 0.6) / 0.4, 0.0, 1.0);
+    float ang = dolce(t) * 3.14159265;
+    float w = abs(cos(ang));
+    vec2 l = fract(q * n) - 0.5;
+    if (abs(l.x) > w * 0.5) return vec4(0.0);
+    vec2 qq = (cella + 0.5 + vec2(l.x / max(w, 0.001), l.y)) / n;
+    float luce = 0.6 + 0.4 * w;
+    return (ang < 1.5707963 ? tA(qq) : tB(qq)) * vec4(vec3(luce), 1.0);
+  }
+  if (u_pattern == 551) {
+    // tuffo: la vecchia si allontana girando, la nuova si avvicina da dietro
+    vec2 c = (q - 0.5) * vec2(u_aspect, 1.0);
+    float s = 1.0 - e;
+    float ang = e * 1.2;
+    vec2 rr = vec2(cos(ang) * c.x - sin(ang) * c.y, sin(ang) * c.x + cos(ang) * c.y) / max(s, 0.001);
+    vec2 qa = rr / vec2(u_aspect, 1.0) + 0.5;
+    float zb = mix(1.3, 1.0, e);
+    vec4 b = tB(0.5 + (q - 0.5) / zb) * vec4(vec3(0.45 + 0.55 * e), 1.0);
+    if (s > 0.002 && qa.x >= 0.0 && qa.y >= 0.0 && qa.x <= 1.0 && qa.y <= 1.0) return tA(qa);
+    return b;
+  }
+  if (u_pattern == 561) {
+    // inchiostro: la nuova si spande come una goccia d'inchiostro nell'acqua
+    vec2 c = (q - 0.5) * vec2(u_aspect, 1.0);
+    float n = 0.0, amp = 0.5;
+    vec2 z = q * vec2(u_aspect, 1.0) * 4.0;
+    for (int i = 0; i < 4; i++) { n += amp * rumoreV(z); z *= 2.1; amp *= 0.5; }
+    float campo = length(c) * 0.9 + (n - 0.5) * 0.55;
+    float fronte = mix(-0.2, 1.3, p);
+    float m = 1.0 - smoothstep(fronte - 0.06, fronte, campo);
+    vec4 r = mix(tA(q), tB(q), m);
+    float bordo = (1.0 - smoothstep(0.0, 0.05, abs(campo - fronte))) * 0.35;
+    return vec4(r.rgb * (1.0 - bordo), r.a);
+  }
+  if (u_pattern == 571) {
+    // colori sdoppiati: la nuova entra di lato col rosso e il blu che scappano
+    float sp = 0.07 * arco;
+    vec2 qa = q + vec2(e, 0.0), qb = q - vec2(1.0 - e, 0.0);
+    if (q.x < 1.0 - e) return vec4(tA(qa + vec2(sp, 0.0)).r, tA(qa).g, tA(qa - vec2(sp, 0.0)).b, tA(qa).a);
+    return vec4(tB(qb + vec2(sp, 0.0)).r, tB(qb).g, tB(qb - vec2(sp, 0.0)).b, tB(qb).a);
+  }
+  if (u_pattern == 581) {
+    // bolle: tanti cerchi si aprono qua e là e si uniscono
+    vec2 n = vec2(9.0 * u_aspect, 9.0);
+    vec2 cella = floor(q * n);
+    float best = 0.0;
+    for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+      vec2 cc = cella + vec2(float(dx), float(dy));
+      float r0 = caso(cc.x * 3.7 + cc.y * 17.3);
+      vec2 centro = (cc + 0.5 + (vec2(caso(cc.x + cc.y * 5.1), caso(cc.y + cc.x * 2.3)) - 0.5) * 0.6) / n;
+      float t = clamp((p - r0 * 0.5) / 0.5, 0.0, 1.0);
+      float raggio = dolce(t) * 1.6 / n.y;
+      float d = length((q - centro) * vec2(u_aspect, 1.0));
+      best = max(best, 1.0 - smoothstep(raggio - 0.004, raggio, d));
+    }
+    return mix(tA(q), tB(q), best);
+  }
+  if (u_pattern == 591) {
+    // rimbalzo: la nuova cade dall'alto e rimbalza, la vecchia sotto si scurisce
+    float off = 1.0 - rimbalzo(clamp(p, 0.0, 1.0));
+    if (q.y + off <= 1.0) return tB(q + vec2(0.0, off));
+    return tA(q) * vec4(vec3(1.0 - 0.35 * (1.0 - off)), 1.0);
+  }
   if (u_pattern == 401 || u_pattern == 411) {
     // raggio dall'occhio (0,0,-D) attraverso il punto dello schermo; lo schermo è il piano z = 0
     float a = u_aspect;
@@ -718,7 +819,7 @@ export class Compositore {
     this.pComb = this.prog(VS_FULL, FS_COMBINE);
     this.pMaster = this.prog(VS_FULL, FS_MASTER);
     this.pFx = this.prog(VS_FULL, FS_FX);
-    for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol', 'u_bagliore', 'u_flare', 'u_flarePh', 'u_arco', 'u_arcoPh', 'u_espo', 'u_neon', 'u_onda', 'u_bolla', 'u_vortice', 'u_caleido', 'u_calore', 'u_zblur'])
+    for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol', 'u_bagliore', 'u_flare', 'u_flarePh', 'u_arco', 'u_arcoPh', 'u_espo', 'u_neon', 'u_onda', 'u_bolla', 'u_vortice', 'u_caleido', 'u_calore', 'u_zblur', 'u_centro', 'u_sole'])
       this.uF[n] = gl.getUniformLocation(this.pFx, n);
     for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv',
       'u_mirror', 'u_temp', 'u_vignette', 'u_alpha', 'u_color2', 'u_grad', 'u_box', 'u_boxPx', 'u_round', 'u_feather', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
@@ -763,7 +864,8 @@ export class Compositore {
     if (this.fbW === w && this.fbH === h && this.fbo.length) return;
     for (const f of this.fbo) { gl.deleteFramebuffer(f.fb); gl.deleteTexture(f.tex); }
     this.fbo = [];
-    for (let i = 0; i < 5; i++) {
+    // 0 A, 1 B, 2 il mix, 3 il colore finale, 4 gli effetti, 5 e 6 le transizioni in catena
+    for (let i = 0; i < 7; i++) {
       const tex = this.newTex();
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       const fb = gl.createFramebuffer()!;
@@ -827,7 +929,18 @@ export class Compositore {
           gl.clearColor(0, 0, 0, 0);
           gl.clear(gl.COLOR_BUFFER_BIT);
         }
-        this.combine(s.tr, s.prog, s.opacity, okA);
+        if (s.altre?.length && okA && okB) {
+          // le transizioni dello stesso taglio in catena: la prima fa A→B, ogni altra va da A al risultato di prima
+          // (gli effetti, come il lampo o l'onda, si applicano sopra il risultato: fa da vecchia e da nuova)
+          let dentro = 1;
+          const tutte = [{ tr: s.tr, prog: s.prog, sopra: false }, ...s.altre];
+          for (let k = 0; k < tutte.length; k++) {
+            const ultima = k === tutte.length - 1;
+            const fuori = ultima ? 2 : k % 2 ? 6 : 5;
+            this.combine(tutte[k].tr, tutte[k].prog, ultima ? s.opacity : 1, true, dentro, fuori, tutte[k].sopra && k > 0 ? dentro : 0);
+            dentro = fuori;
+          }
+        } else this.combine(s.tr, s.prog, s.opacity, okA);
       }
       const fx = statoEffetti(p, frame, tid);
       if (fx) {
@@ -967,6 +1080,9 @@ export class Compositore {
     gl.uniform1f(u.u_time, (frame % 10000) / 25);
     gl.uniform3f(u.u_flashCol, ...st.flashCol);
     gl.uniform3f(u.u_fadeCol, ...st.fadeCol);
+    // lo shader conta la y dal basso
+    gl.uniform2f(u.u_centro, st.cx ?? 0.5, 1 - (st.cy ?? 0.5));
+    gl.uniform2f(u.u_sole, Number.isFinite(st.soleX) ? st.soleX : -9, Number.isFinite(st.soleY) ? st.soleY : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -1026,7 +1142,8 @@ export class Compositore {
       dw = sw * k;
       dh = sh * k;
     }
-    const tf = c.tf, fx = c.fx;
+    // la posizione di adesso (ferma, o in viaggio verso quella di fine)
+    const tf = tfAl(c, s.lf), fx = c.fx;
     // le regolazioni a mano più tutti gli effetti al volo accesi, sommati
     const fe = fxEffettivo(fx);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[i].fb);
@@ -1122,18 +1239,26 @@ export class Compositore {
     return true;
   }
 
-  private combine(tr: Transition | null, prog: number, opacity: number, hasA: boolean) {
+  /** una transizione fra A (buffer 0) e B (buffer "dentro"), scritta nel buffer "fuori": nel mix (2) si appoggia su
+   *  quello che c'è già; in un buffer della catena (5, 6) lo riempie da capo */
+  private combine(tr: Transition | null, prog: number, opacity: number, hasA: boolean, dentro = 1, fuori = 2, vecchia = 0) {
     const gl = this.gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[2].fb);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[fuori].fb);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    if (fuori === 2) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    } else {
+      gl.disable(gl.BLEND);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     gl.useProgram(this.pComb);
     const u = this.uC;
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.fbo[0].tex);
+    gl.bindTexture(gl.TEXTURE_2D, this.fbo[vecchia].tex);
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.fbo[1].tex);
+    gl.bindTexture(gl.TEXTURE_2D, this.fbo[dentro].tex);
     impostaCombina(gl, u, tr, prog, opacity, hasA, this.canvas.width / this.canvas.height);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.activeTexture(gl.TEXTURE0);

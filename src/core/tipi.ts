@@ -57,6 +57,13 @@ export type Look = 'none' | 'vhs' | 'film' | 'bn' | 'seppia' | 'crt';
  * (lampo, scossa, zoom…). Transizione: passa da una clip all'altra sul taglio che sta sotto il blocco; più il
  * blocco è lungo, più è lenta. Le clip non cambiano mai durata.
  */
+/** il suono che una clip si porta dentro: quale, acceso o no, quanto forte */
+export interface SuonoClip {
+  suono?: string;
+  audio?: boolean;
+  volume?: number;
+}
+
 export interface BloccoFx {
   tipo: 'effetto' | 'transizione';
   /** effetto: il suo nome nel catalogo (src/core/blocchi.ts) · transizione: 'mix', 'dip', 'wipe:119', 'dve:301'… */
@@ -73,6 +80,10 @@ export interface BloccoFx {
   audio?: boolean;
   /** volume del suono in dB (0 = normale) */
   volume?: number;
+  /** dove sta il centro dell'effetto (bolla, vortice, zoom, riflesso…): frazioni del quadro, x a destra, y in basso */
+  pos?: [number, number];
+  /** dove arriva il centro alla fine del blocco (niente = fermo) */
+  posFine?: [number, number];
 }
 
 export interface VideoFx {
@@ -144,7 +155,8 @@ export interface TitleSpec {
   /** 'fisso' | 'sottopancia' (lower third) | 'rullo' (scorre in su) | 'crawl' (scorre di lato) · animati: 'neon'
    *  (si accende tremando), 'cinema' (lettere larghe che si avvicinano), 'macchina' (da scrivere, lettera per
    *  lettera), 'rimbalzo' (entra con un salto), 'social' (fascia colorata che entra di lato), 'citazione' */
-  style: 'fisso' | 'sottopancia' | 'rullo' | 'crawl' | 'neon' | 'cinema' | 'macchina' | 'rimbalzo' | 'social' | 'citazione';
+  style: 'fisso' | 'sottopancia' | 'rullo' | 'crawl' | 'neon' | 'cinema' | 'macchina' | 'rimbalzo' | 'social' | 'citazione'
+    | 'gradiente' | 'etichetta' | 'rivela' | 'glitch' | 'grande';
   font: string;
   size: number;
   color: string;
@@ -156,6 +168,8 @@ export interface TitleSpec {
   y: number;
   /** solo per disegnare la macchina da scrivere: il testo intero (per la misura e il cursore) */
   intero?: string;
+  /** solo per disegnare "rivela": quanto testo si vede (0..1), con la barra colorata sul bordo */
+  rivela?: number;
 }
 
 export interface GenSpec {
@@ -201,6 +215,8 @@ export interface Clip {
   opacity: number;
   opKeys: Key[];
   tf: Transform;
+  /** dove arriva alla fine della clip (posizione, grandezza, rotazione…): fra tf e tfFine si muove piano (niente = ferma) */
+  tfFine?: Transform;
   fx: VideoFx;
   trIn?: Transition;
   /** transizione in coda, quando dopo la clip non c'è niente di attaccato (esce su quello che sta sotto) */
@@ -219,6 +235,8 @@ export interface Clip {
   gen?: GenSpec;
   /** i blocchetti della corsia FX */
   fxb?: BloccoFx;
+  /** il suono dentro un titolo, un countdown o un generatore (niente clip audio a parte): come quello degli FX */
+  sfx?: SuonoClip;
 }
 
 export type MediaType = 'video' | 'audio' | 'image';

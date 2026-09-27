@@ -14,13 +14,13 @@ import { importaDialogo, importaDaDrop, ricollega, togliMedia } from '../progett
 import { avviso, chiedi, conferma, h, icona, menuContesto, type VoceMenu } from './dom';
 import { registraBersaglio, trascinabile } from './trascina';
 import type { Cartella, MediaItem, Transition } from '../core/tipi';
-import { projectEnd, newTransition, end, clipById, uid } from '../core/progetto';
+import { projectEnd, newTransition, end, clipById, uid, TITLE0 } from '../core/progetto';
 import * as M from '../core/montaggio';
 import { EFFETTI, TENDINE } from '../render/transizioni';
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto, type Effetto } from '../effetti';
-import { anteprima } from '../render/anteprime';
-import { PRESET_TITOLI } from '../core/generatori';
-import { STILI_CONTO, disegnaCountdown } from '../render/grafica';
+import { anteprimaChiara } from '../render/anteprime';
+import { PRESET_TITOLI, presetTitolo } from '../core/generatori';
+import { STILI_CONTO, disegnaCountdown, specAlTempo, telaTitolo } from '../render/grafica';
 import { scenaConto, scenaEffetto, scenaRitocco, scenaSala, scenaTitolo, scenaTransizione, suonaProvino, type Costruttore } from '../render/provino';
 
 // ——— l'albero ———
@@ -41,10 +41,10 @@ const LIBRERIA: Ramo[] = [
 
 /** i gruppi delle transizioni digitali (numero del modello) */
 const GRUPPI_TR: Record<string, number[]> = {
-  movimento: [301, 302, 303, 304, 311, 321, 421, 431, 481],
-  '3d': [401, 411, 441, 331, 461],
+  movimento: [301, 302, 303, 304, 311, 591, 321, 421, 431, 481, 551],
+  '3d': [401, 411, 441, 531, 541, 331, 461],
   luce: [351, 361, 451, 491],
-  stile: [341, 371, 381, 391, 471, 521],
+  stile: [561, 581, 571, 341, 371, 381, 391, 471, 521],
 };
 
 const GRANDEZZE = [{ id: 'piccole', px: 86 }, { id: 'medie', px: 112 }, { id: 'grandi', px: 150 }];
@@ -551,7 +551,7 @@ export class Contenitore {
     this.barra.append(this.impostazioniBlocchi());
     const carta = (tipo: Transition['type'], m: { p: number; nome: string; info: string }) => {
       const cv = h('canvas', { class: 'tr-anteprima', width: 160, height: 90 }) as HTMLCanvasElement;
-      anteprima(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 }, 0.5);
+      anteprimaChiara(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 });
       const id = tipo === 'mix' || tipo === 'dip' ? tipo : `${tipo}:${m.p}`;
       return this.cartaLibreria({
         cls: 'tr gen-voce', nome: m.nome, titolo: `${m.nome} · ${m.info}\nTrascina sopra un taglio · clic: sul taglio più vicino al cursore`,
@@ -573,7 +573,7 @@ export class Contenitore {
     this.percorsoLibreria('titoli');
     const titolo = (id: string, nome: string) => this.cartaLibreria({
       cls: 'gen gen-voce', nome, titolo: `${nome}\nClic: al cursore (su una traccia libera) · trascina: dove vuoi`,
-      anteprima: h('div', { class: 'gen-anteprima ' + (id === 'fisso' ? 'titolo' : id) }), provino: scenaTitolo(id), dato: 'g:title:' + id, etichetta: '📺 ' + nome,
+      anteprima: anteprimaTitolo(id), provino: scenaTitolo(id), dato: 'g:title:' + id, etichetta: '📺 ' + nome,
       clic: () => { inserisciGeneratore('title', undefined, undefined, { titolo: id }); avviso(`${nome} al cursore`, 'ok', 1000); },
     });
     const conto = (stile: typeof STILI_CONTO[number]) => {
@@ -644,3 +644,27 @@ export class Contenitore {
 }
 
 export { fps };
+
+/** l'anteprima ferma di un titolo: disegnato davvero (come nel monitor), su un fondo scuro, a metà della sua entrata */
+function anteprimaTitolo(id: string): HTMLCanvasElement {
+  const cv = h('canvas', { class: 'gen-anteprima', width: 192, height: 108 }) as HTMLCanvasElement;
+  const x = cv.getContext('2d')!;
+  const g = x.createLinearGradient(0, 0, 192, 108);
+  g.addColorStop(0, '#1d2a4a'); g.addColorStop(1, '#2a1333');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 192, 108);
+  const pr = presetTitolo(id);
+  const spec = { ...TITLE0, ...(pr?.spec ?? {}) };
+  // nella scheda piccola le lettere si ingrandiscono (se no non si leggono)
+  if (spec.style !== 'crawl' && spec.style !== 'rullo') spec.size = Math.min(spec.size * 2.3, 190);
+  const W = 1920, H = 1080;
+  try {
+    const t = specAlTempo(spec, 1.5);
+    const tt = telaTitolo(t, W, H);
+    const k = 192 / W;
+    if (spec.style === 'crawl') x.drawImage(tt.tela as CanvasImageSource, 0, 0, Math.min(tt.w, W), H, 0, 0, 192, 108);
+    else if (spec.style === 'rullo') x.drawImage(tt.tela as CanvasImageSource, 0, 0, W, Math.min(tt.h, H), 0, 0, 192, 108 * Math.min(tt.h, H) / H);
+    else x.drawImage(tt.tela as CanvasImageSource, (W - tt.w) / 2 * k + 0, (H - tt.h) / 2 * k, tt.w * k, tt.h * k);
+  } catch { /* resta il fondo */ }
+  return cv;
+}
