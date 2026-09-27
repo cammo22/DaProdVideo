@@ -4,6 +4,7 @@
 // linea gialla sulle clip audio = volume (trascina, doppio clic per un punto) · "fx" in fondo = effetti al volo.
 // Gli FX a blocchetti (effetti e transizioni) stanno in basso sulle clip video: si allungano dai bordi, l'altoparlante
 // accende e spegne il loro suono. Alt+Shift+trascina = sposta la clip e tutto quello che viene dopo, su tutte le tracce.
+import { leggiGeneratore } from '../core/generatori';
 import { store } from '../core/store';
 import { motore } from '../motore';
 import * as M from '../core/montaggio';
@@ -13,7 +14,7 @@ import { SOTTO0, bordoRiga, dividiRiga, limitiRiga, unisciRighe } from '../core/
 import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
-import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco } from '../azioni';
+import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco, bloccoNuovo } from '../azioni';
 import { cambiaModello, centro, durataBlocco, durataDelBlocco, nomeBlocco, nuovoBlocco, piccoDi, posaBlocco, postoBlocco, tagliFra, taglioDelBlocco, taglioVicino, tracciaPerBlocco, transizioneSul, EFFETTI_TEMPO, type Dove, type Taglio } from '../core/blocchi';
 import { SUONI, suono } from '../core/suoni';
 import { attivaDi, eliminaSequenza, nuovaSequenza, passaA, rinominaSequenza, sequenzeDi } from '../core/sequenze';
@@ -1962,8 +1963,8 @@ export class Timeline {
       store.select(ids);
       avviso(store.doc.tracks.length > n0 ? `${m.name}: lì era occupato, l'ho messa su una traccia nuova` : `${m.name} nella timeline`, 'ok', 1600);
     } else if (dato.startsWith('g:')) {
-      const kind = dato.slice(2) as 'bars' | 'color' | 'countdown' | 'title' | 'nero';
-      inserisciGeneratore(kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined);
+      const g = leggiGeneratore(dato);
+      inserisciGeneratore(g.kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined, { titolo: g.titolo, conto: g.conto });
     } else if (dato.startsWith('x:') || dato.startsWith('t:')) {
       const { tipo, id } = this.specBlocco(dato);
       const g = this.anteprimaBlocco(x, y, dato);
@@ -1973,7 +1974,7 @@ export class Timeline {
         avviso(`✦ ${nomeBlocco(clipById(store.doc, g.gia)!.fxb!)} sul taglio`, 'tasto', 1400);
         return;
       }
-      const b = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), g.start, g.len, g.track));
+      const b = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, bloccoNuovo(tipo, id), g.start, g.len, g.track));
       store.select([b.id]);
       const sec = (g.len / fps(p.rate)).toFixed(1).replace('.', ',').replace(',0', '');
       const dove = g.dove === 'taglio' ? ' sul taglio' : g.dove === 'inizio' ? ' all\'inizio della clip' : g.dove === 'fine' ? ' alla fine della clip' : tipo === 'transizione' ? ' · mettila sopra un taglio per farla lavorare' : '';

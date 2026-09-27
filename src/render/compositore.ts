@@ -991,7 +991,7 @@ export class Compositore {
     } else if (c.kind === 'color') {
       srcKind = 3;
     } else if (c.kind === 'countdown') {
-      const tela = disegnaCountdown(W, H, s.local, c.len * p.rate.den / p.rate.num);
+      const tela = disegnaCountdown(W, H, s.local, c.len * p.rate.den / p.rate.num, c.gen?.conto ?? 'pellicola');
       const t = this.upload('cd:' + c.id + ':' + i, tela as TexImageSource, tela.width, tela.height, frame + ':' + s.lf);
       tex = t.tex;
       sw = W; sh = H;

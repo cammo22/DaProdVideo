@@ -2,7 +2,7 @@
 // incroci; il tono di riferimento. Lo stesso grafo serve la riproduzione e l'export (OfflineAudioContext).
 import { AudioBufferSink } from 'mediabunny';
 import type { Clip, Project } from '../core/tipi';
-import { dbToGain, end, keyValue, masterDi, mediaOf, newTransition } from '../core/progetto';
+import { dbToGain, end, fadeAl, keyValue, masterDi, mediaOf, newTransition } from '../core/progetto';
 import { transizioniAttive } from '../core/blocchi';
 import { f2s } from '../core/timecode';
 import { mediaRT } from './libreria';
@@ -46,8 +46,8 @@ function codaIncrocio(p: Project, c: Clip): number {
 export function guadagnoClip(c: Clip, lf: number, coda: number): number {
   const db = c.gainKeys.length ? keyValue(c.gainKeys, lf, c.gain) : c.gain;
   let g = dbToGain(db);
-  if (c.fadeIn > 0 && lf < c.fadeIn) g *= Math.max(0, lf / c.fadeIn);
-  if (c.fadeOut > 0 && lf > c.len - c.fadeOut) g *= Math.max(0, (c.len - lf) / c.fadeOut);
+  // le dissolvenze con la loro forma (dritta, morbida, analogica, veloce, a S): la stessa del disegno
+  g *= fadeAl(c, lf);
   if (c.trIn && lf < c.trIn.len) g *= Math.max(0, lf / c.trIn.len);
   if (c.trOut && lf > c.len - c.trOut.len) g *= Math.max(0, (c.len - lf) / c.trOut.len);
   if (lf > c.len) g *= coda > 0 ? Math.max(0, 1 - (lf - c.len) / coda) : 0;
@@ -58,9 +58,11 @@ export function guadagnoClip(c: Clip, lf: number, coda: number): number {
 /** punti dell'inviluppo (fotogrammi locali) dove il guadagno cambia pendenza */
 function puntiInviluppo(c: Clip, coda: number): number[] {
   const s = new Set<number>([0, c.len, c.len + coda]);
-  const add = (a: number, b: number) => { for (let i = 0; i <= 6; i++) s.add(a + ((b - a) * i) / 6); };
-  if (c.fadeIn) add(0, c.fadeIn);
-  if (c.fadeOut) add(c.len - c.fadeOut, c.len);
+  const add = (a: number, b: number, n = 6) => { for (let i = 0; i <= n; i++) s.add(a + ((b - a) * i) / n); };
+  // le dissolvenze curve hanno bisogno di più punti (fra un punto e l'altro la rampa è dritta)
+  const piega = (cv?: { k: number; s?: boolean }) => (cv && (cv.k || cv.s) ? 24 : 6);
+  if (c.fadeIn) add(0, c.fadeIn, piega(c.curvaIn));
+  if (c.fadeOut) add(c.len - c.fadeOut, c.len, piega(c.curvaOut));
   if (c.trIn) add(0, c.trIn.len);
   if (c.trOut) add(c.len - c.trOut.len, c.len);
   if (coda) add(c.len, c.len + coda);
@@ -69,6 +71,33 @@ function puntiInviluppo(c: Clip, coda: number): number[] {
     if (i) add(c.gainKeys[i - 1].f, c.gainKeys[i].f);
   }
   return [...s].filter((x) => x >= 0 && x <= c.len + coda).sort((a, b) => a - b);
+}
+
+/**
+ * Tono e bip dei generatori: fisso, o a colpetti (un bip ogni `ogni` secondi: il countdown).
+ * inizio = quando comincia la clip, da..a = il pezzo da suonare (tutti in tempo del contesto audio).
+ */
+function suonaTono(ctx: BaseAudioContext, c: Clip, uscita: AudioNode, inizio: number, da: number, a: number): OscillatorNode {
+  const o = ctx.createOscillator();
+  o.frequency.value = c.gen?.freq ?? 1000;
+  const lv = ctx.createGain();
+  const livello = dbToGain(c.gen?.level ?? -18);
+  const ogni = c.gen?.ogni;
+  if (ogni) {
+    const bip = c.gen?.bip ?? 0.08;
+    lv.gain.setValueAtTime(0, da);
+    for (let k = 0; inizio + k * ogni < a; k++) {
+      const t0 = inizio + k * ogni;
+      if (t0 + bip <= da) continue;
+      const s0 = Math.max(da, t0);
+      lv.gain.setValueAtTime(livello, s0);
+      lv.gain.setValueAtTime(0, Math.max(s0 + 0.002, t0 + bip));
+    }
+  } else lv.gain.value = livello;
+  o.connect(lv).connect(uscita);
+  o.start(da);
+  o.stop(Math.max(da + 0.01, a));
+  return o;
 }
 
 /** programma l'inviluppo su un GainNode: t0 = tempo del contesto in cui la timeline è a startSec */
@@ -343,14 +372,8 @@ class Banco {
       const v: Voce = { clip: c, gain, pan, nodes: [], until: now, finita: false, pumping: false, ingresso: catenaEffetti(ctx, c, gain) };
       this.voci.set(c.id, v);
       if (c.kind === 'tone' || c.kind === 'beep') {
-        const o = ctx.createOscillator();
-        o.frequency.value = c.gen?.freq ?? 1000;
-        const lv = ctx.createGain();
-        lv.gain.value = dbToGain(c.gen?.level ?? -18);
-        o.connect(lv).connect(v.ingresso ?? gain);
         const a = this.t0 + cs - this.startSec, b = this.t0 + ce - this.startSec;
-        o.start(Math.max(now, a));
-        o.stop(Math.max(now + 0.01, b));
+        const o = suonaTono(ctx, c, v.ingresso ?? gain, a, Math.max(now, a), Math.max(now + 0.01, b));
         v.nodes.push(o);
         v.finita = true;
         continue;
@@ -613,13 +636,7 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
       applicaInviluppo(g, p, c, coda, 0, a, 0);
       const ingresso = catenaEffetti(ctx, c, g);
       if (c.kind === 'tone' || c.kind === 'beep') {
-        const o = ctx.createOscillator();
-        o.frequency.value = c.gen?.freq ?? 1000;
-        const lv = ctx.createGain();
-        lv.gain.value = dbToGain(c.gen?.level ?? -18);
-        o.connect(lv).connect(ingresso);
-        o.start(Math.max(0, cs - a));
-        o.stop(Math.max(0.001, Math.min(b, ce) - a));
+        suonaTono(ctx, c, ingresso, cs - a, Math.max(0, cs - a), Math.max(0.001, Math.min(b, ce) - a));
         continue;
       }
       const r = c.media ? mediaRT(c.media) : undefined;

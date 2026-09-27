@@ -45,7 +45,7 @@ async function idb<T>(store: 'kv' | 'maniglie' | 'file', op: 'get' | 'put' | 'de
 type Maniglia = FileSystemFileHandle & { queryPermission?: (o: object) => Promise<string>; requestPermission?: (o: object) => Promise<string> };
 
 // ——— importazione ———
-export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[], opzioni: { chiediFormato?: boolean } = {}): Promise<MediaItem[]> {
+export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[], opzioni: { chiediFormato?: boolean; cartella?: string } = {}): Promise<MediaItem[]> {
   if (!lista.length) return [];
   const nuovi: MediaItem[] = [];
   const errori: string[] = [];
@@ -55,6 +55,7 @@ export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[
     barra.testo(`Importo ${++i}/${lista.length}: ${f.name}`);
     const r = await importa(f);
     if ('errore' in r) { errori.push(`${r.nome}: ${r.errore}`); continue; }
+    if (opzioni.cartella) r.item.cartella = opzioni.cartella;
     nuovi.push(r.item);
     if (f.maniglia) void idb('maniglie', 'put', r.item.id, f.maniglia);
     // nel browser, senza "maniglia" (Firefox, Safari, file trascinati, istantanee) i file piccoli si tengono
@@ -91,22 +92,22 @@ async function propostaFormato(m: MediaItem) {
 }
 
 /** il pulsante "Importa": finestra di sistema (app) o del browser */
-export async function importaDialogo() {
+export async function importaDialogo(cartella?: string) {
   const w = window as unknown as { showOpenFilePicker?: (o: object) => Promise<Maniglia[]> };
   if (!isTauri && w.showOpenFilePicker) {
     try {
       const hs = await w.showOpenFilePicker({ multiple: true, types: [{ description: 'Video, audio e immagini', accept: { 'video/*': ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.mts', '.m2ts', '.ts'], 'audio/*': ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.ac3'], 'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif'] } }], excludeAcceptAllOption: false });
       const lista = await Promise.all(hs.map(async (hh) => { const f = await hh.getFile(); return { name: f.name, file: f, maniglia: hh }; }));
-      return importaFile(lista);
+      return importaFile(lista, { cartella });
     } catch (e) {
       if ((e as Error).name === 'AbortError') return [];
     }
   }
-  return importaFile(await scegliMedia());
+  return importaFile(await scegliMedia(), { cartella });
 }
 
 /** file lasciati cadere sulla finestra dal sistema */
-export async function importaDaDrop(dt: DataTransfer) {
+export async function importaDaDrop(dt: DataTransfer, cartella?: string) {
   const lista: (FileScelto & { maniglia?: Maniglia })[] = [];
   const items = [...dt.items].filter((i) => i.kind === 'file');
   for (const it of items) {
@@ -117,7 +118,7 @@ export async function importaDaDrop(dt: DataTransfer) {
     if (g) { try { maniglia = (await g.call(it)) ?? undefined; } catch { /* niente */ } }
     lista.push({ name: f.name, file: f, maniglia });
   }
-  return importaFile(lista);
+  return importaFile(lista, { cartella });
 }
 
 // ——— salvataggio ———

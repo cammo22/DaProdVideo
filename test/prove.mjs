@@ -600,13 +600,13 @@ try {
       prova('il suono del lampo finisce nel mixaggio (e spento non si sente)', mix.on > 0.02 && mix.off < 0.002, JSON.stringify(mix));
     }
     // i chip della durata
-    await page.click('.bin-durate .chip[data-d="2"]');
+    await page.click('.bin-impostazioni .chip[data-d="2"]');
     await page.evaluate(() => { window.__dpv.select([]); window.__motore.vaiA(20); });
     await page.locator('.carta.fxt[data-fx=zoomLento]').click();
     dd = await doc();
     prova('con il chip "2 s" il blocco dura due secondi', dd.clips.some((c) => c.fxb?.id === 'zoomLento' && c.start === 20 && c.len === 50), JSON.stringify(dd.clips.filter((c) => c.fxb?.id === 'zoomLento').map((c) => [c.start, c.len])));
     await tasto('Control+z');
-    await page.click('.bin-durate .chip[data-d="0"]');
+    await page.click('.bin-impostazioni .chip[data-d="0"]');
     // il lampo della demo si vede nel monitor
     const lumA = async (f) => { await page.evaluate((f) => window.__motore.vaiA(f), f); let v = -1, prima = -2; for (let i = 0; i < 12 && v !== prima; i++) { prima = v; await page.waitForTimeout(250); v = await page.evaluate(() => { const px = new Uint8Array(64 * 36 * 4); window.__motore.rec.leggiPiccolo(64, 36, px); let s = 0; for (let i = 0; i < px.length; i += 4) s += px[i] + px[i + 1] + px[i + 2]; return Math.round(s / (64 * 36 * 3)); }); } return v; };
     const demoLampo = dd.clips.find((c) => c.fxb?.id === 'flash');

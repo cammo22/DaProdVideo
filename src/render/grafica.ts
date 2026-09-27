@@ -184,55 +184,112 @@ export function motoTitolo(spec: TitleSpec, w: number, h: number, W: number, H: 
 
 let telaCountdown: Tela | null = null;
 
-/** il countdown da pellicola (academy leader): settori che girano, numeri da N a 2, croce e cerchi */
-export function disegnaCountdown(W: number, H: number, t: number, durata: number): Tela {
+export type StileConto = 'pellicola' | 'moderno' | 'neon' | 'minimal';
+export const STILI_CONTO: { id: StileConto; nome: string; secondi: number }[] = [
+  { id: 'pellicola', nome: 'Pellicola', secondi: 5 },
+  { id: 'moderno', nome: 'Moderno', secondi: 5 },
+  { id: 'neon', nome: 'Neon', secondi: 3 },
+  { id: 'minimal', nome: 'Minimal', secondi: 10 },
+];
+
+/**
+ * Il countdown: da N a 1, un numero al secondo, e finisce col suo ultimo fotogramma.
+ * Pellicola = la coda del cinema (settori che girano, croce, cerchi, graffi); moderno = anello che si svuota;
+ * neon = anello luminoso che pulsa; minimal = numero nero su bianco che respira.
+ */
+export function disegnaCountdown(W: number, H: number, t: number, durata: number, stile: StileConto = 'pellicola'): Tela {
   const w = Math.min(W, 1280), h = Math.round(w * H / W);
   if (!telaCountdown || telaCountdown.width !== w || telaCountdown.height !== h) telaCountdown = nuovaTela(w, h);
   const ctx = telaCountdown.getContext('2d') as Ctx2D;
-  const restante = Math.max(0, durata - t);
-  const n = Math.ceil(restante - 1e-6);
-  const fraz = restante - Math.floor(restante - 1e-6) ; // 1 -> 0 dentro il secondo
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(0, 0, w, h);
-  if (n <= 1) {
-    // l'ultimo secondo è nero, come sulla pellicola dopo il "2"
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, w, h);
-    return telaCountdown;
-  }
-  const cx = w / 2, cy = h / 2, R = Math.hypot(w, h);
-  // settore che gira
-  ctx.fillStyle = '#6b6b6b';
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  const a0 = -Math.PI / 2;
-  ctx.arc(cx, cy, R, a0, a0 + (1 - fraz) * Math.PI * 2);
-  ctx.closePath();
-  ctx.fill();
-  // croce e cerchi
-  ctx.strokeStyle = '#f2f2f2';
-  ctx.lineWidth = Math.max(2, h / 180);
-  ctx.beginPath();
-  ctx.moveTo(0, cy); ctx.lineTo(w, cy);
-  ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
-  ctx.stroke();
-  for (const r of [h * 0.36, h * 0.43]) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  ctx.fillStyle = '#f2f2f2';
-  ctx.font = `700 ${h * 0.5}px "Orbitron", "Rajdhani", sans-serif`;
+  const restante = Math.max(1e-3, durata - t);
+  // il numero di adesso (N..1) e quanto manca al prossimo (1 → 0 dentro il secondo)
+  const n = Math.max(1, Math.ceil(restante - 1e-6));
+  const fraz = Math.max(0, Math.min(1, restante - (n - 1)));
+  const dentro = 1 - fraz; // 0 → 1 dentro il secondo
+  const cx = w / 2, cy = h / 2;
+  ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(String(n), cx, cy + h * 0.02);
-  // graffi e polvere: un po' di pellicola vera
-  const seme = Math.floor(t * 24);
-  ctx.fillStyle = 'rgba(255,255,255,.35)';
-  for (let i = 0; i < 6; i++) {
-    const x = ((Math.sin(seme * 12.9898 + i * 78.233) * 43758.5453) % 1 + 1) % 1 * w;
-    const y = ((Math.sin(seme * 93.9898 + i * 11.233) * 23421.631) % 1 + 1) % 1 * h;
-    ctx.fillRect(x, y, 2, 2 + (i % 3) * 3);
+  if (stile === 'pellicola') {
+    const R = Math.hypot(w, h);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#6b6b6b';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    const a0 = -Math.PI / 2;
+    ctx.arc(cx, cy, R, a0, a0 + dentro * Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#f2f2f2';
+    ctx.lineWidth = Math.max(2, h / 180);
+    ctx.beginPath();
+    ctx.moveTo(0, cy); ctx.lineTo(w, cy);
+    ctx.moveTo(cx, 0); ctx.lineTo(cx, h);
+    ctx.stroke();
+    for (const r of [h * 0.36, h * 0.43]) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = '#f2f2f2';
+    ctx.font = `700 ${h * 0.5}px "Orbitron", "Rajdhani", sans-serif`;
+    ctx.fillText(String(n), cx, cy + h * 0.02);
+    // graffi e polvere: un po' di pellicola vera
+    const seme = Math.floor(t * 24);
+    ctx.fillStyle = 'rgba(255,255,255,.35)';
+    for (let i = 0; i < 6; i++) {
+      const x = ((Math.sin(seme * 12.9898 + i * 78.233) * 43758.5453) % 1 + 1) % 1 * w;
+      const y = ((Math.sin(seme * 93.9898 + i * 11.233) * 23421.631) % 1 + 1) % 1 * h;
+      ctx.fillRect(x, y, 2, 2 + (i % 3) * 3);
+    }
+  } else if (stile === 'moderno') {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
+    g.addColorStop(0, '#1d2433'); g.addColorStop(1, '#07080c');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    const r = h * 0.3;
+    ctx.lineWidth = h * 0.018;
+    ctx.strokeStyle = 'rgba(255,255,255,.12)';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    // l'anello si svuota nel secondo
+    ctx.strokeStyle = '#ffd54a';
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + fraz * Math.PI * 2); ctx.stroke();
+    // il numero entra un po' più grande e si posa
+    const k = 1 + 0.25 * Math.pow(1 - Math.min(1, dentro * 4), 3);
+    ctx.globalAlpha = Math.min(1, dentro * 6);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `200 ${h * 0.34 * k}px "Rajdhani", "Segoe UI", sans-serif`;
+    ctx.fillText(String(n), cx, cy + h * 0.015);
+  } else if (stile === 'neon') {
+    ctx.fillStyle = '#05030a';
+    ctx.fillRect(0, 0, w, h);
+    const r = h * 0.32 * (1 + 0.04 * Math.sin(dentro * Math.PI));
+    const col = ['#35e8ff', '#ff3df2', '#ffd54a'][n % 3];
+    ctx.shadowColor = col;
+    ctx.shadowBlur = h * 0.06;
+    ctx.lineWidth = h * 0.012;
+    ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = h * 0.006;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.86, -Math.PI / 2, -Math.PI / 2 + dentro * Math.PI * 2); ctx.stroke();
+    // il numero si accende tremando, come un'insegna
+    const trema = dentro < 0.12 ? (Math.sin(t * 90) > 0 ? 1 : 0.35) : 1;
+    ctx.globalAlpha = trema;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = h * 0.08;
+    ctx.font = `800 ${h * 0.38}px "Orbitron", "Rajdhani", sans-serif`;
+    ctx.fillText(String(n), cx, cy + h * 0.02);
+  } else {
+    ctx.fillStyle = '#f4f1ea';
+    ctx.fillRect(0, 0, w, h);
+    // il numero respira: entra grande e trasparente, si posa, poi sparisce
+    const k = 1.15 - 0.15 * Math.min(1, dentro * 3);
+    ctx.globalAlpha = Math.min(1, dentro * 5) * Math.min(1, fraz * 5);
+    ctx.fillStyle = '#111111';
+    ctx.font = `300 ${h * 0.42 * k}px "Rajdhani", "Segoe UI", sans-serif`;
+    ctx.fillText(String(n), cx, cy + h * 0.02);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(w * 0.3, h * 0.8, w * 0.4 * fraz, Math.max(2, h * 0.006));
   }
+  ctx.restore();
   return telaCountdown;
 }

@@ -161,8 +161,19 @@ export interface GenSpec {
   /** tono: frequenza e livello */
   freq?: number;
   level?: number;
+  /** tono a colpetti: un bip ogni tot secondi (il countdown), lungo `bip` secondi */
+  ogni?: number;
+  bip?: number;
   title?: TitleSpec;
+  /** countdown: lo stile */
+  conto?: 'pellicola' | 'moderno' | 'neon' | 'minimal';
 }
+
+/**
+ * La forma di una dissolvenza: k da −1 (parte piano piano, come un fader analogico) a +1 (sale subito e poi
+ * si posa); 0 = dritta. s = a S (dolce all'inizio e alla fine).
+ */
+export interface Curva { k: number; s?: boolean }
 
 export interface Clip {
   id: string;
@@ -191,6 +202,9 @@ export interface Clip {
   /** dissolvenze in fotogrammi (video: dal trasparente · audio: dal silenzio) */
   fadeIn: number;
   fadeOut: number;
+  /** la forma delle dissolvenze (niente = dritta): src/core/progetto.ts curvaFade */
+  curvaIn?: Curva;
+  curvaOut?: Curva;
   // audio
   gain: number;
   gainKeys: Key[];
@@ -229,7 +243,12 @@ export interface MediaItem {
   /** punti di attacco e stacco marcati nel Player (secondi) */
   markIn?: number | null;
   markOut?: number | null;
+  /** la cartella del contenitore dove sta (niente = fuori dalle cartelle) */
+  cartella?: string;
 }
+
+/** una cartella del contenitore, per mettere in ordine i file (si possono mettere una dentro l'altra) */
+export interface Cartella { id: string; nome: string; genitore?: string }
 
 export interface Marker { id: string; f: number; name: string; color: string }
 
@@ -315,6 +334,8 @@ export interface Project {
   sequenze?: Sequenza[];
   /** l'id della timeline aperta */
   seqAttiva?: string;
+  /** le cartelle del contenitore */
+  cartelle?: Cartella[];
   created: number;
   saved: number;
 }

@@ -45,7 +45,8 @@ export class PannelloMonitor {
     this.tcDur = h('span', { class: 'tc piccolo' }, '--:--:--:--');
     this.inserimento = h('input', { class: 'tc-inserimento', inputmode: 'numeric', placeholder: 'hhmmssff o +25' }) as HTMLInputElement;
     this.barra = h('canvas', { class: 'mon-barra' });
-    this.playBtn = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { click: () => motore.toggle() } }, icona('play', 20));
+    // il play risponde appena lo premi (come un tasto vero), non quando lo lasci
+    this.playBtn = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { pointerdown: (e: PointerEvent) => { if (e.button === 0) { e.preventDefault(); motore.toggle(); } } } }, icona('play', 20));
     this.shuttleLbl = h('span', { class: 'shuttle-vel' }, '');
     this.primaDopo = h('button', { class: 'btn-mini prima-dopo', title: 'Prima e dopo il colore finale, fianco a fianco', on: { click: () => this.alternaPrimaDopo() } }, 'PRIMA | DOPO');
     const t = (ic: string, title: string, fn: () => void, cls = '') => h('button', { class: 'tasto-trasporto ' + cls, title, on: { click: fn } }, icona(ic, 17));
@@ -65,26 +66,29 @@ export class PannelloMonitor {
         h('button', { class: 'btn-icona', title: 'Schermo intero, con la timeline in piccolo (doppio clic sull\'immagine)', on: { click: () => this.pieno() } }, icona('pieno', 16))),
       this.schermo,
       this.barra,
-      h('div', { class: 'mon-tc' },
-        this.tc, this.inserimento,
-        h('div', { class: 'mon-segni' },
-          h('label', null, 'IN'), this.tcIn, h('label', null, 'OUT'), this.tcOut, h('label', null, 'DUR'), this.tcDur)),
-      h('div', { class: 'mon-trasporto' },
-        t('inizio', 'All\'inizio (Home)', () => esegui('inizio')),
-        t('indietro', 'Shuttle indietro (J)', () => motore.shuttle(-1)),
-        t('fotoPrec', 'Fotogramma prima (← o rotella)', () => motore.passo(-1)),
-        this.playBtn,
-        t('fotoSucc', 'Fotogramma dopo (→ o rotella)', () => motore.passo(1)),
-        t('avanti', 'Shuttle avanti (L)', () => motore.shuttle(1)),
-        t('fine', 'Alla fine (End)', () => esegui('fine')),
-        h('span', { class: 'sep-v' }),
-        t('segnaIn', 'Segna attacco (I)', () => esegui('segnaIn'), 'in'),
-        t('segnaOut', 'Segna stacco (O)', () => esegui('segnaOut'), 'out'),
-        t('loop', 'Loop (Ctrl+L)', () => esegui('loop'), 'loop'),
-        h('span', { class: 'sep-v solo-sorgente' }),
-        h('button', { class: 'tasto-edit solo-sorgente', title: 'Inserisci nella timeline al cursore (, oppure [)', on: { click: () => esegui('inserisci') } }, h('small', null, ','), 'INS'),
-        h('button', { class: 'tasto-edit rosso solo-sorgente', title: 'Sovrascrivi nella timeline al cursore (. oppure ])', on: { click: () => esegui('sovrascrivi') } }, h('small', null, '.'), 'SOVR'),
-        this.shuttleLbl,
+      // una riga sola sotto l'immagine: timecode, trasporto, segni e jog (più spazio all'immagine)
+      h('div', { class: 'mon-comandi' },
+        h('div', { class: 'mon-tc' }, this.tc, this.inserimento),
+        h('div', { class: 'mon-trasporto' },
+          t('inizio', 'All\'inizio (Home)', () => esegui('inizio')),
+          t('indietro', 'Shuttle indietro (J)', () => motore.shuttle(-1)),
+          t('fotoPrec', 'Fotogramma prima (← o rotella)', () => motore.passo(-1)),
+          this.playBtn,
+          t('fotoSucc', 'Fotogramma dopo (→ o rotella)', () => motore.passo(1)),
+          t('avanti', 'Shuttle avanti (L)', () => motore.shuttle(1)),
+          t('fine', 'Alla fine (End)', () => esegui('fine')),
+          h('span', { class: 'sep-v' }),
+          t('loop', 'Loop (Ctrl+L)', () => esegui('loop'), 'loop'),
+          h('span', { class: 'sep-v solo-sorgente' }),
+          t('segnaIn', 'Segna attacco (I) · Alt+X li toglie', () => esegui('segnaIn'), 'in solo-sorgente'),
+          t('segnaOut', 'Segna stacco (O) · Alt+X li toglie', () => esegui('segnaOut'), 'out solo-sorgente'),
+          h('button', { class: 'tasto-edit solo-sorgente', title: 'Inserisci nella timeline al cursore (, oppure [)', on: { click: () => esegui('inserisci') } }, h('small', null, ','), 'INS'),
+          h('button', { class: 'tasto-edit rosso solo-sorgente', title: 'Sovrascrivi nella timeline al cursore (. oppure ])', on: { click: () => esegui('sovrascrivi') } }, h('small', null, '.'), 'SOVR'),
+          this.shuttleLbl),
+        h('div', { class: 'mon-segni', title: 'Attacco, stacco e durata · Alt+X toglie attacco e stacco' },
+          h('span', { class: 'segno-io in' }, h('label', null, 'IN'), this.tcIn),
+          h('span', { class: 'segno-io out' }, h('label', null, 'OUT'), this.tcOut),
+          h('span', { class: 'segno-io' }, h('label', null, 'DUR'), this.tcDur)),
         jog.el));
 
     this.el.addEventListener('pointerdown', () => suTastierino((c) => this.apriInserimento(c)));
@@ -210,14 +214,19 @@ export class PannelloMonitor {
     this.el.classList.toggle('sorgente', sorgente);
     this.titolo.textContent = sorgente ? 'SORGENTE' : 'PROGRAMMA';
     const suona = motore.playing;
-    this.playBtn.replaceChildren(icona(suona ? 'stop' : 'play', 20));
-    this.playBtn.classList.toggle('acceso', suona);
+    // l'icona si cambia solo quando cambia lo stato (non a ogni fotogramma: sotto il mouse deve restare ferma)
+    if (this.playBtn.classList.contains('acceso') !== suona || !this.playBtn.firstChild) {
+      this.playBtn.replaceChildren(icona(suona ? 'stop' : 'play', 20));
+      this.playBtn.classList.toggle('acceso', suona);
+    }
     this.shuttleLbl.textContent = motore.speed !== 0 && motore.speed !== 1 ? `${motore.speed > 0 ? '▶' : '◀'} ×${Math.abs(motore.speed)}` : '';
     this.el.querySelector('.loop')?.classList.toggle('acceso', motore.loop);
     if (!sorgente) {
       this.tc.textContent = frameToTc(Math.floor(store.head + 1e-6), p.rate, p.drop);
       this.tcIn.textContent = p.inF !== null ? frameToTc(p.inF, p.rate, p.drop) : '--:--:--:--';
       this.tcOut.textContent = p.outF !== null ? frameToTc(p.outF, p.rate, p.drop) : '--:--:--:--';
+      this.el.classList.toggle('con-in', p.inF !== null);
+      this.el.classList.toggle('con-out', p.outF !== null);
       const d = p.inF !== null && p.outF !== null ? p.outF - p.inF : projectEnd(p);
       this.tcDur.textContent = frameToTc(d, p.rate, p.drop);
       this.nome.textContent = p.name;
@@ -229,6 +238,8 @@ export class PannelloMonitor {
       this.tc.textContent = m ? tcS(motore.playerT) : '--:--:--:--';
       this.tcIn.textContent = m?.markIn != null ? tcS(m.markIn) : '--:--:--:--';
       this.tcOut.textContent = m?.markOut != null ? tcS(m.markOut) : '--:--:--:--';
+      this.el.classList.toggle('con-in', m?.markIn != null);
+      this.el.classList.toggle('con-out', m?.markOut != null);
       this.tcDur.textContent = m ? tcS((m.markOut ?? m.duration) - (m.markIn ?? m.t0 ?? 0)) : '--:--:--:--';
     }
     this.disegnaBarra();
@@ -309,7 +320,7 @@ class MiniTimeline {
     this.cv = h('canvas', { class: 'mini-tela' });
     this.vu = h('canvas', { class: 'mini-vu', width: 36, height: 120 });
     this.tc = h('span', { class: 'tc mini-tc' }, '00:00:00:00');
-    this.play = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { click: () => motore.toggle() } }, icona('play', 18));
+    this.play = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { pointerdown: (e: PointerEvent) => { if (e.button === 0) { e.preventDefault(); motore.toggle(); } } } }, icona('play', 18));
     this.el = h('div', { class: 'mini-tl' },
       h('div', { class: 'mini-sx' }, this.play, this.tc),
       this.cv, this.vu);
@@ -385,7 +396,10 @@ class MiniTimeline {
     ctx.fillStyle = '#ffd54a';
     ctx.beginPath(); ctx.moveTo(x - 6, 0); ctx.lineTo(x + 6, 0); ctx.lineTo(x, 8); ctx.closePath(); ctx.fill();
     this.tc.textContent = frameToTc(Math.floor(store.head + 1e-6), p.rate, p.drop);
-    this.play.replaceChildren(icona(motore.playing ? 'stop' : 'play', 18));
+    if (this.play.classList.contains('acceso') !== motore.playing || !this.play.firstChild) {
+      this.play.replaceChildren(icona(motore.playing ? 'stop' : 'play', 18));
+      this.play.classList.toggle('acceso', motore.playing);
+    }
     // VU a barre (L e R) con la tacca del picco
     const v = this.vu, vx = v.getContext('2d')!;
     const vw = v.width, vh = v.height;
@@ -418,7 +432,7 @@ class JogShuttle {
   private ang = 0;
   private shuttle = 0;
   constructor() {
-    this.el = h('canvas', { class: 'jog', width: 112, height: 112, title: 'Jog (centro, gira) · Shuttle (anello, tira e lascia)' });
+    this.el = h('canvas', { class: 'jog', width: 84, height: 84, title: 'Jog (centro, gira) · Shuttle (anello, tira e lascia)' });
     this.disegna();
     this.el.addEventListener('pointerdown', (e) => {
       const r = this.el.getBoundingClientRect();
