@@ -40,8 +40,24 @@
     "publisher": "DaProd",
     "copyright": "© DaProd",
     "category": "Video",
+    "fileAssociations": [
+      {
+        "ext": ["daprod"],
+        "name": "Progetto DaProd Video",
+        "description": "Progetto DaProd Video con tutti i suoi file dentro",
+        "role": "Editor",
+        "mimeType": "application/x-daprod"
+      },
+      {
+        "ext": ["dpv"],
+        "name": "Progetto DaProd Video (leggero)",
+        "description": "Progetto DaProd Video (i file restano dove sono)",
+        "role": "Editor",
+        "mimeType": "application/x-daprod-video"
+      }
+    ],
     "shortDescription": "Montaggio video vecchio stile, moderno dentro",
-    "longDescription": "DaProd Video: due monitor Player e Recorder, timeline, pulsantiera (1 taglia, 2 elimina), VU a lancetta, tendine SMPTE, titolatrice ed EDL CMX3600.",
+    "longDescription": "DaProd Video: il montaggio vecchio stile, moderno dentro. Monitor, timeline, pulsantiera (1 taglia, 2 elimina), VU a lancetta, effetti e transizioni a blocchetti, titolatrice, sottotitoli AI, registrazione dello schermo, EDL CMX3600.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

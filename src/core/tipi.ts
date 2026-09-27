@@ -245,6 +245,10 @@ export interface MediaItem {
   markOut?: number | null;
   /** la cartella del contenitore dove sta (niente = fuori dalle cartelle) */
   cartella?: string;
+  /** dentro un pacchetto .daprod: dove stanno i suoi byte nel file del pacchetto (path) */
+  dentro?: { off: number; len: number };
+  /** il nome del file dentro il pacchetto .daprod (media/…) */
+  pacchetto?: string;
 }
 
 /** una cartella del contenitore, per mettere in ordine i file (si possono mettere una dentro l'altra) */

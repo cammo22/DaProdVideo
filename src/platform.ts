@@ -84,19 +84,6 @@ export function scegliFileBrowser(accept: string, multiple: boolean): Promise<Fi
   });
 }
 
-/** apertura di un file di progetto .dpv: ritorna testo e (nell'app) percorso */
-export async function apriProgetto(): Promise<{ text: string; path?: string; name: string } | null> {
-  if (isTauri) {
-    const [p] = await dialogoApri({ multiple: false, title: 'Progetto DaProd Video', estensioni: ['dpv', 'json'], mime: [] });
-    if (!p) return null;
-    const text = await invoke<string>('progetto_leggi', { path: p });
-    return { text, path: p, name: nomeDaPercorso(p) };
-  }
-  const [f] = await scegliFileBrowser('.dpv,.json,application/json', false);
-  if (!f) return null;
-  return { text: await f.text(), name: f.name };
-}
-
 /** salva un file di testo (progetto, EDL): nell'app sul disco, nel browser come scaricamento */
 export async function salvaTesto(nome: string, testo: string, estensione: string, percorso?: string): Promise<string | null> {
   if (isTauri) {
@@ -136,4 +123,21 @@ export async function schermoIntero() {
   }
   if (document.fullscreenElement) await document.exitFullscreen();
   else await document.documentElement.requestFullscreen().catch(() => {});
+}
+
+/** la grandezza dell'interfaccia (Vista → Grandezza, Ctrl + e Ctrl −): nell'app lo zoom vero della finestra, nel browser lo zoom della pagina */
+export const GRANDEZZE_UI = [0.9, 1, 1.15, 1.3, 1.5];
+export function grandezzaUI(): number {
+  try { return Number(localStorage.getItem('dpv-grandezza')) || 1; } catch { return 1; }
+}
+/** true se si è potuto (nell'app); nel browser si usa lo zoom del browser (Ctrl + e Ctrl −), che è già perfetto */
+export async function impostaGrandezzaUI(k: number): Promise<boolean> {
+  if (!isTauri) return false;
+  const v = Math.max(0.8, Math.min(1.6, k));
+  try {
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+    await getCurrentWebview().setZoom(v);
+    localStorage.setItem('dpv-grandezza', String(v));
+    return true;
+  } catch { return false; }
 }

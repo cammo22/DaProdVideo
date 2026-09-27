@@ -15,6 +15,9 @@ export interface MediaRT {
   id: string;
   file?: File;
   path?: string;
+  /** dentro un pacchetto .daprod: il pezzo del file dove sta il media */
+  off?: number;
+  len?: number;
   input?: Input;
   v?: InputVideoTrack;
   a?: InputAudioTrack;
@@ -59,10 +62,12 @@ async function assicuraAc3() {
 function sorgente(r: MediaRT) {
   if (r.file) return new BlobSource(r.file, { maxCacheSize: 32 * 1024 * 1024 });
   const path = r.path!;
+  // dentro un pacchetto .daprod il media è un pezzo del file: si legge da lì, senza scompattare
+  const off = r.off ?? 0;
   return new StreamSource({
-    getSize: () => invoke<number>('media_dimensione', { path }),
+    getSize: () => (r.len !== undefined ? Promise.resolve(r.len) : invoke<number>('media_dimensione', { path })),
     read: async (start: number, end: number) => {
-      const buf = await invoke<ArrayBuffer>('media_leggi', { path, start, end });
+      const buf = await invoke<ArrayBuffer>('media_leggi', { path, start: off + start, end: off + end });
       return new Uint8Array(buf);
     },
     maxCacheSize: 32 * 1024 * 1024,
@@ -72,8 +77,9 @@ function sorgente(r: MediaRT) {
 
 async function leggiTutto(r: MediaRT): Promise<Blob> {
   if (r.file) return r.file;
-  const size = await invoke<number>('media_dimensione', { path: r.path! });
-  const buf = await invoke<ArrayBuffer>('media_leggi', { path: r.path!, start: 0, end: size });
+  const off = r.off ?? 0;
+  const size = r.len ?? await invoke<number>('media_dimensione', { path: r.path! });
+  const buf = await invoke<ArrayBuffer>('media_leggi', { path: r.path!, start: off, end: off + size });
   return new Blob([buf]);
 }
 
@@ -82,6 +88,7 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
   const old = rt.get(item.id);
   if (old?.input) old.input.dispose();
   const r: MediaRT = { id: item.id, file: sel.file, path: sel.path, stato: 'caricamento', peaksDone: 0, vDecodable: false, aDecodable: false };
+  if (sel.path && !sel.file && item.dentro) { r.off = item.dentro.off; r.len = item.dentro.len; }
   rt.set(item.id, r);
   try {
     if (item.type === 'image') {

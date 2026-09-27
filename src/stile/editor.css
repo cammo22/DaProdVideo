@@ -636,6 +636,8 @@ button svg { pointer-events: none; }
 .avviso.errore { color: #ffb1c0; box-shadow: var(--ombra), inset 0 0 0 1px rgba(255, 77, 109, 0.5); }
 .avviso.tasto { color: var(--oro); font-family: var(--ui); letter-spacing: 0.4px; }
 .avviso.via { opacity: 0; transform: translateY(6px); transition: all 0.3s; }
+.riga-spunta { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; margin: 8px 0; }
+.avviso-lungo .btn { margin-left: 6px; }
 .avviso-lungo { position: fixed; right: 14px; bottom: 30px; z-index: 1100; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; background: #1d1c24; border: 1px solid #000; box-shadow: var(--ombra); font-weight: 700; }
 
 /* ——— avvio: le barre e il marchio ——— */
