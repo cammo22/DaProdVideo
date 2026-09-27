@@ -5,9 +5,10 @@
 import { chromium } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { servi } from './servi.mjs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 if (!fs.existsSync(path.join(DIST, 'app/index.html'))) { console.error('manca dist/: prima npm run build'); process.exit(1); }
 const OUT = path.join(ROOT, 'test/.out');
@@ -1191,16 +1192,25 @@ try {
       m.vaiA(da);
       await new Promise((ok) => setTimeout(ok, 1200));
       const n0 = window.__dpvTest.statoDecoder().nati;
-      const buf = new Uint8Array(32 * 18 * 4);
-      const hash = () => { m.rec.leggiPiccolo(32, 18, buf); let h = 0; for (let i = 0; i < buf.length; i++) h = (h * 31 + buf[i]) | 0; return h; };
+      const buf = new Uint8Array(64 * 36 * 4);
+      const hash = () => { m.rec.leggiPiccolo(64, 36, buf); let h = 0; for (let i = 0; i < buf.length; i++) h = (h * 31 + buf[i]) | 0; return h; };
+      const testa = window.__dpv.head;
       m.play(1);
+      const partito = await new Promise((ok) => {
+        const scade = setTimeout(() => ok(false), 1200);
+        const controlla = () => {
+          if (window.__dpv.head > testa) { clearTimeout(scade); ok(true); }
+          else requestAnimationFrame(controlla);
+        };
+        controlla();
+      });
       const hs = [];
       for (let i = 0; i < 8; i++) { await new Promise((ok) => setTimeout(ok, 250)); hs.push(hash()); }
       m.stop();
-      return { nati: window.__dpvTest.statoDecoder().nati - n0, diversi: new Set(hs).size };
+      return { partito, nati: window.__dpvTest.statoDecoder().nati - n0, diversi: new Set(hs).size };
     }, da);
     const a = await suona(250);
-    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
+    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.partito && a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
     const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
     prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
@@ -1208,7 +1218,7 @@ try {
     // col proxy (un fotogramma chiave ogni mezzo secondo), su una macchina lenta il flusso rimasto indietro riparte dal
     // fotogramma chiave dopo per restare a tempo con l'audio: qualche ripartenza va bene, a raffica no (il vecchio
     // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
-    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.diversi >= 4 && b.nati <= 6, JSON.stringify(b));
+    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && b.diversi >= 4 && b.nati <= 6, JSON.stringify(b));
     await pg.close();
   }
 
