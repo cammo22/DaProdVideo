@@ -1204,6 +1204,7 @@ try {
         return peso ? Math.round(xPesata / peso) : null;
       };
       const testa = window.__dpv.head;
+      const inizio = performance.now();
       m.play(1);
       const partito = await new Promise((ok) => {
         const scade = setTimeout(() => ok(false), 1200);
@@ -1215,10 +1216,17 @@ try {
       });
       const posizioni = [];
       for (let i = 0; i < 8; i++) { await new Promise((ok) => setTimeout(ok, 250)); posizioni.push(posizionePallina()); }
+      const headFine = window.__dpv.head;
+      const durataMs = performance.now() - inizio;
       m.stop();
-      return { partito, nati: window.__dpvTest.statoDecoder().nati - n0, diversi: new Set(posizioni.filter((x) => x !== null)).size, posizioni };
+      const rate = window.__dpv.doc.rate;
+      return {
+        partito, nati: window.__dpvTest.statoDecoder().nati - n0,
+        diversi: new Set(posizioni.filter((x) => x !== null)).size, posizioni,
+        secondi: (headFine - testa) * rate.den / rate.num, durataMs,
+      };
     }, da);
-    const a = await suona(250);
+    const a = await suona(200);
     prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.partito && a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
     const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
@@ -1227,7 +1235,9 @@ try {
     // col proxy (un fotogramma chiave ogni mezzo secondo), su una macchina lenta il flusso rimasto indietro riparte dal
     // fotogramma chiave dopo per restare a tempo con l'audio: qualche ripartenza va bene, a raffica no (il vecchio
     // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
-    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && b.diversi >= 4 && b.nati <= 6, JSON.stringify(b));
+    // Il proxy ha un GOP di mezzo secondo: si limita la frequenza alle ripartenze necessarie per raggiungere il GOP successivo.
+    const limiteFlussi = Math.ceil(b.durataMs / 500) + 2;
+    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && b.diversi >= 4 && b.nati <= limiteFlussi, JSON.stringify({ ...b, limiteFlussi }));
     await pg.close();
   }
 
