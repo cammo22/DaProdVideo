@@ -1222,8 +1222,11 @@ try {
         };
         controlla();
       });
+      // su una macchina lenta ogni lettura dei pixel costa anche un secondo: ci si ferma prima della fine della
+      // clip (dopo è nero) e si contano i cambi fra una lettura e la dopo (il video si muove, non è fermo)
       const posizioni = [];
-      for (let i = 0; i < 8; i++) { await new Promise((ok) => setTimeout(ok, 250)); posizioni.push(posizionePallina()); }
+      const fineClip = window.__dpv.doc.clips.find((c) => c.kind === 'media').len - 12;
+      for (let i = 0; i < 8 && window.__dpv.head < fineClip; i++) { await new Promise((ok) => setTimeout(ok, 250)); posizioni.push(posizionePallina()); }
       const headFine = window.__dpv.head;
       const durataMs = performance.now() - inizio;
       m.stop();
@@ -1231,11 +1234,12 @@ try {
       return {
         partito, nati: window.__dpvTest.statoDecoder().nati - n0,
         diversi: new Set(posizioni.filter((x) => x !== null)).size, posizioni,
+        cambi: posizioni.filter((x, i) => i > 0 && x !== null && posizioni[i - 1] !== null && x !== posizioni[i - 1]).length,
         secondi: (headFine - testa) * rate.den / rate.num, durataMs,
       };
     }, da);
     const a = await suona(250);
-    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove (senza ripartire dal fotogramma chiave)', a.partito && a.diversi >= 4 && a.nati <= 2, JSON.stringify(a));
+    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove (senza ripartire dal fotogramma chiave)', a.partito && a.cambi >= 3 && a.nati <= 2, JSON.stringify(a));
     const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
     prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
@@ -1245,7 +1249,7 @@ try {
     // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
     // Il proxy ha un GOP di mezzo secondo: si limita la frequenza alle ripartenze necessarie per raggiungere il GOP successivo.
     const limiteFlussi = Math.ceil(b.durataMs / 500) + 2;
-    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && b.diversi >= 4 && b.nati <= limiteFlussi, JSON.stringify({ ...b, limiteFlussi }));
+    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && b.cambi >= 3 && b.nati <= limiteFlussi, JSON.stringify({ ...b, limiteFlussi }));
     await pg.close();
   }
 
