@@ -16,8 +16,8 @@ import { Scopi } from './scopi';
 import { costruisciMenu, h, icona, avviso, chiudiMenu, type VoceMenu } from './dom';
 import { installaTastiera } from './tastiera';
 import { finestraEsporta, finestraInfo, finestraProgetto, finestraTasti, esportaEdl, esportaFotogramma, VERSIONE } from './dialoghi';
-import { apri, autosalva, importaDaDrop, importaDialogo, importaFile, nuovo, ricollega, riprendi, salva } from '../progetti';
-import { edizione, isAndroid, isTauri, apriLink, schermoIntero } from '../platform';
+import { apri, apriFile, salvaPacchetto, autosalva, importaDaDrop, importaDialogo, importaFile, nuovo, ricollega, riprendi, salva } from '../progetti';
+import { edizione, invoke, isAndroid, isTauri, apriLink, schermoIntero, GRANDEZZE_UI, grandezzaUI, impostaGrandezzaUI } from '../platform';
 import { finestraAggiornamenti, finestraNovita, novitaDopoAggiornamento, tastoAggiornamenti } from './aggiornamenti';
 import { montaggioDimostrativo } from '../demo';
 import { FORMATI } from '../core/tipi';
@@ -69,6 +69,7 @@ export function avvia(radice: HTMLElement) {
     if (radice.dataset.pagina === pg) return;
     if (radice.dataset.pagina === 'live' && live.registrando) avviso('La registrazione continua: torna su LIVE per fermarla', 'info', 2600);
     radice.dataset.pagina = pg;
+    live.mostrata(pg === 'live');
     // i VU vanno dove si guarda: nelle proprietà durante il montaggio, nel Finale alla fine
     if (pg === 'finale') finale.el.insertBefore(vuCornice, finale.el.children[1] ?? null);
     else pannelloLato.insertBefore(vuCornice, pannelloLato.firstChild);
@@ -90,6 +91,7 @@ export function avvia(radice: HTMLElement) {
       { nome: 'Apri progetto…', tasto: 'Ctrl+O', fn: () => apri() },
       { nome: 'Salva', tasto: 'Ctrl+S', fn: () => salva() },
       { nome: 'Salva come…', tasto: 'Ctrl+Shift+S', fn: () => salva(true) },
+      { nome: 'Salva il pacchetto .daprod (con tutti i file)…', fn: () => void salvaPacchetto() },
       { sep: true },
       { nome: 'Importa video, audio, immagini…', tasto: 'Ctrl+I', fn: () => importaDialogo() },
       { nome: 'Ricollega media mancanti…', fn: () => ricollega() },
@@ -129,6 +131,11 @@ export function avvia(radice: HTMLElement) {
       { nome: 'Monitor a schermo intero (con la timeline)', fn: () => monitor.pieno() },
       { nome: 'Zone di sicurezza', spunta: modi.zoneSicure, fn: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); } },
       { nome: 'Tutto il montaggio nella finestra', tasto: '\\', fn: () => tl.adattaTutto() },
+      { nome: 'Tracce più alte', tasto: 'Ctrl+Shift+rotella', fn: () => tl.zoomVerticale(1.25) },
+      { nome: 'Tracce più basse', fn: () => tl.zoomVerticale(0.8) },
+      isTauri
+        ? { nome: 'Grandezza dell\'interfaccia', sotto: GRANDEZZE_UI.map((k) => ({ nome: Math.round(k * 100) + '%', tasto: k === 1 ? 'Ctrl+0' : '', spunta: Math.abs(grandezzaUI() - k) < 0.01, fn: () => void impostaGrandezzaUI(k) })) }
+        : { nome: 'Grandezza dell\'interfaccia', tasto: 'Ctrl + / Ctrl −', fn: () => avviso('Nel browser: Ctrl + e Ctrl − ingrandiscono tutto (Ctrl 0 torna com\'era)', 'info', 3500) },
       { nome: 'Finestra a schermo intero', tasto: 'F11', fn: () => void schermoIntero() },
       { sep: true },
       { nome: 'Strumenti di misura', fn: () => { pagina('montaggio'); mostraLato('scopi'); } },
@@ -288,12 +295,20 @@ export function avvia(radice: HTMLElement) {
 
   // ——— tastiera, trascinamenti, audio ———
   installaTastiera();
+  if (isTauri && grandezzaUI() !== 1) void impostaGrandezzaUI(grandezzaUI());
   const extra: Record<string, () => void> = {
     'ctrl+s': () => salva(), 'ctrl+shift+s': () => salva(true), 'ctrl+o': () => apri(), 'ctrl+i': () => importaDialogo(),
     'ctrl+m': () => finestraEsporta(), 'ctrl+n': () => nuovo(), f1: () => finestraTasti(), '+': () => tl.zoom(1.5), '-': () => tl.zoom(1 / 1.5),
     '\\': () => tl.adattaTutto(), v: () => vistaStretta(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
     f11: () => void schermoIntero(), f9: () => pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'),
     f10: () => pagina(radice.dataset.pagina === 'live' ? 'montaggio' : 'live'),
+    // la grandezza dell'interfaccia nell'app, un gradino alla volta (Ctrl 0 torna al 100%); nel browser fa il browser
+    ...(isTauri ? {
+      'ctrl++': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
+      'ctrl+=': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
+      'ctrl+-': () => void impostaGrandezzaUI([...GRANDEZZE_UI].reverse().find((k) => k < grandezzaUI() - 0.01) ?? grandezzaUI()),
+      'ctrl+0': () => void impostaGrandezzaUI(1),
+    } : {}),
   };
   addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
@@ -339,8 +354,15 @@ export function avvia(radice: HTMLElement) {
 
   aggTesta();
   novitaDopoAggiornamento();
-  void riprendi().then((ok) => { if (ok) setTimeout(() => tl.adattaTutto(), 200); });
+  // aperta col doppio clic su un progetto (.daprod o .dpv): si apre quello; se no si riprende da dove eri
+  const daFile = isTauri ? invoke<string | null>('file_di_avvio').catch(() => null) : Promise.resolve(null);
+  void daFile.then(async (f) => {
+    if (f) { await apriFile({ path: f }); setTimeout(() => tl.adattaTutto(), 200); return; }
+    if (await riprendi()) setTimeout(() => tl.adattaTutto(), 200);
+  });
+  // sul Mac, doppio clic su un progetto con l'app già aperta
+  if (isTauri) void import('@tauri-apps/api/event').then(({ listen }) => listen<string>('apri-file', (e) => { void invoke<string | null>('file_di_avvio'); void apriFile({ path: e.payload }); })).catch(() => {});
   setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   void esegui;
-  return { tl, monitor, finale, live };
+  return { tl, monitor, finale, live, bin };
 }

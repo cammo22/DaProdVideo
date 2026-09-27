@@ -7,6 +7,8 @@ import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEn
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
 import type { Clip, Transition } from './core/tipi';
+import { STILI_CONTO, type StileConto } from './render/grafica';
+import { applicaPresetTitolo, presetTitolo } from './core/generatori';
 import { cambiaModello, durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioneSul } from './core/blocchi';
 
 export interface Azione {
@@ -34,7 +36,19 @@ export const modi = {
   attive: new Set<string>(),
   /** durata dei blocchetti FX nuovi in secondi (0 = quella giusta per ogni effetto): i chip del contenitore */
   durataFx: 0,
+  /** i blocchetti nuovi nascono col suono acceso? (di partenza no) */
+  suonoFx: false,
+  /** la forza dei blocchetti nuovi */
+  forzaFx: 1,
 };
+
+/** un blocchetto nuovo con le impostazioni del contenitore (suono acceso o no, forza) */
+export function bloccoNuovo(tipo: 'effetto' | 'transizione', id: string) {
+  const b = nuovoBlocco(tipo, id);
+  b.forza = modi.forzaFx;
+  if (b.suono && modi.suonoFx) b.audio = true;
+  return b;
+}
 
 /** le tracce accese che esistono ancora (null = nessuna accesa: vale tutto) */
 export function tracceAttive(): Set<string> | null {
@@ -208,7 +222,7 @@ export function mettiBlocco(tipo: 'effetto' | 'transizione', id: string, f = hea
   }
   const posto = postoBlocco(p, tipo, rif, len, soglia, tk, tipo === 'effetto');
   const start = inizio ?? posto.start, dove = inizio === undefined ? posto.dove : 'libero';
-  const c = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), start, len, tk));
+  const c = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, bloccoNuovo(tipo, id), start, len, tk));
   store.select([c.id]);
   const dov = dove === 'taglio' ? ' sul taglio' : dove === 'inizio' ? ' all\'inizio della clip' : dove === 'fine' ? ' alla fine della clip' : '';
   avviso(`${tipo === 'effetto' ? '⚡' : '✦'} ${nomeBlocco(c.fxb!)} · ${secondi(len)}${dov}`, 'tasto', 1400);
@@ -431,7 +445,7 @@ reg({
 reg({ id: 'modoInserisci', nome: 'Modo libero / inserisci', gruppo: 'Centralina', tasti: ['Insert', 'Alt+I'], fn: () => { modi.inserisci = !modi.inserisci; avviso(modi.inserisci ? 'Modo INSERISCI: la clip che lasci fa spazio spostando avanti il resto' : 'Modo LIBERO: la clip che sposti o lasci non copre niente', 'info', 2200); store.emit('status'); } });
 reg({ id: 'ripple', nome: 'Ripple (elimina e trim chiudono i buchi)', gruppo: 'Centralina', tasti: ['R'], fn: () => { modi.ripple = !modi.ripple; avviso(modi.ripple ? 'Ripple ACCESO' : 'Ripple spento', 'info', 1000); store.emit('status'); } });
 reg({ id: 'snap', nome: 'Calamita (aggancio)', gruppo: 'Centralina', tasti: ['N'], fn: () => { modi.snap = !modi.snap; avviso(modi.snap ? 'Calamita accesa' : 'Calamita spenta', 'info', 1000); store.emit('status'); } });
-reg({ id: 'elastico', nome: 'Linee elastiche (trasparenza e volume)', gruppo: 'Centralina', tasti: ['B'], fn: () => { modi.elastico = !modi.elastico; avviso(modi.elastico ? 'Linee elastiche: clic sulla linea per un punto, Alt+clic per toglierlo' : 'Linee elastiche nascoste', 'info', 2200); store.emit('status', 'view'); } });
+reg({ id: 'elastico', nome: 'Linea della trasparenza sui video', gruppo: 'Centralina', tasti: ['B'], fn: () => { modi.elastico = !modi.elastico; avviso(modi.elastico ? 'Trasparenza: clic sul video per un punto, tiralo giù per sfumare (Alt+clic lo toglie)' : 'Linea della trasparenza nascosta', 'info', 2400); store.emit('status', 'view'); } });
 reg({
   id: 'abbina', nome: 'Abbina fotogramma (match frame)', gruppo: 'Centralina', tasti: ['F'],
   fn: () => {
@@ -503,7 +517,8 @@ reg({
 });
 
 // ——— generatori (le macchine della sala) ———
-export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero', f = head(), trackId?: string) {
+export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero', f = head(), trackId?: string, opz: { conto?: { stile: StileConto; secondi: number }; titolo?: string } = {}) {
+  const conto = opz.conto ?? { stile: 'pellicola' as StileConto, secondi: 5 };
   const p = store.doc;
   const rr = r();
   const v1 = p.tracks.filter((t) => t.kind === 'video' && !t.lock).slice(-1)[0]?.id ?? null;
@@ -519,16 +534,18 @@ export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'titl
       const c = newClip('bars', tv(len), f, len, { name: 'Barre colore SMPTE', gen: { bars: 'smpte' }, link: l }); pp.clips.push(c); out.push(c.id);
       const t = newClip('tone', ta(len), f, len, { name: 'Tono 1 kHz −18 dBFS', gen: { freq: 1000, level: -18 }, link: l }); pp.clips.push(t); out.push(t.id);
     } else if (kind === 'countdown') {
-      const len = Math.round(rr * 8);
+      // da N a 1, un numero al secondo, con un bip a ogni numero (legato: si sposta insieme)
+      const len = Math.round(rr * conto.secondi);
       const l = uid('l');
-      const c = newClip('countdown', tv(len), f, len, { name: 'Countdown 8…2', link: l }); pp.clips.push(c); out.push(c.id);
-      // il "2-pop": un fotogramma di tono quando compare il 2
-      const pop = f + len - Math.round(rr * 2);
-      const b = newClip('beep', M.tracciaLibera(pp, 'audio', a1, pop, pop + 1), pop, 1, { name: '2-pop', gen: { freq: 1000, level: -20 }, link: l }); pp.clips.push(b); out.push(b.id);
+      const nome = STILI_CONTO.find((x) => x.id === conto.stile)?.nome ?? 'Countdown';
+      const c = newClip('countdown', tv(len), f, len, { name: `Countdown ${nome} ${conto.secondi}…1`, gen: { conto: conto.stile }, link: l }); pp.clips.push(c); out.push(c.id);
+      const b = newClip('beep', ta(len), f, len, { name: 'Bip del countdown', gen: { freq: 1000, level: -20, ogni: 1, bip: 0.08 }, link: l }); pp.clips.push(b); out.push(b.id);
     } else if (kind === 'title') {
-      const len = Math.round(rr * 5);
+      const len = Math.round(rr * 5 * (opz.titolo ? presetTitolo(opz.titolo)?.volte ?? 1 : 1));
       // i titoli stanno sopra: si parte dalla traccia video più alta
-      const c = newClip('title', tv(len, trackId ?? pp.tracks.find((t) => t.kind === 'video' && !t.lock)?.id ?? null), f, len, { name: 'Titolo', gen: { title: { ...TITLE0 } } }); pp.clips.push(c); out.push(c.id);
+      const c = newClip('title', tv(len, trackId ?? pp.tracks.find((t) => t.kind === 'video' && !t.lock)?.id ?? null), f, len, { name: 'Titolo', gen: { title: { ...TITLE0 } } });
+      if (opz.titolo) applicaPresetTitolo(c, opz.titolo);
+      pp.clips.push(c); out.push(c.id);
     } else {
       const len = Math.round(rr * 5);
       const c = newClip('color', tv(len), f, len, { name: kind === 'nero' ? 'Nero' : 'Colore', gen: { color: kind === 'nero' ? '#000000' : '#1b3a8f' } }); pp.clips.push(c); out.push(c.id);

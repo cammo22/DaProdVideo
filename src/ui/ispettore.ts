@@ -13,6 +13,7 @@ import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto } from '../effetti
 import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, nomeBlocco, nuovoBlocco, posaBlocco, taglioDelBlocco, taglioVicino, transizioneSul } from '../core/blocchi';
 import { SUONI } from '../core/suoni';
 import { ascoltaSuono } from '../media/audio';
+import { bolla, presentazione, SFONDI } from '../core/cornici';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
 
@@ -100,7 +101,11 @@ export class Ispettore {
           ['Riempi', () => store.edit('Riempi', () => { for (const c of video) { const mm = mediaOf(p, c); if (mm?.width) { const w = mm.rotation % 180 ? mm.height : mm.width, hh = mm.rotation % 180 ? mm.width : mm.height; const kf = Math.min(p.w / w, p.h / hh), kc = Math.max(p.w / w, p.h / hh); c.tf.scale = kc / kf; } } })],
           ['Riquadro ↘', () => store.edit('Riquadro', () => { for (const c of video) c.tf = { ...TF0, scale: 0.33, x: p.w * 0.3, y: p.h * 0.28 }; })],
           ['Riquadro ↖', () => store.edit('Riquadro', () => { for (const c of video) c.tf = { ...TF0, scale: 0.33, x: -p.w * 0.3, y: -p.h * 0.28 }; })],
+          ['Bolla ↘', () => store.edit('Bolla', () => { for (const c of video) c.tf = bolla(p, mediaOf(p, c), 'bd'); })],
+          ['Presentazione', () => store.edit('Presentazione', () => { for (const c of video) c.tf = presentazione(); })],
         ]),
+        this.cursore('Angoli tondi', 0, 100, 1, (c) => Math.round((c.tf.angoli ?? 0) * 100), (c, v) => { c.tf.angoli = v / 100; }, '%', video),
+        this.cursore('Ombra', 0, 100, 1, (c) => Math.round((c.tf.ombra ?? 0) * 100), (c, v) => { c.tf.ombra = v / 100; }, '%', video),
         video.some((c) => c.opKeys.length) ? h('p', { class: 'nota' }, 'Questa clip ha una linea elastica: la trasparenza cambia nel tempo. Muovere l\'opacità la toglie.') : null,
       ]));
       out.push(this.gruppo('colore', 'Colore della clip', [
@@ -126,7 +131,14 @@ export class Ispettore {
     if (gen.length) {
       const g0 = gen[0];
       const righe: HTMLElement[] = [];
-      if (g0.kind === 'color') righe.push(this.colore('Colore', (c) => c.gen?.color ?? '#000', (c, v) => { c.gen = { ...c.gen, color: v }; }, gen));
+      if (g0.kind === 'color') {
+        righe.push(this.colore('Colore', (c) => c.gen?.color ?? '#000', (c, v) => { c.gen = { ...c.gen, color: v }; }, gen));
+        righe.push(this.colore('Sfuma verso', (c) => c.gen?.color2 ?? c.gen?.color ?? '#000', (c, v) => { c.gen = { ...c.gen, color2: v }; }, gen));
+        righe.push(this.pulsanti([
+          ...SFONDI.map((x): [string, () => void] => [x.nome, () => store.edit('Sfondo ' + x.nome, () => { for (const c of gen) c.gen = { ...c.gen, color: x.a, color2: x.b }; })]),
+          ['Pieno', () => store.edit('Colore pieno', () => { for (const c of gen) { const g = { ...c.gen }; delete g.color2; c.gen = g; } })],
+        ]));
+      }
       if (g0.kind === 'bars') righe.push(this.scelta('Barre', [['smpte', 'SMPTE (NTSC)'], ['ebu', 'EBU 100/75 (PAL)']], (c) => c.gen?.bars ?? 'smpte', (c, v) => { c.gen = { ...c.gen, bars: v as 'smpte' }; }, gen));
       if (g0.kind === 'tone' || g0.kind === 'beep') {
         righe.push(this.cursore('Frequenza', 100, 10000, 10, (c) => c.gen?.freq ?? 1000, (c, v) => { c.gen = { ...c.gen, freq: v }; }, 'Hz', gen));

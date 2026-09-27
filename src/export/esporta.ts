@@ -103,7 +103,7 @@ async function destinazione(nome: string, mime: string, estensione: string): Pro
 }
 
 /** legge i fotogrammi esatti per l'export: un lettore in avanti per ogni clip */
-class Lettori {
+export class Lettori {
   private l = new Map<string, { it: AsyncGenerator<VideoSample>; cur: VideoSample | null; next: VideoSample | null; fine: boolean; usato: number }>();
   private sinks = new Map<string, VideoSampleSink>();
 

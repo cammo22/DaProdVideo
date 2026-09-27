@@ -1,5 +1,5 @@
 // Fabbrica del progetto, delle tracce e delle clip, più le piccole utilità sul modello.
-import type { Clip, ClipKind, Master, MediaItem, Project, Rate, Track, TrackKind, Transition, VideoFx, Transform, TitleSpec } from './tipi';
+import type { Clip, ClipKind, Curva, Master, MediaItem, Project, Rate, Track, TrackKind, Transition, VideoFx, Transform, TitleSpec } from './tipi';
 import { f2s } from './timecode';
 
 let seq = 0;
@@ -115,12 +115,52 @@ export function keyValue(keys: { f: number; v: number }[], lf: number, base: num
   return keys[keys.length - 1].v;
 }
 
+/**
+ * La forma della dissolvenza: x da 0 (silenzio, nero) a 1 (pieno) → quanto passa (0..1).
+ * k < 0 parte piano piano e poi sale (il fader analogico), k > 0 sale subito e poi si posa, s = a S.
+ */
+export function curvaFade(x: number, cv?: Curva): number {
+  const t = Math.max(0, Math.min(1, x));
+  if (!cv || (!cv.k && !cv.s)) return t;
+  const e = Math.pow(4, -Math.max(-1, Math.min(1, cv.k)));
+  if (cv.s) {
+    // a S: dolce ai due capi; k la fa più ripida (+) o più morbida (−)
+    const a = 2 * Math.pow(2, cv.k);
+    const u = Math.pow(t, a), v = Math.pow(1 - t, a);
+    return u + v > 0 ? u / (u + v) : t;
+  }
+  return Math.pow(t, e);
+}
+
+/** le forme pronte (tasto destro sulla maniglia della dissolvenza) */
+export const CURVE: { id: string; nome: string; cv: Curva }[] = [
+  { id: 'lineare', nome: 'Dritta', cv: { k: 0 } },
+  { id: 'morbida', nome: 'Morbida (potenza costante)', cv: { k: 0.5 } },
+  { id: 'analogica', nome: 'Analogica (piano piano, poi sale)', cv: { k: -0.6 } },
+  { id: 'veloce', nome: 'Veloce (subito, poi si posa)', cv: { k: 1 } },
+  { id: 's', nome: 'A S (dolce ai due capi)', cv: { k: 0, s: true } },
+];
+
+export function nomeCurva(cv?: Curva): string {
+  if (!cv || (!cv.k && !cv.s)) return 'dritta';
+  const p = CURVE.find((x) => !!x.cv.s === !!cv.s && Math.abs(x.cv.k - cv.k) < 0.04);
+  if (p) return p.nome.split(' (')[0].toLowerCase();
+  return (cv.s ? 'a S ' : '') + (cv.k > 0 ? 'veloce ' : 'lenta ') + Math.round(Math.abs(cv.k) * 100) + '%';
+}
+
+/** quanto passa della clip al fotogramma locale lf per le sue dissolvenze (0..1) */
+export function fadeAl(c: Clip, lf: number): number {
+  let g = 1;
+  if (c.fadeIn > 0 && lf < c.fadeIn) g *= curvaFade(lf / c.fadeIn, c.curvaIn);
+  if (c.fadeOut > 0 && lf > c.len - c.fadeOut) g *= curvaFade((c.len - lf) / c.fadeOut, c.curvaOut);
+  return g;
+}
+
 /** opacità di una clip al fotogramma f (clip × linea elastica × dissolvenze) */
 export function clipOpacity(c: Clip, f: number): number {
   const lf = f - c.start;
   let o = c.opKeys.length ? keyValue(c.opKeys, lf, c.opacity) : c.opacity;
-  if (c.fadeIn > 0 && lf < c.fadeIn) o *= Math.max(0, lf / c.fadeIn);
-  if (c.fadeOut > 0 && lf > c.len - c.fadeOut) o *= Math.max(0, (c.len - lf) / c.fadeOut);
+  o *= fadeAl(c, lf);
   return Math.max(0, Math.min(1, o));
 }
 

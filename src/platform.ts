@@ -53,12 +53,22 @@ export async function dialogoSalva(nome: string, estensione: string, mime: strin
 }
 
 /** sceglie i file da importare: nell'app con il dialogo di sistema (percorsi), nel browser con <input type=file> */
-export async function scegliMedia(): Promise<FileScelto[]> {
+/** i tipi del contenitore, per importare dritti in Video, Musica o Immagini */
+export type TipoMedia = 'video' | 'audio' | 'image';
+export const ESTENSIONI_DI: Record<TipoMedia, string[]> = {
+  video: ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'mts', 'm2ts', 'ts', 'mpg'],
+  audio: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'ac3'],
+  image: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'],
+};
+
+export async function scegliMedia(tipo?: TipoMedia): Promise<FileScelto[]> {
+  const nome = { video: 'Importa video', audio: 'Importa musica e audio', image: 'Importa immagini' };
   if (isTauri) {
-    const list = await dialogoApri({ multiple: true, title: 'Importa nel contenitore', estensioni: ESTENSIONI, mime: ['video/*', 'audio/*', 'image/*'] });
+    const list = await dialogoApri({ multiple: true, title: tipo ? nome[tipo] : 'Importa nel contenitore', estensioni: tipo ? ESTENSIONI_DI[tipo] : ESTENSIONI, mime: tipo ? [`${tipo}/*`] : ['video/*', 'audio/*', 'image/*'] });
     return list.map((p) => ({ name: nomeDaPercorso(p), path: p }));
   }
-  return scegliFileBrowser('video/*,audio/*,image/*,.mts,.m2ts,.mkv,.mov,.ac3,.flac', true).then((fs) => fs.map((f) => ({ name: f.name, file: f })));
+  const accetta = tipo ? `${tipo}/*,${ESTENSIONI_DI[tipo].map((e) => '.' + e).join(',')}` : 'video/*,audio/*,image/*,.mts,.m2ts,.mkv,.mov,.ac3,.flac';
+  return scegliFileBrowser(accetta, true).then((fs) => fs.map((f) => ({ name: f.name, file: f })));
 }
 
 /** il nome del file da un percorso o da un indirizzo content:// di Android ("video:1234" → "video 1234") */
@@ -82,19 +92,6 @@ export function scegliFileBrowser(accept: string, multiple: boolean): Promise<Fi
     i.addEventListener('cancel', () => { res([]); i.remove(); });
     i.click();
   });
-}
-
-/** apertura di un file di progetto .dpv: ritorna testo e (nell'app) percorso */
-export async function apriProgetto(): Promise<{ text: string; path?: string; name: string } | null> {
-  if (isTauri) {
-    const [p] = await dialogoApri({ multiple: false, title: 'Progetto DaProd Video', estensioni: ['dpv', 'json'], mime: [] });
-    if (!p) return null;
-    const text = await invoke<string>('progetto_leggi', { path: p });
-    return { text, path: p, name: nomeDaPercorso(p) };
-  }
-  const [f] = await scegliFileBrowser('.dpv,.json,application/json', false);
-  if (!f) return null;
-  return { text: await f.text(), name: f.name };
 }
 
 /** salva un file di testo (progetto, EDL): nell'app sul disco, nel browser come scaricamento */
@@ -136,4 +133,21 @@ export async function schermoIntero() {
   }
   if (document.fullscreenElement) await document.exitFullscreen();
   else await document.documentElement.requestFullscreen().catch(() => {});
+}
+
+/** la grandezza dell'interfaccia (Vista → Grandezza, Ctrl + e Ctrl −): nell'app lo zoom vero della finestra, nel browser lo zoom della pagina */
+export const GRANDEZZE_UI = [0.9, 1, 1.15, 1.3, 1.5];
+export function grandezzaUI(): number {
+  try { return Number(localStorage.getItem('dpv-grandezza')) || 1; } catch { return 1; }
+}
+/** true se si è potuto (nell'app); nel browser si usa lo zoom del browser (Ctrl + e Ctrl −), che è già perfetto */
+export async function impostaGrandezzaUI(k: number): Promise<boolean> {
+  if (!isTauri) return false;
+  const v = Math.max(0.8, Math.min(1.6, k));
+  try {
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+    await getCurrentWebview().setZoom(v);
+    localStorage.setItem('dpv-grandezza', String(v));
+    return true;
+  } catch { return false; }
 }

@@ -15,6 +15,12 @@
     "fs:default",
     "opener:default",
     "core:window:allow-set-fullscreen",
-    "core:window:allow-is-fullscreen"
+    "core:window:allow-is-fullscreen",
+    "core:webview:allow-set-webview-zoom",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-size",
+    "core:window:allow-set-min-size",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize"
   ]
 }

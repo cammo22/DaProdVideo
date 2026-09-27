@@ -1,7 +1,8 @@
-// Il contenitore: tutto in un posto, ma in ordine. Video, musica e audio, immagini, e poi le transizioni,
-// i titoli con le macchine della sala e gli effetti. Passa il mouse su un video e scorre avanti e indietro
-// (per capire al volo se è quello giusto); trascina nella timeline; "+" lo mette al cursore; doppio clic lo
-// apre nel monitor per scegliere attacco e stacco.
+// Il contenitore, fatto come un esplora risorse: a sinistra l'albero (i file del progetto, divisi per tipo e
+// nelle cartelle che fai tu; la libreria con transizioni, titoli ed effetti a gruppi), a destra le schede.
+// Passa il mouse su un video e scorre avanti e indietro; su una transizione, un effetto o un titolo e lo vedi
+// girare sul fotogramma vero che c'è sotto il cursore della timeline (src/render/provino.ts). Trascina nella
+// timeline; "+" mette al cursore; doppio clic apre il file nel monitor. I file si trascinano nelle cartelle.
 import { store } from '../core/store';
 import { motore } from '../motore';
 import { mediaRT, quandoAnalisi, quandoPicchi } from '../media/libreria';
@@ -10,30 +11,49 @@ import { durataUmana, fps } from '../core/timecode';
 import { applicaTransizione, bersagli, inserisciGeneratore, montaDalPlayer, mettiBlocco, modi } from '../azioni';
 import { DURATE, EFFETTI_TEMPO, type EffettoTempo } from '../core/blocchi';
 import { importaDialogo, importaDaDrop, ricollega, togliMedia } from '../progetti';
-import { avviso, chiedi, h, icona, menuContesto } from './dom';
-import { trascinabile } from './trascina';
-import type { MediaItem, TitleSpec, Transition } from '../core/tipi';
-import { projectEnd, newTransition, end, clipById } from '../core/progetto';
+import { avviso, chiedi, conferma, h, icona, menuContesto, type VoceMenu } from './dom';
+import { registraBersaglio, trascinabile } from './trascina';
+import type { Cartella, MediaItem, Transition } from '../core/tipi';
+import { projectEnd, newTransition, end, clipById, uid } from '../core/progetto';
 import * as M from '../core/montaggio';
 import { EFFETTI, TENDINE } from '../render/transizioni';
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto, type Effetto } from '../effetti';
-import { anteprimaViva } from '../render/anteprime';
+import { anteprima } from '../render/anteprime';
+import { PRESET_TITOLI } from '../core/generatori';
+import { STILI_CONTO, disegnaCountdown } from '../render/grafica';
+import { scenaConto, scenaEffetto, scenaRitocco, scenaSala, scenaTitolo, scenaTransizione, suonaProvino, type Costruttore } from '../render/provino';
 
-type Categoria = 'tutto' | 'video' | 'audio' | 'immagini' | 'transizioni' | 'titoli' | 'effetti';
+// ——— l'albero ———
+interface Ramo { id: string; nome: string; icona: string; figli?: [string, string][] }
 
-const CATEGORIE: { id: Categoria; nome: string; icona: string }[] = [
-  { id: 'tutto', nome: 'Tutto', icona: 'tutto' },
+const TIPI: Ramo[] = [
+  { id: 'tutto', nome: 'Tutti i file', icona: 'tutto' },
   { id: 'video', nome: 'Video', icona: 'video' },
   { id: 'audio', nome: 'Musica', icona: 'musica' },
   { id: 'immagini', nome: 'Immagini', icona: 'immagine' },
-  { id: 'transizioni', nome: 'Transizioni', icona: 'transizione' },
-  { id: 'titoli', nome: 'Titoli', icona: 'titolo' },
-  { id: 'effetti', nome: 'Effetti', icona: 'effetti' },
 ];
+
+const LIBRERIA: Ramo[] = [
+  { id: 'transizioni', nome: 'Transizioni', icona: 'transizione', figli: [['tr:dissolvenze', 'Dissolvenze'], ['tr:movimento', 'Movimento'], ['tr:3d', '3D e forme'], ['tr:luce', 'Luce'], ['tr:stile', 'Stile'], ['tr:tendine', 'Tendine SMPTE']] },
+  { id: 'titoli', nome: 'Titoli', icona: 'titolo', figli: [['tit:titoli', 'Titoli'], ['tit:tv', 'TV e social'], ['tit:conto', 'Countdown'], ['tit:sala', 'Macchine della sala']] },
+  { id: 'effetti', nome: 'Effetti', icona: 'effetti', figli: [['fx:rapidi', 'Rapidi'], ['fx:lunghi', 'Lunghi'], ['fx:luci', 'Luci'], ['fx:distorsioni', 'Distorsioni'], ['fx:clip', 'Stile della clip'], ['fx:audio', 'Audio']] },
+];
+
+/** i gruppi delle transizioni digitali (numero del modello) */
+const GRUPPI_TR: Record<string, number[]> = {
+  movimento: [301, 302, 303, 304, 311, 321, 421, 431, 481],
+  '3d': [401, 411, 441, 331, 461],
+  luce: [351, 361, 451, 491],
+  stile: [341, 371, 381, 391, 471, 521],
+};
+
+const GRANDEZZE = [{ id: 'piccole', px: 86 }, { id: 'medie', px: 112 }, { id: 'grandi', px: 150 }];
+
+const leggi = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const scrivi = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* niente */ } };
 
 /** mette un file al cursore senza coprire niente, e porta il cursore alla fine: "+", "+", "+" fa la scaletta */
 export function mettiAlCursore(m: MediaItem) {
-  const p = store.doc;
   const srcIn = m.markIn ?? m.t0 ?? 0;
   const srcOut = m.markOut ?? (m.type === 'image' ? srcIn + 5 : m.duration);
   const f = Math.round(store.head);
@@ -44,31 +64,52 @@ export function mettiAlCursore(m: MediaItem) {
   motore.setMonitor('recorder');
   store.setHead(fine);
   avviso(`➕ ${m.name} al cursore`, 'ok', 1200);
-  void p;
 }
+
+const cartelleDi = () => store.doc.cartelle ?? [];
+const figlieDi = (id?: string) => cartelleDi().filter((c) => c.genitore === id);
+/** la cartella e tutte quelle dentro */
+function discendenti(id: string): Set<string> {
+  const out = new Set([id]);
+  for (let giro = true; giro;) {
+    giro = false;
+    for (const c of cartelleDi()) if (c.genitore && out.has(c.genitore) && !out.has(c.id)) { out.add(c.id); giro = true; }
+  }
+  return out;
+}
+const tipoDelNodo = (n: string) => (n === 'video' ? 'video' : n === 'audio' ? 'audio' : n === 'immagini' ? 'image' : null);
 
 export class Contenitore {
   el: HTMLElement;
+  private albero: HTMLElement;
+  private barra: HTMLElement;
   private corpo: HTMLElement;
-  private cat: Categoria = 'tutto';
+  private nodo = leggi('dpv-bin-nodo', 'tutto');
   private filtro = '';
-  private pagine = new Map<Categoria, HTMLElement>();
+  private chiusi = new Set(leggi('dpv-bin-chiusi', '').split(',').filter(Boolean));
+  private grandezza = leggi('dpv-bin-grandezza', 'medie');
   /** la scheda sotto il mouse che sta scorrendo (anteprima al passaggio) */
   private scorre: { m: MediaItem; cv: HTMLCanvasElement; t: number; linea: HTMLElement } | null = null;
+  private carteEffetti: { el: HTMLElement; e: Effetto }[] = [];
 
   constructor() {
     const cerca = h('input', { class: 'bin-cerca', type: 'search', placeholder: 'Cerca…' }) as HTMLInputElement;
-    cerca.addEventListener('input', () => { this.filtro = cerca.value.toLowerCase(); this.firma = ''; this.disegnaMedia(); });
+    cerca.addEventListener('input', () => { this.filtro = cerca.value.toLowerCase(); this.firma = ''; this.disegnaDestra(); });
+    this.albero = h('nav', { class: 'bin-albero' });
+    this.barra = h('div', { class: 'bin-barra' });
     this.corpo = h('div', { class: 'bin-pagina' });
-    const nav = h('nav', { class: 'bin-categorie' }, CATEGORIE.map((c) =>
-      h('button', { class: 'bin-cat' + (c.id === this.cat ? ' attiva' : ''), 'data-c': c.id, title: c.nome, on: { click: () => this.mostra(c.id) } }, icona(c.icona, 15), h('span', null, c.nome))));
+    const grand = h('button', {
+      class: 'btn-icona piccolo', title: 'Schede piccole, medie o grandi',
+      on: { click: () => { const i = GRANDEZZE.findIndex((g) => g.id === this.grandezza); this.grandezza = GRANDEZZE[(i + 1) % GRANDEZZE.length].id; scrivi('dpv-bin-grandezza', this.grandezza); this.applicaGrandezza(); } },
+    }, icona('griglia', 15));
     this.el = h('section', { class: 'pannello contenitore' },
       h('header', { class: 'bin-testa' },
-        h('button', { class: 'btn primario piccolo', title: 'Importa video, audio e immagini (Ctrl+I)', on: { click: () => importaDialogo() } }, icona('importa', 15), 'Importa'),
-        cerca),
-      nav,
-      this.corpo);
-    // file dal sistema lasciati cadere sul contenitore
+        h('button', { class: 'btn primario piccolo', title: 'Importa (Ctrl+I): nella cartella aperta; da Video, Musica o Immagini si scelgono solo quei file', on: { click: () => void importaDialogo(this.cartellaAperta(), this.tipoAperto()) } }, icona('importa', 15), 'Importa'),
+        h('button', { class: 'btn-icona piccolo', title: 'Nuova cartella', on: { click: () => void this.nuovaCartella(this.cartellaAperta()) } }, icona('cartellaPiu', 17)),
+        cerca, grand),
+      h('div', { class: 'bin-corpo' }, this.albero, h('div', { class: 'bin-destra' }, this.barra, this.corpo)));
+    this.applicaGrandezza();
+    // file dal sistema lasciati cadere sul contenitore: vanno nella cartella aperta
     this.el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); this.el.classList.add('sopra'); } });
     this.el.addEventListener('dragleave', () => this.el.classList.remove('sopra'));
     this.el.addEventListener('drop', (e) => {
@@ -76,27 +117,176 @@ export class Contenitore {
       if (!e.dataTransfer?.files.length) return;
       e.preventDefault();
       e.stopPropagation();
-      void importaDaDrop(e.dataTransfer);
+      void importaDaDrop(e.dataTransfer, this.cartellaAperta());
     });
-    store.on('doc', () => this.disegnaMedia());
+    // i file trascinati sull'albero entrano nella cartella (o escono dalle cartelle su "Tutti i file")
+    registraBersaglio({
+      el: this.albero,
+      sopra: (x, y, dato) => { this.albero.querySelectorAll('.sopra').forEach((e) => e.classList.remove('sopra')); if (dato.startsWith('m:')) this.voceSotto(x, y)?.classList.add('sopra'); },
+      lascia: (x, y, dato) => {
+        this.albero.querySelectorAll('.sopra').forEach((e) => e.classList.remove('sopra'));
+        const v = this.voceSotto(x, y);
+        if (!v || !dato.startsWith('m:')) return;
+        const n = v.dataset.c!;
+        this.sposta(dato.slice(2), n.startsWith('dir:') ? n.slice(4) : undefined);
+      },
+      esci: () => this.albero.querySelectorAll('.sopra').forEach((e) => e.classList.remove('sopra')),
+    });
+    store.on('doc', () => { this.disegnaAlbero(); this.disegnaDestra(); });
     store.on('status', () => this.evidenzia());
-    store.on('sel', () => { if (this.cat === 'effetti') this.aggiornaEffetti(); });
-    quandoPicchi(() => { this.firma = ''; this.disegnaMedia(); });
+    store.on('sel', () => { if (this.nodo.startsWith('fx') || this.nodo === 'effetti') this.aggiornaEffetti(); });
+    quandoPicchi(() => { this.firma = ''; this.disegnaDestra(); });
     quandoAnalisi(() => {});
     quandoFotogramma(() => { if (this.scorre) this.disegnaScorre(); });
-    this.disegnaMedia();
+    if (this.nodo.startsWith('dir:') && !cartelleDi().some((c) => 'dir:' + c.id === this.nodo)) this.nodo = 'tutto';
+    this.disegnaAlbero();
+    this.disegnaDestra();
   }
 
-  mostra(c: Categoria) {
-    this.cat = c;
-    this.el.querySelectorAll('.bin-cat').forEach((b) => b.classList.toggle('attiva', (b as HTMLElement).dataset.c === c));
+  private applicaGrandezza() {
+    const g = GRANDEZZE.find((x) => x.id === this.grandezza) ?? GRANDEZZE[1];
+    this.el.style.setProperty('--carta', g.px + 'px');
+    this.el.dataset.grandezza = g.id;
+  }
+
+  /** la cartella aperta a destra (per importare e creare lì dentro) */
+  private cartellaAperta() { return this.nodo.startsWith('dir:') ? this.nodo.slice(4) : undefined; }
+  /** la categoria aperta: l'import mostra solo quel tipo di file */
+  private tipoAperto() { return ({ video: 'video', audio: 'audio', immagini: 'image' } as const)[this.nodo as 'video'] as 'video' | 'audio' | 'image' | undefined; }
+
+  private voceSotto(x: number, y: number): HTMLElement | null {
+    const el = document.elementFromPoint(x, y)?.closest('.bin-cat') as HTMLElement | null;
+    if (!el) return null;
+    const n = el.dataset.c ?? '';
+    return n.startsWith('dir:') || ['tutto', 'video', 'audio', 'immagini'].includes(n) ? el : null;
+  }
+
+  // ——— le cartelle ———
+  async nuovaCartella(genitore?: string) {
+    const nome = await chiedi('Nuova cartella', 'Nome', 'Nuova cartella');
+    if (!nome) return;
+    const id = uid('d');
+    store.edit('Nuova cartella', (p) => { (p.cartelle ??= []).push({ id, nome, genitore }); });
+    if (genitore) this.chiusi.delete('dir:' + genitore);
+    this.mostra('dir:' + id);
+  }
+
+  private async rinominaCartella(c: Cartella) {
+    const nome = await chiedi('Rinomina la cartella', 'Nome', c.nome);
+    if (nome) store.edit('Rinomina cartella', (p) => { const x = p.cartelle?.find((y) => y.id === c.id); if (x) x.nome = nome; });
+  }
+
+  /** la cartella sparisce: i suoi file e le sue cartelle salgono di un piano */
+  private async eliminaCartella(c: Cartella) {
+    const n = store.doc.media.filter((m) => m.cartella === c.id).length;
+    if (n && !(await conferma('Elimina la cartella', `I ${n} file dentro "${c.nome}" non si cancellano: tornano ${c.genitore ? 'nella cartella sopra' : 'fuori dalle cartelle'}.`, 'Elimina la cartella', 'Annulla'))) return;
+    store.edit('Elimina cartella', (p) => {
+      for (const m of p.media) if (m.cartella === c.id) m.cartella = c.genitore;
+      for (const x of p.cartelle ?? []) if (x.genitore === c.id) x.genitore = c.genitore;
+      p.cartelle = (p.cartelle ?? []).filter((x) => x.id !== c.id);
+    });
+    if (this.nodo === 'dir:' + c.id) this.mostra(c.genitore ? 'dir:' + c.genitore : 'tutto');
+  }
+
+  /** sposta un file in una cartella (undefined = fuori dalle cartelle) */
+  sposta(mediaId: string, cartella: string | undefined) {
+    const m = store.doc.media.find((x) => x.id === mediaId);
+    if (!m || m.cartella === cartella) return;
+    store.edit('Sposta nella cartella', (p) => { const x = p.media.find((y) => y.id === mediaId); if (x) x.cartella = cartella; });
+    const dove = cartella ? cartelleDi().find((c) => c.id === cartella)?.nome : null;
+    avviso(dove ? `📁 ${m.name} in "${dove}"` : `${m.name} fuori dalle cartelle`, 'ok', 1400);
+  }
+
+  private menuCartelle(m: MediaItem): VoceMenu[] {
+    const voci: VoceMenu[] = [{ nome: 'Fuori dalle cartelle', spunta: !m.cartella, fn: () => this.sposta(m.id, undefined) }];
+    const giu = (genitore: string | undefined, rientro: string) => {
+      for (const c of figlieDi(genitore)) {
+        voci.push({ nome: rientro + '📁 ' + c.nome, spunta: m.cartella === c.id, fn: () => this.sposta(m.id, c.id) });
+        giu(c.id, rientro + '   ');
+      }
+    };
+    giu(undefined, '');
+    voci.push({ sep: true }, { nome: 'Nuova cartella…', fn: async () => { await this.nuovaCartella(); const id = cartelleDi().at(-1)?.id; if (id) this.sposta(m.id, id); } });
+    return voci;
+  }
+
+  // ——— l'albero ———
+  private firmaAlbero = '';
+  private disegnaAlbero() {
+    const p = store.doc;
+    const conta = (n: string) => {
+      const t = tipoDelNodo(n);
+      if (t) return p.media.filter((m) => m.type === t).length;
+      if (n === 'tutto') return p.media.length;
+      const dentro = discendenti(n.slice(4));
+      return p.media.filter((m) => m.cartella && dentro.has(m.cartella)).length;
+    };
+    const firma = this.nodo + '|' + [...this.chiusi].join(',') + '|' + JSON.stringify(p.cartelle ?? []) + '|' + p.media.map((m) => m.type + (m.cartella ?? '')).join(',');
+    if (firma === this.firmaAlbero) return;
+    this.firmaAlbero = firma;
+    const voce = (id: string, nome: string, ic: string, livello: number, extra: { figli?: boolean; n?: number } = {}) => {
+      const chiuso = this.chiusi.has(id);
+      const el = h('button', {
+        class: 'bin-cat' + (id === this.nodo ? ' attiva' : '') + (extra.figli ? ' con-figli' : '') + (chiuso ? ' chiuso' : ''), 'data-c': id, title: nome,
+        style: `--livello:${livello}`,
+        on: {
+          click: (e: MouseEvent) => {
+            if ((e.target as HTMLElement).closest('.bin-freccia')) { this.alterna(id); return; }
+            this.mostra(id);
+          },
+        },
+      },
+      extra.figli ? h('span', { class: 'bin-freccia' }, icona('freccia', 11)) : h('span', { class: 'bin-freccia vuota' }),
+      icona(ic, 14), h('span', { class: 'nome' }, nome),
+      extra.n !== undefined ? h('small', { class: 'conta' }, String(extra.n)) : null);
+      return el;
+    };
+    const out: HTMLElement[] = [h('div', { class: 'bin-albero-titolo' }, 'PROGETTO')];
+    for (const r of TIPI) out.push(voce(r.id, r.nome, r.icona, 0, { n: conta(r.id) }));
+    const cartelle = (genitore: string | undefined, livello: number) => {
+      for (const c of figlieDi(genitore)) {
+        const id = 'dir:' + c.id;
+        const figli = figlieDi(c.id).length > 0;
+        const el = voce(id, c.nome, 'cartella', livello, { figli, n: conta(id) });
+        el.classList.add('cartella');
+        el.addEventListener('dblclick', () => void this.rinominaCartella(c));
+        el.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          menuContesto(e.clientX, e.clientY, [
+            { nome: 'Apri', fn: () => this.mostra(id) },
+            { nome: 'Importa qui dentro…', fn: () => void importaDialogo(c.id) },
+            { nome: 'Nuova cartella dentro…', fn: () => void this.nuovaCartella(c.id) },
+            { sep: true },
+            { nome: 'Rinomina…', fn: () => void this.rinominaCartella(c) },
+            { nome: 'Elimina la cartella (i file restano)', fn: () => void this.eliminaCartella(c) },
+          ]);
+        });
+        out.push(el);
+        if (figli && !this.chiusi.has(id)) cartelle(c.id, livello + 1);
+      }
+    };
+    cartelle(undefined, 0);
+    out.push(h('button', { class: 'bin-cat nuova', style: '--livello:0', title: 'Una cartella per mettere in ordine i file', on: { click: () => void this.nuovaCartella() } }, h('span', { class: 'bin-freccia vuota' }), icona('cartellaPiu', 14), h('span', { class: 'nome' }, 'Nuova cartella')));
+    out.push(h('div', { class: 'bin-albero-titolo' }, 'LIBRERIA'));
+    for (const r of LIBRERIA) {
+      out.push(voce(r.id, r.nome, r.icona, 0, { figli: true }));
+      if (!this.chiusi.has(r.id)) for (const [id, nome] of r.figli!) out.push(voce(id, nome, 'punto', 1));
+    }
+    this.albero.replaceChildren(...out);
+  }
+
+  private alterna(id: string) {
+    if (this.chiusi.has(id)) this.chiusi.delete(id); else this.chiusi.add(id);
+    scrivi('dpv-bin-chiusi', [...this.chiusi].join(','));
+    this.disegnaAlbero();
+  }
+
+  mostra(n: string) {
+    this.nodo = n;
+    scrivi('dpv-bin-nodo', n);
     this.firma = '';
-    if (c === 'transizioni' || c === 'titoli' || c === 'effetti') {
-      let pg = this.pagine.get(c);
-      if (!pg) { pg = c === 'transizioni' ? this.paginaTransizioni() : c === 'titoli' ? this.paginaGeneratori() : this.paginaEffetti(); this.pagine.set(c, pg); }
-      this.corpo.replaceChildren(pg);
-      if (c === 'effetti') this.aggiornaEffetti();
-    } else this.disegnaMedia(true);
+    this.disegnaAlbero();
+    this.disegnaDestra(true);
     this.corpo.scrollTop = 0;
   }
 
@@ -104,18 +294,39 @@ export class Contenitore {
     this.corpo.querySelectorAll('.carta[data-id]').forEach((el) => el.classList.toggle('nel-monitor', motore.attivo === 'player' && (el as HTMLElement).dataset.id === motore.playerMedia));
   }
 
+  // ——— la parte destra ———
   private firma = '';
+  private disegnaDestra(forza = false) {
+    const n = this.nodo;
+    if (n === 'transizioni' || n.startsWith('tr:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaTransizioni(); } return; }
+    if (n === 'titoli' || n.startsWith('tit:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaTitoli(); } return; }
+    if (n === 'effetti' || n.startsWith('fx:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaEffetti(); } return; }
+    this.disegnaMedia(forza);
+  }
+
+  /** la barra sopra le schede: dove sei, e le impostazioni che valgono lì */
+  private percorso(...pezzi: (string | HTMLElement | null)[]) {
+    const veri = pezzi.filter((x): x is string | HTMLElement => !!x);
+    this.barra.replaceChildren(h('div', { class: 'bin-percorso' }, ...veri.map((x, i) => (i ? [h('span', { class: 'sep' }, '›'), x] : [x])).flat()));
+  }
+
   disegnaMedia(forza = false) {
-    if (this.cat === 'transizioni' || this.cat === 'titoli' || this.cat === 'effetti') return;
     const p = store.doc;
-    // si ricostruisce solo se cambia qualcosa che si vede qui (non a ogni spostamento di clip)
+    const n = this.nodo;
     const usi = new Map<string, number>();
     for (const c of p.clips) if (c.media) usi.set(c.media, (usi.get(c.media) ?? 0) + 1);
-    const firma = this.cat + '|' + this.filtro + '|' + p.media.map((m) => [m.id, m.name, m.markIn, m.markOut, usi.get(m.id) ?? 0, mediaRT(m.id)?.stato, !!mediaRT(m.id)?.poster].join(',')).join(';');
+    const firma = n + '|' + this.filtro + '|' + JSON.stringify(p.cartelle ?? []) + '|' + p.media.map((m) => [m.id, m.name, m.cartella, m.markIn, m.markOut, usi.get(m.id) ?? 0, mediaRT(m.id)?.stato, !!mediaRT(m.id)?.poster].join(',')).join(';');
     if (!forza && firma === this.firma) return;
     this.firma = firma;
     this.scorre = null;
-    if (!p.media.length) {
+    const cart = n.startsWith('dir:') ? cartelleDi().find((c) => c.id === n.slice(4)) : undefined;
+    // dove sei: Progetto › cartella › sottocartella
+    const catena: Cartella[] = [];
+    for (let c = cart; c; c = c.genitore ? cartelleDi().find((x) => x.id === c!.genitore) : undefined) catena.unshift(c);
+    const nomeTipo = TIPI.find((r) => r.id === n)?.nome;
+    this.percorso(h('button', { class: 'pezzo', on: { click: () => this.mostra('tutto') } }, 'Progetto'),
+      ...(cart ? catena.map((c) => h('button', { class: 'pezzo', on: { click: () => this.mostra('dir:' + c.id) } }, c.nome)) : [h('span', { class: 'pezzo' }, nomeTipo ?? '')]));
+    if (!p.media.length && !cart) {
       this.corpo.replaceChildren(h('div', { class: 'bin-vuoto' },
         h('div', { class: 'bin-vuoto-icona' }, icona('importa', 34)),
         h('b', null, 'Trascina qui i tuoi video'),
@@ -123,21 +334,45 @@ export class Contenitore {
         h('button', { class: 'btn piccolo', on: { click: () => document.dispatchEvent(new CustomEvent('dpv:demo')) } }, '✨ Prova con il montaggio dimostrativo')));
       return;
     }
-    const voci = p.media.filter((m) => !this.filtro || m.name.toLowerCase().includes(this.filtro));
-    const gruppi: [Categoria, string, MediaItem[]][] = [
-      ['video', 'Video', voci.filter((m) => m.type === 'video')],
-      ['audio', 'Musica e audio', voci.filter((m) => m.type === 'audio')],
-      ['immagini', 'Immagini e istantanee', voci.filter((m) => m.type === 'image')],
-    ];
+    const cerca = (m: MediaItem) => !this.filtro || m.name.toLowerCase().includes(this.filtro);
     const out: HTMLElement[] = [];
-    for (const [id, nome, lista] of gruppi) {
-      if (this.cat !== 'tutto' && this.cat !== id) continue;
-      if (!lista.length) { if (this.cat === id) out.push(h('p', { class: 'nota' }, `Nessun file qui. ${this.filtro ? 'Prova a cercare altro.' : 'Importa o trascina qui i file.'}`)); continue; }
-      if (this.cat === 'tutto') out.push(h('h4', { class: 'bin-sezione' }, icona(CATEGORIE.find((c) => c.id === id)!.icona, 13), nome, h('small', null, String(lista.length))));
-      out.push(h('div', { class: 'bin-griglia' + (id === 'audio' ? ' audio' : '') }, lista.map((m) => this.carta(m, usi.get(m.id) ?? 0))));
+    if (cart) {
+      // dentro una cartella: prima le sue cartelle, poi i suoi file (di ogni tipo)
+      const sotto = figlieDi(cart.id);
+      const voci = p.media.filter((m) => m.cartella === cart.id && cerca(m));
+      if (sotto.length) out.push(h('div', { class: 'bin-griglia' }, sotto.map((c) => this.cartaCartella(c))));
+      if (voci.length) out.push(h('div', { class: 'bin-griglia' }, voci.map((m) => this.carta(m, usi.get(m.id) ?? 0))));
+      if (!sotto.length && !voci.length) out.push(h('p', { class: 'nota' }, this.filtro ? 'Niente qui con questo nome.' : 'Cartella vuota: trascina qui i file dall\'albero o dalla griglia, o premi Importa (entrano qui).'));
+    } else {
+      const voci = p.media.filter(cerca);
+      const gruppi: [string, string, string, MediaItem[]][] = [
+        ['video', 'Video', 'video', voci.filter((m) => m.type === 'video')],
+        ['audio', 'Musica e audio', 'musica', voci.filter((m) => m.type === 'audio')],
+        ['immagini', 'Immagini e istantanee', 'immagine', voci.filter((m) => m.type === 'image')],
+      ];
+      if (n === 'tutto' && !this.filtro && cartelleDi().length) out.push(h('div', { class: 'bin-griglia' }, figlieDi(undefined).map((c) => this.cartaCartella(c))));
+      for (const [id, nome, ic, lista] of gruppi) {
+        if (n !== 'tutto' && n !== id) continue;
+        if (!lista.length) { if (n === id) out.push(h('p', { class: 'nota' }, `Nessun file qui. ${this.filtro ? 'Prova a cercare altro.' : 'Importa o trascina qui i file.'}`)); continue; }
+        if (n === 'tutto') out.push(h('h4', { class: 'bin-sezione' }, icona(ic, 13), nome, h('small', null, String(lista.length))));
+        out.push(h('div', { class: 'bin-griglia' + (id === 'audio' ? ' audio' : '') }, lista.map((m) => this.carta(m, usi.get(m.id) ?? 0))));
+      }
     }
     this.corpo.replaceChildren(...out);
     this.evidenzia();
+  }
+
+  private cartaCartella(c: Cartella): HTMLElement {
+    const dentro = discendenti(c.id);
+    const n = store.doc.media.filter((m) => m.cartella && dentro.has(m.cartella)).length;
+    return h('div', {
+      class: 'carta cartella', title: `${c.nome}\nDoppio clic: apri · tasto destro: rinomina, elimina`,
+      on: {
+        dblclick: () => this.mostra('dir:' + c.id),
+        click: () => { if (matchMedia('(pointer: coarse)').matches) this.mostra('dir:' + c.id); },
+        contextmenu: (e: MouseEvent) => { e.preventDefault(); menuContesto(e.clientX, e.clientY, [{ nome: 'Apri', fn: () => this.mostra('dir:' + c.id) }, { nome: 'Rinomina…', fn: () => void this.rinominaCartella(c) }, { nome: 'Elimina la cartella (i file restano)', fn: () => void this.eliminaCartella(c) }]); },
+      },
+    }, h('div', { class: 'carta-img cartella-img' }, icona('cartella', 40), h('span', { class: 'carta-dur' }, n + (n === 1 ? ' file' : ' file'))), h('div', { class: 'carta-nome' }, c.nome));
   }
 
   /** la locandina (o la forma d'onda) nella tela della scheda */
@@ -224,7 +459,7 @@ export class Contenitore {
     }
     const apri = () => { motore.caricaPlayer(m.id); motore.setMonitor('player'); };
     const el = h('div', {
-      class: 'carta' + (ok ? '' : ' offline'), 'data-id': m.id, title: `${m.name}\n${m.container} · ${m.vcodec || ''} ${m.acodec || ''}\nDoppio clic: apri nel monitor · trascina: nella timeline · +: al cursore`,
+      class: 'carta' + (ok ? '' : ' offline'), 'data-id': m.id, title: `${m.name}\n${m.container} · ${m.vcodec || ''} ${m.acodec || ''}\nDoppio clic: apri nel monitor · trascina: nella timeline o in una cartella · +: al cursore`,
       on: {
         dblclick: apri,
         click: () => { if (matchMedia('(pointer: coarse)').matches) apri(); },
@@ -236,6 +471,7 @@ export class Contenitore {
             { nome: 'Metti in coda al montaggio', fn: () => { motore.setMonitor('recorder'); store.setHead(projectEnd(store.doc)); mettiAlCursore(m); } },
             { nome: 'Sovrascrivi al cursore (copre quello che c\'è)', fn: () => { motore.caricaPlayer(m.id); montaDalPlayer('overwrite'); } },
             { sep: true },
+            { nome: 'Sposta in una cartella', sotto: this.menuCartelle(m) },
             { nome: 'Rinomina…', fn: async () => { const n = await chiedi('Rinomina', 'Nome', m.name); if (n) store.edit('Rinomina', () => { m.name = n; }); } },
             { nome: 'Ricollega file mancanti…', disattiva: ok, fn: () => ricollega() },
             { nome: 'Togli dal contenitore', fn: () => togliMedia(m.id) },
@@ -252,126 +488,148 @@ export class Contenitore {
     return el;
   }
 
-  private paginaGeneratori(): HTMLElement {
-    const g = (kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero', nome: string, desc: string, anteprima: string, extra?: () => void) => {
-      const el = h('div', {
-        class: 'carta gen gen-voce', title: 'Clic: al cursore · Trascina: dove vuoi',
-        on: { click: () => { if (extra) extra(); else inserisciGeneratore(kind); avviso(`${nome} al cursore`, 'ok', 1000); } },
-      }, h('div', { class: 'carta-img gen-anteprima ' + anteprima }), h('div', { class: 'carta-nome' }, nome), h('div', { class: 'carta-info' }, desc));
-      if (!extra) trascinabile(el, () => 'g:' + kind, () => '📺 ' + nome);
-      return el;
-    };
-    const titolo = (stile: TitleSpec['style'], testo: string, extra: Partial<TitleSpec> = {}) => () => {
-      const ids = inserisciGeneratore('title');
-      store.edit('Stile titolo', (p) => {
-        for (const c of p.clips) {
-          if (!ids.includes(c.id) || !c.gen?.title) continue;
-          Object.assign(c.gen.title, { style: stile, text: testo }, extra);
-          if (stile === 'sottopancia') { c.gen.title.size = 56; c.gen.title.align = 'left'; }
-          if (stile === 'rullo') { c.len = c.len * 3; c.gen.title.size = 64; }
-          if (stile === 'crawl') { c.len = c.len * 2; c.gen.title.size = 50; c.gen.title.y = 0.9; c.gen.title.box = true; }
-        }
+  // ——— la libreria: schede piccole, solo il nome; al passaggio del mouse il provino vero ———
+  /** la scheda di un pezzo della libreria: anteprima ferma, e al passaggio il provino col fotogramma al cursore */
+  private cartaLibreria(o: { cls: string; nome: string; titolo: string; anteprima: HTMLElement; provino?: Costruttore; dato?: string; etichetta?: string; clic: () => void; attr?: Record<string, string> }): HTMLElement {
+    const tela = h('canvas', { class: 'provino', width: 192, height: 108 }) as HTMLCanvasElement;
+    const img = h('div', { class: 'carta-img' }, o.anteprima, tela);
+    const el = h('div', { class: 'carta ' + o.cls, title: o.titolo, ...(o.attr ?? {}), on: { click: o.clic } }, img, h('div', { class: 'carta-nome' }, o.nome));
+    if (o.provino) {
+      let ferma: (() => void) | null = null;
+      img.addEventListener('pointerenter', (e) => {
+        if (e.pointerType === 'touch') return;
+        tela.getContext('2d')!.drawImage(o.anteprima instanceof HTMLCanvasElement ? o.anteprima : tela, 0, 0, tela.width, tela.height);
+        img.classList.add('gira');
+        ferma = suonaProvino(tela, o.provino!);
       });
-    };
-    return h('div', { class: 'gen-lista' },
-      h('p', { class: 'nota' }, 'Clic per metterli al cursore (su una traccia libera: non coprono niente), o trascinali dove vuoi.'),
-      h('h4', { class: 'bin-sezione' }, 'Titolatrice'),
-      h('div', { class: 'bin-griglia' },
-        g('title', 'Titolo', 'testo fisso al centro', 'titolo'),
-        g('title', 'Sottopancia', 'nome e ruolo in basso, stile TG', 'sottopancia', titolo('sottopancia', 'Mario Rossi\nregista')),
-        g('title', 'Rullo titoli', 'i titoli di coda che salgono', 'rullo', titolo('rullo', 'DaProd Video\n\nMontaggio\nDaProd\n\nMusica\nDaProd\n\nGrazie per la visione')),
-        g('title', 'Crawl', 'la scritta che scorre in basso', 'crawl', titolo('crawl', 'ULTIM\'ORA · DaProd Video: il montaggio vecchio stile, moderno dentro · ')),
-        g('title', 'Neon', 'si accende tremando come un\'insegna', 'neon', titolo('neon', 'OPEN', { color: '#ff3df2', size: 130, shadow: false, outline: 'none', font: 'Orbitron' })),
-        g('title', 'Cinema', 'lettere larghe che si avvicinano piano', 'cinema', titolo('cinema', 'Napoli, 1994', { size: 72, shadow: true, outline: 'none' })),
-        g('title', 'Macchina da scrivere', 'le lettere arrivano una alla volta', 'macchina', titolo('macchina', 'C\'era una volta…', { size: 64, outline: 'none', color: '#f2efe6' })),
-        g('title', 'Rimbalzo', 'entra con un salto', 'rimbalzo', titolo('rimbalzo', 'WOW!', { size: 150, color: '#ffd54a', outline: '#000000' })),
-        g('title', 'Social', 'la fascia colorata che entra di lato', 'social', titolo('social', 'Seguici per la parte 2 👉', { size: 58, color: '#111111', boxColor: '#ffd54a', outline: 'none', shadow: false, y: 0.78 })),
-        g('title', 'Citazione', 'una frase importante, con le virgolette', 'citazione', titolo('citazione', 'Il montaggio è scrivere\ncon le immagini.', { size: 60, outline: 'none' }))),
-      h('h4', { class: 'bin-sezione' }, 'Le macchine della sala'),
-      h('div', { class: 'bin-griglia' },
-        g('bars', 'Barre + tono', 'SMPTE e 1 kHz a −18 dBFS', 'barre'),
-        g('countdown', 'Countdown', 'da 8 a 2 con il "2-pop"', 'countdown'),
-        g('nero', 'Nero', 'cinque secondi di nero', 'nero'),
-        g('color', 'Colore pieno', 'fondo colorato', 'colore')),
-    );
-  }
-
-  /** i chip della durata dei blocchetti nuovi: valgono per effetti e transizioni (Auto = quella giusta per ognuno) */
-  private chipDurate: HTMLElement[] = [];
-  private durate(): HTMLElement {
-    const el = h('div', { class: 'bin-durate', title: 'Quanto durano i blocchetti che metti (poi li allunghi o accorci dai bordi)' },
-      h('span', null, 'Durata'),
-      DURATE.map((d) => h('button', {
-        class: 'chip' + (modi.durataFx === d ? ' acceso' : ''), 'data-d': d,
-        on: { click: () => { modi.durataFx = d; for (const c of this.chipDurate) c.querySelectorAll('.chip').forEach((b) => b.classList.toggle('acceso', Number((b as HTMLElement).dataset.d) === d)); } },
-      }, d ? String(d).replace('.', ',') + ' s' : 'Auto')));
-    this.chipDurate.push(el);
+      img.addEventListener('pointerleave', () => { ferma?.(); ferma = null; img.classList.remove('gira'); });
+    }
+    if (o.dato) trascinabile(el, () => o.dato!, () => o.etichetta ?? o.nome);
     return el;
   }
 
-  private paginaTransizioni(): HTMLElement {
-    const t = (tipo: Transition['type'], m: { p: number; nome: string; info: string }) => {
-      const cv = h('canvas', { class: 'tr-anteprima', width: 160, height: 90 });
-      anteprimaViva(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 });
-      const id = tipo === 'mix' || tipo === 'dip' ? tipo : `${tipo}:${m.p}`;
-      const el = h('div', {
-        class: 'carta tr gen-voce', 'data-tr': id, title: 'Trascina sopra un taglio (diventa un blocchetto sulla clip) · Clic: sul taglio più vicino al cursore',
-        on: { click: () => applicaTransizione(tipo, m.p) },
-      }, h('div', { class: 'carta-img' }, cv, h('span', { class: 'carta-blocco tr' })), h('div', { class: 'carta-nome' }, m.nome), h('div', { class: 'carta-info' }, m.info));
-      trascinabile(el, () => 'x:t:' + id, () => '✦ ' + m.nome);
-      return el;
-    };
-    return h('div', { class: 'gen-lista' },
-      this.durate(),
-      h('p', { class: 'nota' }, 'Trascina la transizione sopra un taglio fra due clip: diventa un blocchetto turchese in basso sulle clip, centrato sul taglio (all\'inizio o alla fine libera di una clip entra o esce da quello che c\'è sotto). Più è lungo, più è lenta. Molte hanno il loro whoosh: l\'altoparlante sul blocco lo accende e lo spegne. Le clip non cambiano durata.'),
-      h('h4', { class: 'bin-sezione' }, 'Dissolvenze'),
-      h('div', { class: 'bin-griglia' },
-        t('mix', { p: 0, nome: 'Dissolvenza incrociata', info: 'il MIX classico · tasto 5' }),
-        t('dip', { p: 0, nome: 'Passaggio al nero', info: 'scende al nero e risale · tasto 7' })),
-      h('h4', { class: 'bin-sezione' }, 'Effetti digitali (DVE)'),
-      h('div', { class: 'bin-griglia' }, EFFETTI.map((m) => t('dve', m))),
-      h('h4', { class: 'bin-sezione' }, 'Tendine SMPTE'),
-      h('div', { class: 'bin-griglia' }, TENDINE.map((m) => t('wipe', m))),
-    );
+  /** i chip della durata e le impostazioni dei blocchetti nuovi (suono, forza): valgono per effetti e transizioni */
+  private impostazioniBlocchi(): HTMLElement {
+    const chip = (testo: string, acceso: boolean, fn: () => void, title = '', attr: Record<string, string> = {}) => h('button', { class: 'chip' + (acceso ? ' acceso' : ''), title, ...attr, on: { click: () => { fn(); this.disegnaDestra(true); } } }, testo);
+    return h('div', { class: 'bin-impostazioni' },
+      h('span', { class: 'etichetta', title: 'Quanto durano i blocchetti che metti (poi li allunghi o accorci dai bordi)' }, 'Durata'),
+      DURATE.map((d) => chip(d ? String(d).replace('.', ',') + ' s' : 'Auto', modi.durataFx === d, () => { modi.durataFx = d; }, '', { 'data-d': String(d) })),
+      h('span', { class: 'sep-v' }),
+      h('span', { class: 'etichetta' }, 'Forza'),
+      [0.5, 1, 1.5].map((f) => chip(f === 1 ? '100%' : f * 100 + '%', modi.forzaFx === f, () => { modi.forzaFx = f; }, 'La forza dei blocchetti nuovi (poi si cambia col tasto destro sul blocco)')),
+      h('span', { class: 'sep-v' }),
+      chip(modi.suonoFx ? '🔊 Suono' : '🔇 Muti', modi.suonoFx, () => { modi.suonoFx = !modi.suonoFx; }, 'I blocchetti nuovi nascono col loro suono acceso o spento (poi un clic sull\'altoparlante del blocco)'));
   }
 
-  private carteEffetti: { el: HTMLElement; e: Effetto }[] = [];
-  private paginaEffetti(): HTMLElement {
-    // gli effetti a tempo: blocchetti magenta sopra le clip (valgono per la loro traccia e per tutto quello sotto)
-    const tempo = (e: EffettoTempo) => {
-      const el = h('div', {
-        class: 'carta fxt', 'data-fx': e.id, title: 'Trascina sopra una clip: si attacca all\'inizio, alla fine o al taglio più vicino · Clic: al cursore',
-        on: { click: () => mettiBlocco('effetto', e.id) },
-      }, h('div', { class: 'carta-img fxt-anteprima fxt-' + e.motore + (e.colore === '#000000' ? ' nero' : '') }, h('i', { class: 'fxt-scena' }), h('i', { class: 'fxt-velo' }), h('span', { class: 'carta-blocco fx' }), h('span', { class: 'carta-dur' }, String(e.durata).replace('.', ',') + ' s')),
-      h('div', { class: 'carta-nome' }, e.nome), h('div', { class: 'carta-info' }, e.info));
-      trascinabile(el, () => 'x:e:' + e.id, () => '⚡ ' + e.nome);
-      return el;
+  private filtra<T extends { nome: string }>(lista: T[]) { return this.filtro ? lista.filter((x) => x.nome.toLowerCase().includes(this.filtro)) : lista; }
+
+  /** sezioni: con l'intestazione solo quando si vede tutto il ramo */
+  private sezioni(radice: string, gruppi: [string, string, HTMLElement[]][]) {
+    const tutto = this.nodo === radice;
+    const out: HTMLElement[] = [];
+    for (const [id, nome, carte] of gruppi) {
+      if (!tutto && this.nodo !== id) continue;
+      if (!carte.length) continue;
+      if (tutto) out.push(h('h4', { class: 'bin-sezione' }, nome, h('small', null, String(carte.length))));
+      out.push(h('div', { class: 'bin-griglia libreria' }, carte));
+    }
+    if (!out.length) out.push(h('p', { class: 'nota' }, 'Niente con questo nome.'));
+    return out;
+  }
+
+  private nomeRamo(id: string) {
+    for (const r of LIBRERIA) { if (r.id === id) return r.nome; const f = r.figli?.find((x) => x[0] === id); if (f) return f[1]; }
+    return '';
+  }
+
+  private percorsoLibreria(radice: string) {
+    this.percorso(h('span', { class: 'pezzo' }, 'Libreria'), h('button', { class: 'pezzo', on: { click: () => this.mostra(radice) } }, this.nomeRamo(radice)), this.nodo !== radice ? h('span', { class: 'pezzo' }, this.nomeRamo(this.nodo)) : null);
+  }
+
+  private paginaTransizioni() {
+    this.percorsoLibreria('transizioni');
+    this.barra.append(this.impostazioniBlocchi());
+    const carta = (tipo: Transition['type'], m: { p: number; nome: string; info: string }) => {
+      const cv = h('canvas', { class: 'tr-anteprima', width: 160, height: 90 }) as HTMLCanvasElement;
+      anteprima(cv, { ...newTransition(tipo, 25, m.p), soft: tipo === 'wipe' ? 0.03 : 0, border: tipo === 'wipe' ? 0.012 : 0 }, 0.5);
+      const id = tipo === 'mix' || tipo === 'dip' ? tipo : `${tipo}:${m.p}`;
+      return this.cartaLibreria({
+        cls: 'tr gen-voce', nome: m.nome, titolo: `${m.nome} · ${m.info}\nTrascina sopra un taglio · clic: sul taglio più vicino al cursore`,
+        anteprima: cv, provino: scenaTransizione(id, modi.forzaFx), dato: 'x:t:' + id, etichetta: '✦ ' + m.nome, clic: () => applicaTransizione(tipo, m.p), attr: { 'data-tr': id },
+      });
     };
+    const dve = (ps: number[]) => this.filtra(EFFETTI.filter((m) => ps.includes(m.p)).sort((a, b) => ps.indexOf(a.p) - ps.indexOf(b.p))).map((m) => carta('dve', m));
+    this.corpo.replaceChildren(h('div', { class: 'gen-lista' }, ...this.sezioni('transizioni', [
+      ['tr:dissolvenze', 'Dissolvenze', this.filtra([{ p: 0, nome: 'Dissolvenza incrociata', info: 'il MIX classico · tasto 5', t: 'mix' as const }, { p: 0, nome: 'Passaggio al nero', info: 'scende al nero e risale · tasto 7', t: 'dip' as const }]).map((x) => carta(x.t, x))],
+      ['tr:movimento', 'Movimento', dve(GRUPPI_TR.movimento)],
+      ['tr:3d', '3D e forme', dve(GRUPPI_TR['3d'])],
+      ['tr:luce', 'Luce', dve(GRUPPI_TR.luce)],
+      ['tr:stile', 'Stile', dve(GRUPPI_TR.stile)],
+      ['tr:tendine', 'Tendine SMPTE', this.filtra(TENDINE).map((m) => carta('wipe', m))],
+    ])));
+  }
+
+  private paginaTitoli() {
+    this.percorsoLibreria('titoli');
+    const titolo = (id: string, nome: string) => this.cartaLibreria({
+      cls: 'gen gen-voce', nome, titolo: `${nome}\nClic: al cursore (su una traccia libera) · trascina: dove vuoi`,
+      anteprima: h('div', { class: 'gen-anteprima ' + (id === 'fisso' ? 'titolo' : id) }), provino: scenaTitolo(id), dato: 'g:title:' + id, etichetta: '📺 ' + nome,
+      clic: () => { inserisciGeneratore('title', undefined, undefined, { titolo: id }); avviso(`${nome} al cursore`, 'ok', 1000); },
+    });
+    const conto = (stile: typeof STILI_CONTO[number]) => {
+      const cv = h('canvas', { width: 192, height: 108 }) as HTMLCanvasElement;
+      const t = disegnaCountdown(192, 108, 0.5, stile.secondi, stile.id);
+      cv.getContext('2d')!.drawImage(t as CanvasImageSource, 0, 0, 192, 108);
+      const nome = `${stile.nome} ${stile.secondi}…1`;
+      return this.cartaLibreria({
+        cls: 'gen gen-voce', nome, titolo: `Countdown ${stile.nome}: da ${stile.secondi} a 1, un bip a ogni numero\nClic: al cursore · trascina: dove vuoi`,
+        anteprima: cv, provino: scenaConto(stile.id, stile.secondi), dato: `g:countdown:${stile.id}:${stile.secondi}`, etichetta: '⏱ ' + nome,
+        clic: () => { inserisciGeneratore('countdown', undefined, undefined, { conto: { stile: stile.id, secondi: stile.secondi } }); avviso(`Countdown ${nome} al cursore`, 'ok', 1000); },
+      });
+    };
+    const sala = (kind: 'bars' | 'color' | 'nero', nome: string, cls: string) => this.cartaLibreria({
+      cls: 'gen gen-voce', nome, titolo: `${nome}\nClic: al cursore · trascina: dove vuoi`,
+      anteprima: h('div', { class: 'gen-anteprima ' + cls }), provino: scenaSala(kind), dato: 'g:' + kind, etichetta: '📺 ' + nome,
+      clic: () => { inserisciGeneratore(kind); avviso(`${nome} al cursore`, 'ok', 1000); },
+    });
+    this.corpo.replaceChildren(h('div', { class: 'gen-lista' }, ...this.sezioni('titoli', [
+      ['tit:titoli', 'Titoli', this.filtra(PRESET_TITOLI.filter((x) => x.gruppo === 'titoli')).map((x) => titolo(x.id, x.nome))],
+      ['tit:tv', 'TV e social', this.filtra(PRESET_TITOLI.filter((x) => x.gruppo === 'tv')).map((x) => titolo(x.id, x.nome))],
+      ['tit:conto', 'Countdown', this.filtra(STILI_CONTO).map(conto)],
+      ['tit:sala', 'Macchine della sala', this.filtra([{ nome: 'Barre + tono', k: 'bars' as const, c: 'barre' }, { nome: 'Nero', k: 'nero' as const, c: 'nero' }, { nome: 'Colore pieno', k: 'color' as const, c: 'colore' }]).map((x) => sala(x.k, x.nome, x.c))],
+    ])));
+  }
+
+  private paginaEffetti() {
+    this.percorsoLibreria('effetti');
+    if (this.nodo !== 'fx:clip' && this.nodo !== 'fx:audio') this.barra.append(this.impostazioniBlocchi());
+    this.carteEffetti = [];
+    // gli effetti a tempo: blocchetti magenta sopra le clip (valgono per la loro traccia e per tutto quello sotto)
+    const tempo = (e: EffettoTempo) => this.cartaLibreria({
+      cls: 'fxt', nome: e.nome, titolo: `${e.nome} · ${e.info}\nTrascina sopra una clip (si attacca all'inizio, alla fine o al taglio) · clic: al cursore`,
+      anteprima: h('div', { class: 'fxt-anteprima fxt-' + e.motore + (e.colore === '#000000' ? ' nero' : '') }, h('i', { class: 'fxt-scena' }), h('i', { class: 'fxt-velo' })),
+      provino: scenaEffetto(e.id, modi.forzaFx), dato: 'x:e:' + e.id, etichetta: '⚡ ' + e.nome, clic: () => mettiBlocco('effetto', e.id), attr: { 'data-fx': e.id },
+    });
     const carta = (e: Effetto) => {
-      const el = h('div', {
-        class: 'carta fx', title: 'Clic: acceso/spento sulle clip scelte · Trascina: sopra una clip',
-        on: { click: () => { if (!store.sel.size) { avviso('Scegli prima una clip (clic nella timeline), o trascina l\'effetto sopra una clip', 'info', 2400); return; } alternaEffetto(e.id, M.withLinked(store.doc, store.sel)); } },
-      }, h('div', { class: 'carta-img fx-anteprima ' + e.anteprima }, h('span', { class: 'fx-spia' })), h('div', { class: 'carta-nome' }, e.nome), h('div', { class: 'carta-info' }, e.info));
-      trascinabile(el, () => 'e:' + e.id, () => '✨ ' + e.nome);
+      const el = this.cartaLibreria({
+        cls: 'fx', nome: e.nome, titolo: `${e.nome} · ${e.info}\nClic: acceso/spento sulle clip scelte · trascina: sopra una clip`,
+        anteprima: h('div', { class: 'fx-anteprima ' + e.anteprima }, h('span', { class: 'fx-spia' })),
+        provino: e.per === 'video' ? scenaRitocco((c, p) => e.metti(c, true, p)) : undefined, dato: 'e:' + e.id, etichetta: '✨ ' + e.nome,
+        clic: () => { if (!store.sel.size) { avviso('Scegli prima una clip (clic nella timeline), o trascina l\'effetto sopra una clip', 'info', 2400); return; } alternaEffetto(e.id, M.withLinked(store.doc, store.sel)); },
+      });
       this.carteEffetti.push({ el, e });
       return el;
     };
-    return h('div', { class: 'gen-lista' },
-      this.durate(),
-      h('p', { class: 'nota' }, 'Trascina un effetto sopra una clip: diventa un blocchetto in basso sulla clip e si sistema da solo all\'inizio, alla fine o centrato sul taglio fra due clip (lontano dai bordi resta dove lo lasci). Poi allungalo dai bordi. Vale per la sua traccia e per quelle sotto, e si somma con gli altri: mettine due sullo stesso punto e si fondono. Il suono si accende dall\'altoparlante sul blocco (tasto destro = scegli quale).'),
-      h('h4', { class: 'bin-sezione' }, '⚡ Effetti rapidi'),
-      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'rapidi').map(tempo)),
-      h('h4', { class: 'bin-sezione' }, '⏱ Effetti lunghi'),
-      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'lunghi').map(tempo)),
-      h('h4', { class: 'bin-sezione' }, '💡 Luci'),
-      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'luci').map(tempo)),
-      h('h4', { class: 'bin-sezione' }, '🌀 Distorsioni'),
-      h('div', { class: 'bin-griglia' }, EFFETTI_TEMPO.filter((e) => e.gruppo === 'distorsioni').map(tempo)),
-      h('h4', { class: 'bin-sezione' }, icona('video', 13), 'Stile della clip · trascinali su una clip'),
-      h('div', { class: 'bin-griglia' }, EFFETTI_VIDEO.map(carta)),
-      h('h4', { class: 'bin-sezione' }, icona('musica', 13), 'Audio · trascinali su una clip audio'),
-      h('div', { class: 'bin-griglia' }, EFFETTI_AUDIO.map(carta)),
-    );
+    const g = (x: EffettoTempo['gruppo']) => this.filtra(EFFETTI_TEMPO.filter((e) => e.gruppo === x)).map(tempo);
+    this.corpo.replaceChildren(h('div', { class: 'gen-lista' }, ...this.sezioni('effetti', [
+      ['fx:rapidi', 'Rapidi', g('rapidi')],
+      ['fx:lunghi', 'Lunghi', g('lunghi')],
+      ['fx:luci', 'Luci', g('luci')],
+      ['fx:distorsioni', 'Distorsioni', g('distorsioni')],
+      ['fx:clip', 'Stile della clip', this.filtra(EFFETTI_VIDEO).map(carta)],
+      ['fx:audio', 'Audio', this.filtra(EFFETTI_AUDIO).map(carta)],
+    ])));
+    this.aggiornaEffetti();
   }
 
   /** le spie degli effetti accesi sulle clip selezionate */

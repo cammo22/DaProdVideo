@@ -8,17 +8,19 @@
 [![Tauri 2](https://img.shields.io/badge/Tauri_2-Rust-24c8db?style=flat-square&logo=tauri)](https://tauri.app/)
 [![Licenza MIT](https://img.shields.io/badge/Licenza-MIT-blue?style=flat-square)](LICENSE)
 
-Il **banco di montaggio DaProd**: vecchio stile, moderno dentro. Un monitor grande, il **contenitore** con
-tutto in ordine (passa il mouse su un video e scorre), la **pulsantiera** con i tasti grandi, i **VU a
-lancetta**, gli **FX a blocchetti sopra le clip** (effetti e transizioni, coi loro suoni), la titolatrice, i
+Il **banco di montaggio DaProd**: vecchio stile, moderno dentro. Un monitor grande, il **contenitore** come un
+esplora risorse (le tue **cartelle**, e transizioni ed effetti con le **anteprime fatte coi fotogrammi del tuo
+montaggio**), la **pulsantiera** con i tasti grandi, i **VU a lancetta**, gli **FX a blocchetti sopra le clip**
+(effetti e transizioni, coi loro suoni), la titolatrice, le **dissolvenze con la forma** (analogica, morbida, a S), i
 **proxy automatici** per andare lisci anche coi file pesanti, la **pagina Finale** per colore, **sottotitoli
 scritti dall'AI** (Whisper, sul tuo computer) e logo su tutto il montaggio, **più timeline** nello stesso
-progetto, la pagina **LIVE** per registrare lo schermo (registra, pausa, ferma) e la **EDL**. Cursore sul punto, premi **1** e tagli, premi **2** ed elimini. Gira su **Windows, Mac e
-Android** e, in versione prova, **nel browser**.
+progetto, la pagina **LIVE** per registrare lo schermo **con la webcam a bolla** (3-2-1, pausa, segni, telecomando),
+il **pacchetto .daprod** con dentro tutti i file e la **EDL**. Cursore sul punto, premi **1** e tagli, premi **2**
+ed elimini. Gira su **Windows, Mac e Android** e, in versione prova, **nel browser**.
 
 ![Il banco di montaggio](risorse/schermata.png)
 
-| La pagina Finale: i sottotitoli scritti dall'AI, col menu a destra | Il contenitore: effetti a blocchetti da trascinare |
+| La pagina Finale: i sottotitoli scritti dall'AI, col menu a destra | Il contenitore a cartelle: la transizione provata sui tuoi fotogrammi |
 | --- | --- |
 | ![Pagina Finale](risorse/finale.png) | ![Contenitore](risorse/contenitore.png) |
 
@@ -26,25 +28,27 @@ Android** e, in versione prova, **nel browser**.
 | --- | --- |
 | ![Cubo 3D](risorse/cubo.png) | ![Pannello Transizioni](risorse/schermata-transizioni.png) |
 
-| Più timeline e i sottotitoli nella riga SOTT | LIVE: registra lo schermo |
+| Più timeline e i sottotitoli nella riga SOTT | LIVE: lo schermo in stile presentazione, con la webcam a bolla |
 | --- | --- |
 | ![Timeline e sottotitoli](risorse/timeline.png) | ![Pagina LIVE](risorse/live.png) |
 
 ## ▶ Come si monta
 
-1. **Importa** i video (pulsante *Importa*, `Ctrl+I`, o trascinali nel contenitore). Il primo video decide il formato del progetto.
+1. **Importa** i video (pulsante *Importa*, `Ctrl+I`, o trascinali nel contenitore). Il primo video decide il formato del progetto. Nel contenitore a sinistra c'è l'albero: **Video, Musica, Immagini** e **le tue cartelle** (*Nuova cartella*, trascina i file dentro); importando da una cartella il file entra lì, da Musica la finestra mostra solo gli audio.
 2. Nel **contenitore** passa il mouse su un video: scorre avanti e indietro col puntatore. **Trascinalo** nella timeline, o premi **+** per metterlo al cursore (e il cursore va alla fine: +, +, + e hai la scaletta). Se lì è occupato va su una traccia libera: **niente viene coperto**.
 3. Vuoi scegliere il pezzo? **Doppio clic**: si apre nel monitor come **sorgente**. Segna **attacco** (`I`) e **stacco** (`O`) e premi **`,`** (inserisci) o **`.`** (sovrascrivi). **Tab** torna al montaggio.
 4. Cursore dove vuoi (la **rotella** va di un fotogramma alla volta, col suono) e **`1`**: taglio. Il pezzo più corto è già scelto: **`2`** e via, e si passa alla clip dopo. **`Q`** / **`W`** tolgono lo scarto a sinistra / a destra del cursore.
 5. **Accendi le tracce** (clic sul nome) e il taglio tocca solo quelle. **`S`** separa l'audio dal video, o unisce più clip in un gruppo.
 6. **Effetti e transizioni sono blocchetti sopra le clip**: una striscia sottile in basso sulla traccia video, niente corsia a parte. Trascina un **effetto** (lampo, scossa, zoom colpo, glitch, dal nero, zoom lento, camera a mano, bande cinema, e le **luci** e le **distorsioni**: bagliore, riflesso d'obiettivo, neon, onda, bolla, vortice, caleidoscopio…) sopra una clip: **si sistema da solo** all'inizio, alla fine o centrato sul taglio fra due clip (lontano dai bordi resta dove lo lasci), e vale per la sua traccia e per quelle sotto. Trascina una **transizione** (dissolvenza, passaggio al nero, spinta, zoom, mosaico, **cubo 3D**, girata, onda, lampo, glitch, tendine SMPTE con stella e cuore, frusta, rotazione, lama di luce, tenda, polvere…) vicino a un taglio: si centra da sola, e **più è lunga più è lenta**. Poi **allungali dai bordi**. Due o più sullo stesso punto **si sommano e si fondono**. Molti hanno già il **loro suono** (whoosh, colpo, zap, glitch, salita…), spento di partenza: l'**altoparlante sul blocco** lo accende con un clic, il **tasto destro sull'altoparlante** apre i suoni e **passandoci sopra li senti**. **Clic su un blocco o su una clip** e il pannello di destra mostra le sue impostazioni (📌 lo tiene sempre in vista). I blocchetti **seguono la clip** su cui stanno. Le clip non cambiano mai durata. Anche gli **effetti della clip** (Vivace, Caldo, Cinema, Pellicola, Vignetta…) si sommano fra loro.
-7. Il **volume** è la linea gialla sulle clip audio: trascinala, doppio clic per un punto, tasto destro → *Abbassa qui*. I **quadratini in alto** agli angoli di ogni clip sono le dissolvenze: tirali verso l'interno. **Fade in, fade out, incrocio, eco, ovattato** si trascinano dal contenitore sulle clip audio. Il tasto **fx** in fondo alla clip accende gli effetti al volo.
+7. Il **volume** è la linea gialla sulle clip audio: trascinala, doppio clic per un punto, tasto destro → *Abbassa qui*. I **quadratini in alto** agli angoli di ogni clip sono le dissolvenze: tirali verso l'interno; poi **trascina la linea della dissolvenza su o giù** per la forma (analogica che parte piano piano, morbida, veloce; tasto destro sul quadratino → anche **a S** e le durate pronte; doppio clic la raddrizza). **Fade in, fade out, incrocio, eco, ovattato** si trascinano dal contenitore sulle clip audio. Il tasto **fx** in fondo alla clip accende gli effetti al volo.
 8. **`F9`** apre la pagina **Finale**, col suo menu a destra: **colore** (automatico su tutto, look, ritocchi, prima/dopo), **audio** finale col limitatore, **sottotitoli** (**scritti dall'AI**: Whisper ascolta la presa diretta in italiano o in inglese, e dall'italiano li scrive anche direttamente in inglese; o i tempi dai dialoghi da riempire a mano; importa ed esporta .srt), **logo** sempre in vista, **apertura** e chiusura (clip, titoli, dal nero e al nero), **lingue e AI** ed **esporta** (MP4, MOV, WebM, WAV, EDL, .srt).
 9. I **sottotitoli** stanno nella riga **SOTT**, fra le tracce video e quelle audio: **trascinali**, tira i bordi per i tempi, doppio clic per il testo, tasto destro per **unire** (appaiono insieme) o **dividere**. Nel Finale ogni riga ha i tasti ⇤ ⇥ − + per sistemare i tempi al volo.
 10. **Più timeline**: le schede sopra la timeline, il **+** ne fa una nuova o una copia; doppio clic per rinominarla.
-11. **`F10`** apre la pagina **LIVE**: **REGISTRA**, **PAUSA**, **FERMA**. La registrazione dello schermo (col microfono e l'audio del computer, se vuoi) finisce nel contenitore e in fondo alla timeline.
+11. **`F10`** apre la pagina **LIVE**: **REGISTRA** (`R`, col 3-2-1), **PAUSA** (`Spazio`), **SEGNA** (`M`), **FERMA** (`F`). Col microfono (VU e scelta del microfono), l'audio del computer e la **webcam**, che si registra a parte e va sulla traccia sopra come **bolla** nell'angolo che scegli; lo **stile presentazione** mette lo schermo con angoli tondi e ombra su uno sfondo sfumato. Il **TELECOMANDO** resta sopra le altre finestre mentre registri. Tutto finisce nella cartella *Registrazioni* e in fondo alla timeline, legato insieme.
 12. **`V`** stringe la timeline: **proprietà, mixer e VU scendono fino in fondo** a destra (di nuovo `V` per tornare larga). La **barra a destra** della timeline scorre su e giù fra le tracce.
 13. **`P`** fa un'**istantanea** del fotogramma nel contenitore, da allungare quanto vuoi (**`Shift+P`**: fermo immagine al cursore).
+14. **File → Salva il pacchetto .daprod**: il progetto **con dentro tutti i suoi file** (uno zip vero, i file restano identici). Lo apri su un altro computer e ritrovi tutto. Il **.dpv** invece è il progetto leggero: tiene il montaggio, i file restano dove sono.
+15. A **schermo pieno** le tracce crescono da sole; **`Ctrl+Shift`+rotella** le alza e le abbassa. Nell'app **`Ctrl +`** e **`Ctrl −`** ingrandiscono tutta l'interfaccia.
 
 ### 🎛 La pulsantiera
 
@@ -60,11 +64,12 @@ Android** e, in versione prova, **nel browser**.
 | --- | --- | --- | --- |
 | `Spazio` | play / stop | `J` `K` `L` | shuttle indietro, fermo, avanti (ripeti: ×2 ×4 ×8 ×16) |
 | `←` `→` rotella | un fotogramma, col suono (`Shift+←→`: un secondo) | `↑` `↓` | taglio precedente / successivo |
-| `I` `O` | attacco e stacco (sul monitor) | `Shift+Q` | attacco e stacco sulla clip sotto il cursore |
+| `I` `O` | attacco e stacco (sul monitor) | `Alt+X` | toglie attacco e stacco (anche la ✕ sul monitor) |
 | `,` `.` | inserisci / sovrascrivi dalla sorgente (`[` `]` su tastiera USA) | `E` `Invio` | EDIT nel modo attivo |
 | `Z` `X` | solleva / estrai fra attacco e stacco | `Shift+R` | rivedi l'ultimo montaggio con il preroll |
 | `Tab` | monitor: sorgente ↔ montaggio | `F` | abbina fotogramma (la sorgente nel monitor) |
-| `Ins` | modo libero / inserisci | `R` `N` `B` | ripple, calamita, linee elastiche (trasparenza) |
+| `Ins` | modo libero / inserisci | `R` `N` `B` | ripple, calamita, linea della **trasparenza** sui video |
+| `Shift+Q` | attacco e stacco sulla clip sotto il cursore | `Ctrl+Shift`+rotella | tracce più alte / più basse |
 | `F9` | pagina Montaggio ↔ pagina **Finale** | `F10` | pagina **LIVE** (registra lo schermo) |
 | `V` | timeline stretta ↔ larga (proprietà e VU fino in fondo) | `Alt+Shift`+trascina | sposta la clip **e tutto quello dopo**, su tutte le tracce (come EDIUS) |
 | `M` | marcatore | `T` | titolo al cursore · `G` zone di sicurezza |
@@ -94,7 +99,7 @@ Ogni [release](https://github.com/cammo22/DaProdVideo/releases/latest) ha quattr
 | 🪟 Windows | `DaProd-Video-X.Y.Z-portatile.exe` | niente installazione: doppio clic e parte. Se SmartScreen avvisa: *Ulteriori informazioni → Esegui comunque* |
 | 💿 Windows | `DaProd-Video-X.Y.Z-setup.exe` | installa con il collegamento nel menu Start (senza permessi di amministratore) |
 | 🍎 Mac | `DaProd-Video-X.Y.Z.dmg` | trascina in Applicazioni; la prima volta *tasto destro → Apri* (su Sequoia: *Impostazioni → Privacy e sicurezza → Apri comunque*) |
-| 🤖 Android | `DaProd-Video-X.Y.Z.apk` | aprilo sul telefono e consenti l'installazione da origini sconosciute |
+| 🤖 Android | `DaProd-Video-X.Y.Z.apk` | **in pausa dalla 1.0.7** (l'ultimo APK è nella release 1.0.6) |
 
 Le app sono fatte con **Tauri 2**: l'interfaccia gira nel motore web del sistema (WebView2 su Windows, WebKit
 su Mac, Chromium su Android) e i file li legge e li scrive **Rust**. Pesano pochi MB, leggono ore di girato a
@@ -132,9 +137,10 @@ Se il sito non si accende da solo, una volta sola: *Settings → Pages → Deplo
 | Pezzo | Con cosa |
 | --- | --- |
 | Lettura e scrittura dei media | [Mediabunny](https://mediabunny.dev) (MP4, MOV, MKV, WebM, MPEG-TS/AVCHD, MP3, WAV, FLAC, OGG) su **WebCodecs**, decodifica e codifica hardware; AC-3 delle videocamere con il decoder WASM; **proxy automatici** (960 px, un fotogramma chiave ogni mezzo secondo) fatti dietro le quinte e conservati nel disco privato (OPFS) |
-| Mixer video | **WebGL2**: un buffer per strato, trasformazioni, proc amp, chiave, look, tendine SMPTE, effetti digitali e dissolvenze negli shader; il passaggio degli **effetti a tempo** dopo ogni traccia che ne ha (valgono per lei e per quelle sotto); colore automatico misurato su ogni ripresa, un passaggio finale per il colore di tutto il montaggio, e sopra a tutto logo e sottotitoli |
+| Mixer video | **WebGL2**: un buffer per strato, trasformazioni (con **angoli tondi e ombra morbida**, calcolati con la distanza da un rettangolo arrotondato), proc amp, chiave, look, tendine SMPTE, effetti digitali e dissolvenze negli shader; il passaggio degli **effetti a tempo** dopo ogni traccia che ne ha (valgono per lei e per quelle sotto); colore automatico misurato su ogni ripresa, un passaggio finale per il colore di tutto il montaggio, e sopra a tutto logo e sottotitoli |
 | Audio | **Web Audio**: volume e incroci come inviluppi, filtri per la voce, limitatore finale, audio a colpetti quando vai di fotogramma in fotogramma, VU dalla scheda audio, mixaggio dell'export a pezzi con `OfflineAudioContext` |
-| Registrazione (LIVE) | `getDisplayMedia` per lo schermo, microfono e audio del computer mescolati con Web Audio, **MediaRecorder** a pezzi (ogni pausa chiude un pezzo); alla fine Mediabunny cuce i pezzi in un file solo, senza ricodificare, con durata e ricerca giuste e l'app lo salva in *Video → DaProd Video* |
+| Registrazione (LIVE) | `getDisplayMedia` per lo schermo, `getUserMedia` per microfono e webcam, microfono e audio del computer mescolati con Web Audio, **MediaRecorder** a pezzi (ogni pausa chiude un pezzo, schermo e webcam allo stesso taglio); alla fine Mediabunny cuce i pezzi in un file solo, senza ricodificare, con durata e ricerca giuste e l'app lo salva in *Video → DaProd Video*. Il telecomando è una finestra **Document Picture-in-Picture** (nel browser) o la finestra dell'app fatta piccola e sempre in primo piano |
+| Pacchetto .daprod | uno **zip** scritto a mano (nomi UTF-8, **zip64** oltre i 4 GB), coi file "stored": nell'app Rust copia i byte e calcola il CRC a pezzi da 64 MB; all'apertura i media si leggono **direttamente da dentro lo zip** (inizio e lunghezza di ogni file), senza scompattare |
 | Timeline | una sola **tela 2D** ridisegnata solo quando serve; miniature a potenze di due (zoomando si riusano) e forma d'onda a 100 picchi al secondo |
 | Modello | fotogrammi interi sulla timeline (come le centraline a nastro), più timeline (sequenze) nello stesso progetto, annulla a fotografie del progetto |
 | Sottotitoli AI | **Whisper** (tiny, base o small) con [transformers.js](https://huggingface.co/docs/transformers.js) in un worker, su WebGPU se c'è (se no WASM): la libreria arriva dalla CDN e il modello da Hugging Face **una volta sola**, poi restano in cache. L'audio della presa diretta si prende a 16 kHz, si taglia nei silenzi a pezzi di un minuto e **non esce mai dal computer** |
@@ -153,21 +159,24 @@ npm run tauri build    # l'app desktop di rilascio
 ```bash
 npm run build
 npx playwright install chromium
-node test/prove.mjs    # oltre 130 prove: timecode, 1 taglia (e sceglie il pezzo corto), 2 elimina (e passa alla
+node test/prove.mjs    # oltre 150 prove: timecode, 1 taglia (e sceglie il pezzo corto), 2 elimina (e passa alla
                        # dopo), S separa/unisce, Q e W, tracce accese, rotella, niente viene coperto, volume
                        # trascinato, FX sulle clip (si attaccano ai bordi, seguono la clip, suoni accesi/spenti
                        # e nel mixaggio), Alt+Shift, maniglie delle dissolvenze, navigatore, pagina Finale
                        # (sottotitoli AI, logo, apertura), effetti che si sommano, menu dentro lo schermo,
-                       # riga SOTT (sposta, unisci, dividi), più timeline, LIVE con pausa, novità, istantanea, tre punti dalla sorgente, play dal
-                       # mezzo di una ripresa col GOP lungo e proxy, EDL, export WebM riletto
+                       # riga SOTT (sposta, unisci, dividi), più timeline, LIVE con pausa, novità, istantanea, tre punti dalla sorgente,
+                       # play col clic, countdown fino a 1, forme delle dissolvenze, cartelle, anteprime coi fotogrammi veri, riquadro
+                       # sui sottotitoli, pacchetto .daprod salvato e riaperto, LIVE con webcam, 3-2-1, segni e stile presentazione,
+                       # play dal mezzo di una ripresa col GOP lungo e proxy, EDL, export WebM riletto
 node test/foto.mjs     # foto del banco (computer, Finale, contenitore, timeline, LIVE, telefono) in test/.out/
 ```
 
 ### 📁 Dove sta cosa
 
-- `src/core/` il modello: tipi, timecode (anche drop-frame), operazioni di montaggio, annulla, gli FX a blocchetti (`blocchi.ts`) e il catalogo dei loro suoni (`suoni.ts`), gli effetti della clip che si sommano (`effettiClip.ts`), le timeline (`sequenze.ts`), i sottotitoli.
+- `src/core/` il modello: tipi, timecode (anche drop-frame), operazioni di montaggio, annulla, gli FX a blocchetti (`blocchi.ts`) e il catalogo dei loro suoni (`suoni.ts`), gli effetti della clip che si sommano (`effettiClip.ts`), le timeline (`sequenze.ts`), i sottotitoli, i titoli e countdown pronti (`generatori.ts`), le cornici (bolla, presentazione: `cornici.ts`).
+- `src/pacchetto.ts` il pacchetto .daprod (zip e zip64, scrittura e lettura).
 - `src/media/` Mediabunny: contenitore, fotogrammi (flusso e ricerca), proxy automatici, banco audio.
-- `src/render/` il piano di ogni fotogramma e il mixer WebGL2 (effetti a tempo, colore automatico e colore finale, logo e sottotitoli), titolatrice e countdown.
+- `src/render/` il piano di ogni fotogramma e il mixer WebGL2 (effetti a tempo, colore automatico e colore finale, logo e sottotitoli), titolatrice e countdown, le anteprime del contenitore coi fotogrammi del cursore (`provino.ts`).
 - `src/ui/` timeline, monitor, pulsantiera, contenitore, proprietà, pagina Finale, pagina LIVE (`live.ts`), mixer e VU, strumenti, finestre.
 - `src/azioni.ts` tutti i comandi con i loro tasti · `src/effetti.ts` gli effetti al volo · `src/export/` export ed EDL · `src/demo.ts` il montaggio dimostrativo.
 - `src-tauri/` l'app Rust, con `gen/android` per l'APK · `test/` le prove.

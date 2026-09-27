@@ -252,6 +252,78 @@ async fn export_chiudi(stato: State<'_, Stato>, id: u32) -> Esito<()> {
     Ok(())
 }
 
+/// La tabella del CRC-32 degli zip (polinomio 0xEDB88320), fatta una volta sola.
+fn tabella_crc() -> &'static [u32; 256] {
+    static T: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = [0u32; 256];
+        for (i, v) in t.iter_mut().enumerate() {
+            let mut c = i as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+            *v = c;
+        }
+        t
+    })
+}
+
+/// Pacchetto .daprod: copia i byte [start, end) di un file dentro il pacchetto aperto in scrittura (id), a
+/// partire da pos, senza passare dal JavaScript. Continua il CRC-32 `crc` dei pezzi di prima e lo ritorna
+/// (serve all'intestazione zip).
+#[tauri::command]
+async fn pacchetto_copia(app: AppHandle, stato: State<'_, Stato>, path: String, start: u64, end: u64, id: u32, pos: u64, crc: u32) -> Esito<u32> {
+    let src = apri_lettura(&app, &stato, &path)?;
+    let dst = stato
+        .scritture
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&id)
+        .cloned()
+        .ok_or("pacchetto non aperto")?;
+    tauri::async_runtime::spawn_blocking(move || -> Esito<u32> {
+        let t = tabella_crc();
+        // si continua il CRC dei pezzi di prima (0 per il primo)
+        let mut crc = crc ^ 0xFFFF_FFFFu32;
+        let mut buf = vec![0u8; 8 << 20];
+        let mut src = src.lock().map_err(|e| e.to_string())?;
+        let mut dst = dst.lock().map_err(|e| e.to_string())?;
+        src.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+        dst.seek(SeekFrom::Start(pos)).map_err(|e| e.to_string())?;
+        let mut resto = end.saturating_sub(start);
+        while resto > 0 {
+            let n = (resto.min(buf.len() as u64)) as usize;
+            let k = src.read(&mut buf[..n]).map_err(|e| e.to_string())?;
+            if k == 0 {
+                return Err("il file è finito prima del previsto".into());
+            }
+            for &b in &buf[..k] {
+                crc = t[((crc ^ b as u32) & 0xFF) as usize] ^ (crc >> 8);
+            }
+            dst.write_all(&buf[..k]).map_err(|e| e.to_string())?;
+            resto -= k as u64;
+        }
+        Ok(crc ^ 0xFFFF_FFFF)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Il progetto aperto col doppio clic (.daprod o .dpv): arriva dagli argomenti (Windows, Linux) o dal sistema (Mac).
+#[derive(Default)]
+struct Avvio(Mutex<Option<String>>);
+
+fn file_progetto(p: &str) -> bool {
+    let l = p.to_lowercase();
+    l.ends_with(".daprod") || l.ends_with(".dpv")
+}
+
+/// Il file da aprire all'avvio (una volta sola: poi torna vuoto).
+#[tauri::command]
+fn file_di_avvio(avvio: State<'_, Avvio>) -> Option<String> {
+    avvio.0.lock().ok()?.take()
+}
+
 /// Decodifica audio di riserva (vedi audio_riserva.rs): apre un decoder per una traccia.
 #[tauri::command]
 fn audio_apri(dec: State<'_, audio_riserva::Decoder>, codec: String, sample_rate: u32, channels: u16, description: Option<Vec<u8>>) -> Esito<u32> {
@@ -290,11 +362,13 @@ fn apri_link(app: AppHandle, url: String) -> Esito<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let dall_avvio = std::env::args().skip(1).find(|a| file_progetto(a));
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Stato::default())
+        .manage(Avvio(Mutex::new(dall_avvio)))
         .manage(audio_riserva::Decoder::default())
         .invoke_handler(tauri::generate_handler![
             media_dimensione,
@@ -307,6 +381,8 @@ pub fn run() {
             export_apri,
             export_scrivi,
             export_chiudi,
+            pacchetto_copia,
+            file_di_avvio,
             apri_link,
             istantanea_percorso,
             registrazione_percorso,
@@ -318,6 +394,26 @@ pub fn run() {
             aggiorna::aggiornamento_progresso,
             aggiorna::aggiornamento_apri,
         ])
-        .run(tauri::generate_context!())
-        .expect("errore all'avvio di DaProd Video");
+        .build(tauri::generate_context!())
+        .expect("errore all'avvio di DaProd Video")
+        .run(|_app, _ev| {
+            // sul Mac il doppio clic su un progetto arriva come evento (anche ad app già aperta)
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            if let tauri::RunEvent::Opened { urls } = _ev {
+                use tauri::Emitter;
+                for u in urls {
+                    let Ok(p) = u.to_file_path() else { continue };
+                    let s = p.to_string_lossy().into_owned();
+                    if !file_progetto(&s) {
+                        continue;
+                    }
+                    if let Some(a) = _app.try_state::<Avvio>() {
+                        if let Ok(mut x) = a.0.lock() {
+                            *x = Some(s.clone());
+                        }
+                    }
+                    let _ = _app.emit("apri-file", s);
+                }
+            }
+        });
 }

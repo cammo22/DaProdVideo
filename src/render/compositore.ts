@@ -55,6 +55,11 @@ uniform bool u_auto;          // colore automatico: livelli, bianco e luce misur
 uniform vec3 u_autoLo, u_autoHi, u_autoWb;
 uniform float u_autoK, u_autoGamma;
 uniform float u_alpha;        // i titoli animati che compaiono e spariscono
+uniform vec3 u_color2;        // colore pieno sfumato: il secondo colore
+uniform bool u_grad;
+uniform vec4 u_box;           // il rettangolo che si vede (l, t, r, b in uv): per gli angoli tondi e l'ombra
+uniform vec2 u_boxPx;         // quanti pixel del progetto fa la sorgente intera
+uniform float u_round, u_feather;
 out vec4 o;
 
 vec2 orient(vec2 uv) {
@@ -91,7 +96,7 @@ vec3 ebu(vec2 uv) {
 vec4 src(vec2 uv) {
   if (u_src == 1) return vec4(smpte(uv), 1.0);
   if (u_src == 2) return vec4(ebu(uv), 1.0);
-  if (u_src == 3) return vec4(u_color, 1.0);
+  if (u_src == 3) return vec4(u_grad ? mix(u_color, u_color2, clamp(uv.y * 0.75 + uv.x * 0.25, 0.0, 1.0)) : u_color, 1.0);
   return texture(u_tex, orient(uv));
 }
 
@@ -169,6 +174,13 @@ void main() {
     // toglie il colore della chiave che rimbalza sui bordi (spill)
     if (kc.g > kc.r && kc.g > kc.b) rgb.g = min(rgb.g, max(rgb.r, rgb.b) + 0.05);
     else if (kc.b > kc.r && kc.b > kc.g) rgb.b = min(rgb.b, max(rgb.r, rgb.g) + 0.05);
+  }
+  // angoli tondi (e l'ombra, che è lo stesso rettangolo sfumato): distanza dal rettangolo arrotondato, in pixel
+  if (u_round > 0.0 || u_feather > 0.0) {
+    vec2 lo = u_box.xy * u_boxPx, hi = (vec2(1.0) - u_box.zw) * u_boxPx;
+    vec2 q = abs(v_uv * u_boxPx - (lo + hi) * 0.5) - (hi - lo) * 0.5 + vec2(u_round);
+    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - u_round;
+    a *= 1.0 - smoothstep(-u_feather, u_feather, d);
   }
   a *= u_alpha;
   o = vec4(rgb * a, a);
@@ -709,7 +721,7 @@ export class Compositore {
     for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol', 'u_bagliore', 'u_flare', 'u_flarePh', 'u_arco', 'u_arcoPh', 'u_espo', 'u_neon', 'u_onda', 'u_bolla', 'u_vortice', 'u_caleido', 'u_calore', 'u_zblur'])
       this.uF[n] = gl.getUniformLocation(this.pFx, n);
     for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv',
-      'u_mirror', 'u_temp', 'u_vignette', 'u_alpha', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
+      'u_mirror', 'u_temp', 'u_vignette', 'u_alpha', 'u_color2', 'u_grad', 'u_box', 'u_boxPx', 'u_round', 'u_feather', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
       this.uL[n] = gl.getUniformLocation(this.pLayer, n);
     for (const n of ['u_src', 'u_lift', 'u_gamma', 'u_gain', 'u_shadow', 'u_high', 'u_sat', 'u_contrast', 'u_vignette', 'u_grain', 'u_time', 'u_split'])
       this.uM[n] = gl.getUniformLocation(this.pMaster, n);
@@ -905,6 +917,8 @@ export class Compositore {
     gl.uniform1f(u.u_vignette, 0);
     gl.uniform1f(u.u_alpha, 1);
     gl.uniform1i(u.u_auto, 0);
+    gl.uniform1f(u.u_round, 0);
+    gl.uniform1f(u.u_feather, 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND);
   }
@@ -991,7 +1005,7 @@ export class Compositore {
     } else if (c.kind === 'color') {
       srcKind = 3;
     } else if (c.kind === 'countdown') {
-      const tela = disegnaCountdown(W, H, s.local, c.len * p.rate.den / p.rate.num);
+      const tela = disegnaCountdown(W, H, s.local, c.len * p.rate.den / p.rate.num, c.gen?.conto ?? 'pellicola');
       const t = this.upload('cd:' + c.id + ':' + i, tela as TexImageSource, tela.width, tela.height, frame + ':' + s.lf);
       tex = t.tex;
       sw = W; sh = H;
@@ -1027,17 +1041,57 @@ export class Compositore {
     gl.uniform1i(u.u_tex, 0);
     gl.uniform2f(u.u_res, W, H);
     gl.uniform2f(u.u_size, dw, dh);
-    gl.uniform4f(u.u_crop, tf.cropL, tf.cropT, tf.cropR, tf.cropB);
-    gl.uniform2f(u.u_off, tf.x + off.dx, tf.y + off.dy);
     // zoom lento (Ken Burns): la clip si avvicina piano piano lungo tutta la sua durata
     const kb = fe.zoom ? 1 + fe.zoom * Math.min(1, s.lf / Math.max(1, c.len)) : 1;
-    gl.uniform1f(u.u_scale, tf.scale * kb * (off.scala ?? 1));
-    gl.uniform1f(u.u_alpha, off.alfa ?? 1);
+    const scala = tf.scale * kb * (off.scala ?? 1);
+    gl.uniform1f(u.u_scale, scala);
     gl.uniform1f(u.u_rot, (tf.rot * Math.PI) / 180);
-    gl.uniform1i(u.u_src, srcKind);
     gl.uniform1i(u.u_orient, orient);
+    // angoli tondi e ombra: il raggio è una parte del lato corto di quello che si vede
+    const bw = dw * scala, bh = dh * scala;
+    const raggio = Math.max(0, Math.min(1, tf.angoli ?? 0)) * 0.5 * Math.min(bw * (1 - tf.cropL - tf.cropR), bh * (1 - tf.cropT - tf.cropB));
+    gl.uniform2f(u.u_boxPx, bw, bh);
+    gl.uniform4f(u.u_box, tf.cropL, tf.cropT, tf.cropR, tf.cropB);
+    gl.uniform1i(u.u_grad, 0);
+    if ((tf.ombra ?? 0) > 0) {
+      // l'ombra: lo stesso rettangolo, nero, più grande e sfumato, un po' più in basso; poi la clip ci va sopra
+      const sf = Math.max(4, (tf.ombra ?? 0) * Math.min(W, H) * 0.045);
+      const ex = (sf * 2) / Math.max(1, bw), ey = (sf * 2) / Math.max(1, bh);
+      gl.uniform4f(u.u_crop, tf.cropL - ex, tf.cropT - ey, tf.cropR - ex, tf.cropB - ey);
+      gl.uniform2f(u.u_off, tf.x + off.dx, tf.y + off.dy + sf * 0.45);
+      gl.uniform1i(u.u_src, 3);
+      gl.uniform3f(u.u_color, 0, 0, 0);
+      gl.uniform1f(u.u_bright, 0);
+      gl.uniform1f(u.u_contrast, 1);
+      gl.uniform1f(u.u_sat, 1);
+      gl.uniform1f(u.u_hue, 0);
+      gl.uniform1i(u.u_look, 0);
+      gl.uniform1i(u.u_key, 0);
+      gl.uniform1i(u.u_mirror, 0);
+      gl.uniform1f(u.u_temp, 0);
+      gl.uniform1f(u.u_vignette, 0);
+      gl.uniform1i(u.u_auto, 0);
+      gl.uniform1f(u.u_alpha, (off.alfa ?? 1) * Math.min(0.7, 0.3 + (tf.ombra ?? 0) * 0.45));
+      gl.uniform1f(u.u_round, raggio + sf * 0.5);
+      gl.uniform1f(u.u_feather, sf);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    }
+    gl.uniform4f(u.u_crop, tf.cropL, tf.cropT, tf.cropR, tf.cropB);
+    gl.uniform2f(u.u_off, tf.x + off.dx, tf.y + off.dy);
+    gl.uniform1f(u.u_alpha, off.alfa ?? 1);
+    gl.uniform1f(u.u_round, raggio);
+    // il bordo arrotondato si sfuma di un pixel dello schermo (niente scalini)
+    gl.uniform1f(u.u_feather, raggio > 0 ? Math.max(0.6, W / Math.max(1, this.fbW)) : 0);
+    gl.uniform1i(u.u_src, srcKind);
     const col = hex(c.gen?.color ?? '#000000');
     gl.uniform3f(u.u_color, col[0], col[1], col[2]);
+    if (srcKind === 3 && c.gen?.color2) {
+      const c2 = hex(c.gen.color2);
+      gl.uniform1i(u.u_grad, 1);
+      gl.uniform3f(u.u_color2, c2[0], c2[1], c2[2]);
+    }
     gl.uniform1f(u.u_bright, fe.bright);
     gl.uniform1f(u.u_contrast, fe.contrast);
     gl.uniform1f(u.u_sat, fe.sat);
@@ -1064,6 +1118,7 @@ export class Compositore {
       gl.uniform1f(u.u_autoK, masterDi(p).autoK);
     }
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.BLEND);
     return true;
   }
 

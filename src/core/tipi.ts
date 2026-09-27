@@ -133,6 +133,10 @@ export interface Transform {
   cropR: number;
   cropT: number;
   cropB: number;
+  /** angoli tondi: 0 = dritti, 1 = tutto tondo (con un ritaglio quadrato diventa un cerchio, la bolla della webcam) */
+  angoli?: number;
+  /** ombra morbida sotto la clip 0..1 (si vede quando la clip è più piccola del quadro) */
+  ombra?: number;
 }
 
 export interface TitleSpec {
@@ -156,13 +160,26 @@ export interface TitleSpec {
 
 export interface GenSpec {
   color?: string;
+  /** colore pieno sfumato: il secondo colore (in basso a destra) */
+  color2?: string;
   /** barre: 'smpte' | 'ebu' */
   bars?: 'smpte' | 'ebu';
   /** tono: frequenza e livello */
   freq?: number;
   level?: number;
+  /** tono a colpetti: un bip ogni tot secondi (il countdown), lungo `bip` secondi */
+  ogni?: number;
+  bip?: number;
   title?: TitleSpec;
+  /** countdown: lo stile */
+  conto?: 'pellicola' | 'moderno' | 'neon' | 'minimal';
 }
+
+/**
+ * La forma di una dissolvenza: k da −1 (parte piano piano, come un fader analogico) a +1 (sale subito e poi
+ * si posa); 0 = dritta. s = a S (dolce all'inizio e alla fine).
+ */
+export interface Curva { k: number; s?: boolean }
 
 export interface Clip {
   id: string;
@@ -191,6 +208,9 @@ export interface Clip {
   /** dissolvenze in fotogrammi (video: dal trasparente · audio: dal silenzio) */
   fadeIn: number;
   fadeOut: number;
+  /** la forma delle dissolvenze (niente = dritta): src/core/progetto.ts curvaFade */
+  curvaIn?: Curva;
+  curvaOut?: Curva;
   // audio
   gain: number;
   gainKeys: Key[];
@@ -229,7 +249,16 @@ export interface MediaItem {
   /** punti di attacco e stacco marcati nel Player (secondi) */
   markIn?: number | null;
   markOut?: number | null;
+  /** la cartella del contenitore dove sta (niente = fuori dalle cartelle) */
+  cartella?: string;
+  /** dentro un pacchetto .daprod: dove stanno i suoi byte nel file del pacchetto (path) */
+  dentro?: { off: number; len: number };
+  /** il nome del file dentro il pacchetto .daprod (media/…) */
+  pacchetto?: string;
 }
+
+/** una cartella del contenitore, per mettere in ordine i file (si possono mettere una dentro l'altra) */
+export interface Cartella { id: string; nome: string; genitore?: string }
 
 export interface Marker { id: string; f: number; name: string; color: string }
 
@@ -315,6 +344,8 @@ export interface Project {
   sequenze?: Sequenza[];
   /** l'id della timeline aperta */
   seqAttiva?: string;
+  /** le cartelle del contenitore */
+  cartelle?: Cartella[];
   created: number;
   saved: number;
 }

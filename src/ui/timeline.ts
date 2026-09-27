@@ -4,16 +4,17 @@
 // linea gialla sulle clip audio = volume (trascina, doppio clic per un punto) · "fx" in fondo = effetti al volo.
 // Gli FX a blocchetti (effetti e transizioni) stanno in basso sulle clip video: si allungano dai bordi, l'altoparlante
 // accende e spegne il loro suono. Alt+Shift+trascina = sposta la clip e tutto quello che viene dopo, su tutte le tracce.
+import { leggiGeneratore } from '../core/generatori';
 import { store } from '../core/store';
 import { motore } from '../motore';
 import * as M from '../core/montaggio';
-import { clipById, dbToGain, end, isVideoClip, keyValue, mediaOf, newTrack, newTransition, nextTrackName, projectEnd, srcTimeAt, trackOf, ALTEZZA } from '../core/progetto';
+import { CURVE, curvaFade, nomeCurva, clipById, dbToGain, end, isVideoClip, keyValue, mediaOf, newTrack, newTransition, nextTrackName, projectEnd, srcTimeAt, trackOf, ALTEZZA } from '../core/progetto';
 import type { Clip, Key, Project, Sottotitolo, Track, TrackKind } from '../core/tipi';
 import { SOTTO0, bordoRiga, dividiRiga, limitiRiga, unisciRighe } from '../core/sottotitoli';
 import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
 import { miniatura, mediaRT, PEAKS_PER_SEC, quandoMiniature, quandoPicchi } from '../media/libreria';
-import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco } from '../azioni';
+import { modi, esegui, montaDalPlayer, inserisciGeneratore, eliminaLato, mettiBlocco, bloccoNuovo } from '../azioni';
 import { cambiaModello, centro, durataBlocco, durataDelBlocco, nomeBlocco, nuovoBlocco, piccoDi, posaBlocco, postoBlocco, tagliFra, taglioDelBlocco, taglioVicino, tracciaPerBlocco, transizioneSul, EFFETTI_TEMPO, type Dove, type Taglio } from '../core/blocchi';
 import { SUONI, suono } from '../core/suoni';
 import { attivaDi, eliminaSequenza, nuovaSequenza, passaA, rinominaSequenza, sequenzeDi } from '../core/sequenze';
@@ -57,13 +58,13 @@ type Presa =
   | { tipo: 'riquadro'; x0: number; y0: number; x1: number; y1: number; add: boolean }
   | { tipo: 'elastico'; id: string; key: number; base: Clip[] }
   | { tipo: 'volume'; id: string; y0: number; gain0: number; keys0: Key[]; seg: [number, number] | null; mosso: boolean }
-  | { tipo: 'fade'; id: string; lato: 'in' | 'out'; mosso: boolean }
+  | { tipo: 'fade'; id: string; lato: 'in' | 'out'; mosso: boolean; curva?: { y0: number; k0: number; s: boolean } }
   | { tipo: 'sott'; id: string; lato: 'in' | 'out' | 'corpo'; x0: number; righe0: Sottotitolo[]; mosso: boolean };
 
 interface Colpo {
   track?: Track;
   clip?: Clip;
-  zona: 'righello' | 'corpo' | 'in' | 'out' | 'vuoto' | 'fuori' | 'fx' | 'volume' | 'punto' | 'fadeIn' | 'fadeOut' | 'suono' | 'sott';
+  zona: 'righello' | 'corpo' | 'in' | 'out' | 'vuoto' | 'fuori' | 'fx' | 'volume' | 'punto' | 'fadeIn' | 'fadeOut' | 'curvaIn' | 'curvaOut' | 'suono' | 'sott';
   /** sulla riga dei sottotitoli: quale riga e quale parte (vuoto = nessuna) */
   sott?: { id: string; lato: 'in' | 'out' | 'corpo' };
   f: number;
@@ -185,19 +186,48 @@ export class Timeline {
   selSott = new Set<string>();
   private conSott(p: Project) { return (p.sottotitoli?.righe.length ?? 0) > 0; }
 
+  /** zoom verticale (Ctrl+Shift+rotella): le tracce più alte o più basse, per tutte insieme */
+  zoomV = (() => { try { return clamp(Number(localStorage.getItem('dpv-zoomv')) || 1, 0.6, 3); } catch { return 1; } })();
+  /** mentre si tira l'altezza di una traccia la scala resta ferma */
+  private kFermo: number | null = null;
+  /**
+   * Quanto crescono le tracce sulla tela: se c'è posto (schermi grandi, timeline alta) si allargano da sole
+   * fino a quasi il doppio, così niente resta piccolino; poi c'è lo zoom verticale.
+   */
+  kV(p: Project = store.doc): number {
+    if (this.kFermo !== null) return this.kFermo;
+    const base = p.tracks.reduce((s, t) => s + t.height, 0);
+    const libero = this.H - RIGHELLO - SEP - 34 - (this.conSott(p) ? SOTT_H : 0);
+    const riempi = base > 0 ? clamp(libero / base, 1, 1.8) : 1;
+    return Math.round(riempi * this.zoomV * 100) / 100;
+  }
+  private altezza(t: Track, k: number) { return Math.round(t.height * k); }
+
+  /** zoom verticale: più su, più alte */
+  zoomVerticale(fattore: number) {
+    this.zoomV = clamp(this.zoomV * fattore, 0.6, 3);
+    try { localStorage.setItem('dpv-zoomv', String(this.zoomV)); } catch { /* niente */ }
+    this.scorriY(this.scrollY);
+    this.costruisciTestate();
+    this.sporca();
+    avviso(`Tracce ${Math.round(this.kV() * 100)}%`, 'info', 700);
+  }
+
   private righe(p: Project) {
     const out: { t: Track; y: number; h: number }[] = [];
     let y = RIGHELLO - this.scrollY;
     let prima: Track | null = null;
     this.rigaSott = null;
     const sott = this.conSott(p);
+    const k = this.kV(p);
     for (const t of p.tracks) {
       if (prima && prima.kind !== 'audio' && t.kind === 'audio') {
         if (sott) { this.rigaSott = { y, h: SOTT_H }; y += SOTT_H; }
         y += SEP;
       }
-      out.push({ t, y, h: t.height });
-      y += t.height;
+      const hh = this.altezza(t, k);
+      out.push({ t, y, h: hh });
+      y += hh;
       prima = t;
     }
     if (sott && !this.rigaSott) this.rigaSott = { y, h: SOTT_H };
@@ -220,7 +250,8 @@ export class Timeline {
 
   private altezzaTotale() {
     const p = store.doc;
-    return p.tracks.reduce((s, t) => s + t.height, 0) + SEP + RIGHELLO + 40 + (this.conSott(p) ? SOTT_H : 0);
+    const k = this.kV(p);
+    return p.tracks.reduce((s, t) => s + this.altezza(t, k), 0) + SEP + RIGHELLO + 40 + (this.conSott(p) ? SOTT_H : 0);
   }
 
   /** scorre su e giù fra le tracce (la rotella sulle testate, la barra a destra, il dito) */
@@ -367,6 +398,18 @@ export class Timeline {
       if (Math.abs(x - xi) <= 6) return { track: t, clip: c, zona: 'fadeIn', f };
       if (Math.abs(x - xo) <= 6) return { track: t, clip: c, zona: 'fadeOut', f };
     }
+    // la linea della dissolvenza: presa lì si piega (su = sale subito, giù = piano piano)
+    for (const c of on) {
+      for (const lato of ['in', 'out'] as const) {
+        const n = lato === 'in' ? c.fadeIn : c.fadeOut;
+        if (n <= 0 || n * this.ppf < 14) continue;
+        const a = lato === 'in' ? c.start : end(c) - n;
+        if (f < a || f > a + n) continue;
+        const u = lato === 'in' ? (f - c.start) / n : (end(c) - f) / n;
+        const yc = g.top + g.alt * (1 - curvaFade(u, lato === 'in' ? c.curvaIn : c.curvaOut));
+        if (Math.abs(y - yc) <= 7) return { track: t, clip: c, zona: lato === 'in' ? 'curvaIn' : 'curvaOut', f };
+      }
+    }
     // prima i bordi (anche un po' fuori dalla clip, così le clip corte si prendono lo stesso)
     for (const c of on) {
       const w = c.len * this.ppf;
@@ -409,6 +452,8 @@ export class Timeline {
     const e = Math.max(projectEnd(store.doc), tcBase(store.doc.rate) * 10);
     this.ppf = clamp((this.W - 40) / e, 0.004, 48);
     this.scrollF = 0;
+    // e in verticale le tracce tornano a riempire il pannello
+    if (this.zoomV !== 1) { this.zoomV = 1; try { localStorage.setItem('dpv-zoomv', '1'); } catch { /* niente */ } this.scrollY = 0; this.costruisciTestate(); }
     this.sporca();
   }
 
@@ -484,7 +529,7 @@ export class Timeline {
   private firmaTestate = '';
   private firma() {
     const s = store.doc.sottotitoli;
-    return store.doc.tracks.map((t) => [t.id, t.name, t.height, t.mute, t.solo, t.lock, t.opacity, t.volume, modi.attive.has(t.id)].join(',')).join(';') + '|' + this.scrollY + '|' + (s?.righe.length ? (s.nelVideo ? 2 : 1) : 0);
+    return this.kV() + '|' + store.doc.tracks.map((t) => [t.id, t.name, t.height, t.mute, t.solo, t.lock, t.opacity, t.volume, modi.attive.has(t.id)].join(',')).join(';') + '|' + this.scrollY + '|' + (s?.righe.length ? (s.nelVideo ? 2 : 1) : 0);
   }
   /** le testate si rifanno solo se cambiano le tracce, non a ogni spostamento di clip */
   private testateSeCambiate() {
@@ -532,7 +577,7 @@ export class Timeline {
       // solo il misuratore che si muove (niente manopole e niente numeri: il volume della traccia sta nel mixer)
       const misura = audio ? h('span', { class: 'tt-misura', title: 'Livello della traccia' }) : null;
       if (misura) this.misure.push({ el: misura, track: t.id });
-      const riga = h('div', { class: `tl-testata ${t.kind}${t.lock ? ' bloccata' : ''}${t.mute ? ' spenta' : ''}${accesa ? ' accesa' : ''}`, style: `height:${t.height}px` },
+      const riga = h('div', { class: `tl-testata ${t.kind}${t.lock ? ' bloccata' : ''}${t.mute ? ' spenta' : ''}${accesa ? ' accesa' : ''}`, style: `height:${this.altezza(t, this.kV())}px` },
         h('div', { class: 'tt-riga' },
           h('button', {
             class: 'tt-nome' + (accesa ? ' accesa' : ''),
@@ -550,8 +595,9 @@ export class Timeline {
               const y0 = e.clientY, h0 = t.height;
               const el = e.currentTarget as HTMLElement;
               el.setPointerCapture(e.pointerId);
-              const mv = (ev: PointerEvent) => { const tr = store.doc.tracks.find((x) => x.id === t.id)!; tr.height = clamp(h0 + ev.clientY - y0, 28, 200); riga.style.height = tr.height + 'px'; this.sporca(); };
-              const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); this.costruisciTestate(); };
+              const k = this.kFermo = this.kV();
+              const mv = (ev: PointerEvent) => { const tr = store.doc.tracks.find((x) => x.id === t.id)!; tr.height = clamp(Math.round(h0 + (ev.clientY - y0) / k), 28, 200); riga.style.height = this.altezza(tr, k) + 'px'; this.sporca(); };
+              const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); this.kFermo = null; this.costruisciTestate(); this.sporca(); };
               el.addEventListener('pointermove', mv);
               el.addEventListener('pointerup', up);
             },
@@ -1015,21 +1061,25 @@ export class Timeline {
       ctx.strokeStyle = 'rgba(255,77,109,.5)';
       for (let xx = xl - alt; xx < xr; xx += 10) { ctx.beginPath(); ctx.moveTo(xx, top + alt); ctx.lineTo(xx + alt, top); ctx.stroke(); }
     }
-    // dissolvenze in/out: triangoli scuri
-    const fadeTri = (f0: number, f1: number, dir: 1 | -1) => {
+    // dissolvenze in/out: la parte che manca è scura, sopra la curva vera (dritta, morbida, analogica, a S…)
+    const fadeCurva = (f0: number, f1: number, dir: 1 | -1, cv: Clip['curvaIn']) => {
       const a = this.fX(f0), b = this.fX(f1);
+      const n = Math.max(2, Math.min(40, Math.round((b - a) / 3)));
+      const pt = (i: number) => { const u = i / n; const g = curvaFade(dir > 0 ? u : 1 - u, cv); return [a + (b - a) * u, top + alt * (1 - g)] as const; };
       ctx.fillStyle = 'rgba(0,0,0,.4)';
       ctx.beginPath();
-      if (dir > 0) { ctx.moveTo(a, top); ctx.lineTo(b, top); ctx.lineTo(a, top + alt); }
-      else { ctx.moveTo(a, top); ctx.lineTo(b, top); ctx.lineTo(b, top + alt); }
+      ctx.moveTo(a, top); ctx.lineTo(b, top);
+      for (let i = n; i >= 0; i--) { const [px, py] = pt(i); ctx.lineTo(px, py); }
       ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,.55)';
+      ctx.strokeStyle = cv && (cv.k || cv.s) ? 'rgba(255,213,74,.85)' : 'rgba(255,255,255,.55)';
+      ctx.lineWidth = 1.3;
       ctx.beginPath();
-      if (dir > 0) { ctx.moveTo(a, top + alt); ctx.lineTo(b, top); } else { ctx.moveTo(a, top); ctx.lineTo(b, top + alt); }
+      for (let i = 0; i <= n; i++) { const [px, py] = pt(i); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }
       ctx.stroke();
+      ctx.lineWidth = 1;
     };
-    if (c.fadeIn > 0) fadeTri(c.start, c.start + c.fadeIn, 1);
-    if (c.fadeOut > 0) fadeTri(end(c) - c.fadeOut, end(c), -1);
+    if (c.fadeIn > 0) fadeCurva(c.start, c.start + c.fadeIn, 1, c.curvaIn);
+    if (c.fadeOut > 0) fadeCurva(end(c) - c.fadeOut, end(c), -1, c.curvaOut);
     // transizioni in testa e in coda: il blocco sul bordo, con il segno del tipo
     const blocco = (tr: NonNullable<Clip['trIn']>, a: number, b: number) => {
       ctx.fillStyle = tr.type === 'dip' ? 'rgba(0,0,0,.55)' : tr.type === 'dve' ? 'rgba(255,61,242,.26)' : 'rgba(255,213,74,.28)';
@@ -1312,6 +1362,7 @@ export class Timeline {
       else if (c.zona === 'fx' || c.zona === 'suono') cur = 'pointer';
       else if (c.zona === 'sott') cur = !c.sott ? 'default' : c.sott.lato === 'corpo' ? 'move' : 'ew-resize';
       else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cur = 'ew-resize';
+      else if (c.zona === 'curvaIn' || c.zona === 'curvaOut') cur = 'ns-resize';
       else if (c.zona === 'volume') cur = 'ns-resize';
       else if (c.zona === 'punto') cur = 'grab';
       else if (c.zona === 'corpo') cur = e.altKey ? 'grab' : modi.elastico && c.clip && isVideoClip(c.clip) ? 'crosshair' : 'move';
@@ -1324,7 +1375,8 @@ export class Timeline {
       else if (c.zona === 'sott') cv.title = c.sott ? 'Sottotitolo: trascina per spostarlo, tira i bordi per i tempi, doppio clic per scrivere, Shift+clic per sceglierne altri, tasto destro per unire e dividere' : 'La riga dei sottotitoli: tasto destro per aggiungerne uno qui';
       else if (c.zona === 'suono') cv.title = c.clip?.fxb?.suono ? `Suono dell'FX: ${suono(c.clip.fxb.suono)?.nome ?? ''} · clic = ${c.clip.fxb.audio ? 'spegnilo' : 'accendilo'} · tasto destro = scegli un altro suono` : 'Nessun suono · clic o tasto destro = scegline uno';
       else if (c.clip?.kind === 'fx' && c.zona === 'corpo') cv.title = `${nomeBlocco(c.clip.fxb!)}: trascinalo dove vuoi (si attacca al taglio, all'inizio o alla fine della clip) · allungalo dai bordi · tasto destro = durata, suono, modello`;
-      else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cv.title = c.zona === 'fadeIn' ? 'Dissolvenza in entrata: trascina verso destra' : 'Dissolvenza in uscita: trascina verso sinistra';
+      else if (c.zona === 'fadeIn' || c.zona === 'fadeOut') cv.title = (c.zona === 'fadeIn' ? 'Dissolvenza in entrata: trascina verso destra' : 'Dissolvenza in uscita: trascina verso sinistra') + ' · tasto destro: la forma';
+      else if (c.zona === 'curvaIn' || c.zona === 'curvaOut') cv.title = 'Trascina su o giù per piegare la dissolvenza (su = subito, giù = piano piano) · tasto destro: le forme · doppio clic: dritta';
       else cv.title = '';
     });
     let tocchi = new Map<number, { x: number; y: number }>();
@@ -1374,6 +1426,12 @@ export class Timeline {
         if (!store.sel.has(c.clip.id)) store.select([c.clip.id]);
         store.begin('Dissolvenza');
         this.presa = { tipo: 'fade', id: c.clip.id, lato: c.zona === 'fadeIn' ? 'in' : 'out', mosso: false };
+      } else if (c.clip && (c.zona === 'curvaIn' || c.zona === 'curvaOut')) {
+        if (trackOf(store.doc, c.clip.track).lock) return;
+        if (!store.sel.has(c.clip.id)) store.select([c.clip.id]);
+        store.begin('Forma della dissolvenza');
+        const cv = c.zona === 'curvaIn' ? c.clip.curvaIn : c.clip.curvaOut;
+        this.presa = { tipo: 'fade', id: c.clip.id, lato: c.zona === 'curvaIn' ? 'in' : 'out', mosso: false, curva: { y0: y, k0: cv?.k ?? 0, s: !!cv?.s } };
       } else if (c.clip && (c.zona === 'volume' || c.zona === 'punto')) {
         if (trackOf(store.doc, c.clip.track).lock) return;
         this.presaVolume(e, c);
@@ -1472,6 +1530,12 @@ export class Timeline {
       const { x, y } = pos(e);
       const c = this.colpo(x, y);
       if (c.zona === 'sott') { if (c.sott) void this.scriviSott(c.sott.id); else this.rigaSottAlCursore(); return; }
+      if (c.clip && (c.zona === 'curvaIn' || c.zona === 'curvaOut')) {
+        // doppio clic sulla curva: torna dritta
+        const id = c.clip.id, lato = c.zona;
+        store.edit('Dissolvenza dritta', (p) => { const cc = clipById(p, id)!; if (lato === 'curvaIn') cc.curvaIn = undefined; else cc.curvaOut = undefined; });
+        return;
+      }
       if (c.clip && (c.zona === 'volume' || c.zona === 'punto')) {
         // doppio clic sulla linea: un punto nuovo (sul punto: lo toglie)
         const id = c.clip.id, lf = Math.round(c.f - c.clip.start), idx = c.punto;
@@ -1507,12 +1571,14 @@ export class Timeline {
       if (c.clip && !store.sel.has(c.clip.id)) store.select(M.withLinked(store.doc, [c.clip.id]));
       // sull'altoparlante: dritto il menu dei suoni
       if (c.clip && c.zona === 'suono') { this.menuSuoni(e.clientX, e.clientY, c.clip); return; }
+      // sulla maniglia o sulla curva di una dissolvenza: le forme
+      if (c.clip && (c.zona === 'fadeIn' || c.zona === 'fadeOut' || c.zona === 'curvaIn' || c.zona === 'curvaOut')) { this.menuDissolvenza(e.clientX, e.clientY, c.clip, c.zona === 'fadeIn' || c.zona === 'curvaIn' ? 'in' : 'out'); return; }
       this.menu(e.clientX, e.clientY, c);
     });
     cv.addEventListener('keydown', (e) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selSott.size && !store.sel.size) {
-        e.preventDefault();
-        e.stopPropagation();
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selSott.size) {
+        // via le righe scelte; se ci sono anche clip scelte, ci pensa il tasto Elimina di sempre
+        if (!store.sel.size) { e.preventDefault(); e.stopPropagation(); }
         const via = new Set(this.selSott);
         store.edit('Togli sottotitoli', (pp) => { if (pp.sottotitoli) pp.sottotitoli.righe = pp.sottotitoli.righe.filter((z) => !via.has(z.id)); });
         this.selSott.clear();
@@ -1521,7 +1587,8 @@ export class Timeline {
     cv.addEventListener('wheel', (e) => {
       e.preventDefault();
       const { x } = pos(e);
-      if (e.ctrlKey || e.metaKey) this.zoom(e.deltaY < 0 ? 1.18 : 1 / 1.18, x);
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) this.zoomVerticale(e.deltaY < 0 ? 1.12 : 1 / 1.12);
+      else if (e.ctrlKey || e.metaKey) this.zoom(e.deltaY < 0 ? 1.18 : 1 / 1.18, x);
       else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) this.scrollF = Math.max(0, this.scrollF + (e.deltaX || e.deltaY) / this.ppf);
       else if (e.altKey) this.scorriY(this.scrollY + e.deltaY * 0.6);
       else {
@@ -1591,7 +1658,21 @@ export class Timeline {
       const r = s.righe.find((z) => z.id === q.id);
       if (!r) return;
       const [min, max] = limitiRiga(s, r.id);
-      if (q.lato === 'corpo') {
+      if (q.lato === 'corpo' && this.selSott.size > 1 && this.selSott.has(r.id)) {
+        // più righe scelte: si spostano tutte insieme, senza entrare in quelle non scelte
+        const scelte = s.righe.filter((z) => this.selSott.has(z.id));
+        const altre = s.righe.filter((z) => !this.selSott.has(z.id));
+        if (modi.snap) { const sa = this.aggancia(r.da + d, new Set()); if (this.snapLinea !== null) d = sa - r.da; }
+        let dMin = -Math.min(...scelte.map((z) => z.da)), dMax = Infinity;
+        for (const z of scelte) {
+          for (const o of altre) {
+            if (o.a <= z.da) dMin = Math.max(dMin, o.a - z.da);
+            if (o.da >= z.a) dMax = Math.min(dMax, o.da - z.a);
+          }
+        }
+        d = Math.max(dMin, Math.min(dMax, d));
+        for (const z of scelte) { z.da += d; z.a += d; }
+      } else if (q.lato === 'corpo') {
         // col bordo che si aggancia ai tagli e al cursore
         if (modi.snap) { const sa = this.aggancia(r.da + d, new Set()); if (this.snapLinea !== null) d = sa - r.da; else { const sb = this.aggancia(r.a + d, new Set()); if (this.snapLinea !== null) d = sb - r.a; } }
         const len = r.a - r.da;
@@ -1692,6 +1773,19 @@ export class Timeline {
       store.liveChange();
       const v = q.seg ? c.gainKeys[q.seg[0]].v : c.gain;
       avvisoValore(v <= -60 ? 'Volume: muto' : `Volume ${v > 0 ? '+' : ''}${v} dB`);
+      return;
+    }
+    if (q.tipo === 'fade' && q.curva) {
+      // su = sale subito (k verso +1), giù = parte piano piano (k verso −1): come piegare un filo
+      const c = p.clips.find((x2) => x2.id === q.id)!;
+      const k = Math.round(clamp(q.curva.k0 - (y - q.curva.y0) / 55, -1, 1) * 20) / 20;
+      const cv = { k, ...(q.curva.s ? { s: true } : {}) };
+      const prima = q.lato === 'in' ? c.curvaIn : c.curvaOut;
+      if (prima?.k === cv.k && !!prima?.s === !!cv.s) return;
+      if (q.lato === 'in') c.curvaIn = cv; else c.curvaOut = cv;
+      q.mosso = true;
+      store.liveChange();
+      avvisoValore(`${q.lato === 'in' ? 'Entra' : 'Esce'}: ${nomeCurva(cv)}`);
       return;
     }
     if (q.tipo === 'fade') {
@@ -1903,7 +1997,12 @@ export class Timeline {
     const f0 = this.xF(x0), f1 = this.xF(x1);
     const righe = this.righe(p).filter((r) => r.y + r.h > y0 && r.y < y1).map((r) => r.t.id);
     const ids = p.clips.filter((c) => righe.includes(c.track) && end(c) > f0 && c.start < f1).map((c) => c.id);
+    // anche le righe dei sottotitoli, se il riquadro passa sulla riga SOTT
+    const rs = this.rigaSott;
+    if (!q.add) this.selSott.clear();
+    if (rs && rs.y + rs.h > y0 && rs.y < y1) for (const r of p.sottotitoli?.righe ?? []) if (r.a > f0 && r.da < f1) this.selSott.add(r.id);
     store.select(ids, q.add);
+    this.sporca();
   }
 
   private anteprimaDrop(x: number, y: number, dato: string) {
@@ -1962,8 +2061,8 @@ export class Timeline {
       store.select(ids);
       avviso(store.doc.tracks.length > n0 ? `${m.name}: lì era occupato, l'ho messa su una traccia nuova` : `${m.name} nella timeline`, 'ok', 1600);
     } else if (dato.startsWith('g:')) {
-      const kind = dato.slice(2) as 'bars' | 'color' | 'countdown' | 'title' | 'nero';
-      inserisciGeneratore(kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined);
+      const g = leggiGeneratore(dato);
+      inserisciGeneratore(g.kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined, { titolo: g.titolo, conto: g.conto });
     } else if (dato.startsWith('x:') || dato.startsWith('t:')) {
       const { tipo, id } = this.specBlocco(dato);
       const g = this.anteprimaBlocco(x, y, dato);
@@ -1973,7 +2072,7 @@ export class Timeline {
         avviso(`✦ ${nomeBlocco(clipById(store.doc, g.gia)!.fxb!)} sul taglio`, 'tasto', 1400);
         return;
       }
-      const b = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, nuovoBlocco(tipo, id), g.start, g.len, g.track));
+      const b = store.edit(tipo === 'effetto' ? 'Effetto a tempo' : 'Transizione', (pp) => posaBlocco(pp, bloccoNuovo(tipo, id), g.start, g.len, g.track));
       store.select([b.id]);
       const sec = (g.len / fps(p.rate)).toFixed(1).replace('.', ',').replace(',0', '');
       const dove = g.dove === 'taglio' ? ' sul taglio' : g.dove === 'inizio' ? ' all\'inizio della clip' : g.dove === 'fine' ? ' alla fine della clip' : tipo === 'transizione' ? ' · mettila sopra un taglio per farla lavorare' : '';
@@ -1986,6 +2085,33 @@ export class Timeline {
       store.select(M.withLinked(store.doc, [c.id]));
       alternaEffetto(dato.slice(2), [c.id]);
     }
+  }
+
+  /** tasto destro su una dissolvenza: la forma (e la durata) */
+  private menuDissolvenza(x: number, y: number, clip: Clip, lato: 'in' | 'out') {
+    const r = fps(store.doc.rate);
+    const cv = lato === 'in' ? clip.curvaIn : clip.curvaOut;
+    const n = lato === 'in' ? clip.fadeIn : clip.fadeOut;
+    const cambia = (label: string, fn: (c: Clip) => void) => store.edit(label, (p) => fn(clipById(p, clip.id)!));
+    const uguale = (a?: { k: number; s?: boolean }, b?: { k: number; s?: boolean }) => Math.abs((a?.k ?? 0) - (b?.k ?? 0)) < 0.04 && !!a?.s === !!b?.s;
+    const lunga = (sec: number) => cambia('Durata della dissolvenza', (c) => {
+      const f = Math.min(Math.round(sec * r), c.len - (lato === 'in' ? c.fadeOut : c.fadeIn));
+      if (lato === 'in') c.fadeIn = f; else c.fadeOut = f;
+    });
+    menuContesto(x, y, [
+      ...CURVE.map((k) => ({
+        nome: k.nome, spunta: uguale(cv, k.cv),
+        fn: () => cambia('Forma della dissolvenza', (c) => {
+          const nuova = k.cv.k || k.cv.s ? { ...k.cv } : undefined;
+          if (lato === 'in') c.curvaIn = nuova; else c.curvaOut = nuova;
+          // una forma senza dissolvenza non si sente: se non c'è, ne mette una di un secondo
+          if (!(lato === 'in' ? c.fadeIn : c.fadeOut)) { if (lato === 'in') c.fadeIn = Math.min(Math.round(r), c.len - c.fadeOut); else c.fadeOut = Math.min(Math.round(r), c.len - c.fadeIn); }
+        }),
+      })),
+      { sep: true },
+      ...[0.5, 1, 2, 4].map((sec) => ({ nome: `Lunga ${String(sec).replace('.', ',')} s`, spunta: n === Math.round(sec * r), fn: () => lunga(sec) })),
+      { nome: 'Togli la dissolvenza', disattiva: !n, fn: () => lunga(0) },
+    ]);
   }
 
   private menu(x: number, y: number, c: Colpo) {

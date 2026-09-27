@@ -1,5 +1,5 @@
 // La pulsantiera: la centralina di montaggio sotto il monitor. Tasti grandi con il numero stampato sopra,
-// modi con la spia accesa, attacco/stacco, solleva/estrai, rivedi, zoom.
+// modi con la spia accesa, foto, zoom. Attacco/stacco, solleva/estrai e rivedi restano sui tasti (I, O, Z, X, Shift+R).
 import { store } from '../core/store';
 import { esegui, modi } from '../azioni';
 import { h, icona } from './dom';
@@ -33,15 +33,8 @@ export class Pulsantiera {
         insSovr,
         modo('RIPPLE', 'ripple', () => modi.ripple, 'Ripple: eliminare e accorciare chiude i buchi (R)', 'ripple'),
         modo('CALAMITA', 'snap', () => modi.snap, 'Aggancio ai tagli e al cursore (N)', 'calamita'),
-        modo('ELASTICO', 'elastico', () => modi.elastico, 'Linee elastiche della trasparenza sul video (B). Il volume sull\'audio si vede sempre', 'elastico')),
+        modo('TRASPARENZA', 'elastico', () => modi.elastico, 'La linea gialla della trasparenza sui video (B): accesa, clic sul video per mettere un punto e tirarlo giù per sfumare a mano (Alt+clic lo toglie). Il volume sull\'audio si vede sempre', 'elastico')),
       h('div', { class: 'gruppo-tasti' },
-        piccolo('IN', 'segnaIn', 'Attacco (I)', 'segnaIn'),
-        piccolo('OUT', 'segnaOut', 'Stacco (O)', 'segnaOut'),
-        piccolo('INS', 'inserisci', 'Inserisci la sorgente al cursore (,)'),
-        piccolo('SOVR', 'sovrascrivi', 'Sovrascrivi con la sorgente al cursore (.)'),
-        piccolo('LIFT', 'solleva', 'Solleva attacco-stacco (Z)'),
-        piccolo('EXTRACT', 'estrai', 'Estrai attacco-stacco (X)'),
-        piccolo('REVIEW', 'rivedi', 'Rivedi l\'ultimo montaggio con preroll (Shift+R)'),
         piccolo('FOTO', 'istantanea', 'Istantanea del fotogramma nel contenitore (P) · Shift+P fermo immagine', 'foto')),
       h('div', { class: 'gruppo-tasti' },
         piccolo('', 'annulla', 'Annulla (Ctrl+Z)', 'annulla'),

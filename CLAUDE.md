@@ -32,7 +32,29 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   `src/core/sottotitoli.ts`).
 - **LIVE** (`src/ui/live.ts`, F10): `getDisplayMedia` + microfono, `MediaRecorder` a pezzi (la PAUSA chiude un pezzo:
   non ci si fida della pausa del browser, alcuni lasciano il buco, né di quello che consegna allo stop: fette da
-  250 ms e 600 ms di grazia, poi si taglia al punto premuto), Mediabunny cuce i pezzi in un file solo e l'app lo salva in Video/DaProd Video (`registrazione_percorso` in `lib.rs`; permessi del Mac in `src-tauri/Info.plist`). Nelle prove la sorgente è una tela finta (`impostaSorgenteLive`).
+  250 ms e 600 ms di grazia, poi si taglia al punto premuto), Mediabunny cuce i pezzi in un file solo e l'app lo salva in Video/DaProd Video (`registrazione_percorso` in `lib.rs`; permessi del Mac in `src-tauri/Info.plist`). Nelle prove la sorgente è una tela finta (`impostaSorgenteLive(schermo, mic, webcam)`).
+  La **webcam** ha il suo registratore (`nastro`), stesso taglio dello schermo, file suo, e va sulla traccia sopra
+  come bolla (`bolla` in `src/core/cornici.ts`); sotto, con lo **stile presentazione**, un colore sfumato (`gen.color2`).
+  Tasti R / Spazio / M (segni → marcatori) / F, presi prima di quelli del montaggio solo su LIVE; 3-2-1 (`opz.conto`,
+  le prove vecchie lo spengono); telecomando = Document PiP nel browser, finestra piccola `setAlwaysOnTop` nell'app
+  (permessi in `capabilities/default.json`). Le scelte stanno in localStorage `dpv-live`; le registrazioni vanno
+  nella cartella *Registrazioni* e non propongono il formato del progetto.
+- **Angoli tondi e ombra** sono campi del Transform (`tf.angoli`, `tf.ombra`): lo shader del livello fa la distanza da
+  un rettangolo arrotondato (`u_box`, `u_round`, `u_feather`) e l'ombra è una passata nera più grande prima della clip.
+- **Contenitore a esplora risorse** (`src/ui/contenitore.ts`): albero a sinistra (`bin-cat[data-c]`: tutto, video,
+  audio, immagini, `dir:<id>`, transizioni/`tr:*`, titoli/`tit:*`, effetti/`fx:*`), cartelle in `p.cartelle` e
+  `m.cartella`; l'import va nella cartella aperta e da Video/Musica/Immagini filtra i file. Le anteprime al passaggio
+  (`src/render/provino.ts`) usano i fotogrammi veri del cursore e del taglio dopo (canvas `.provino.vero`). Titoli e
+  countdown pronti in `src/core/generatori.ts`; il countdown conta N..1 (`numeroConto`) col bip legato.
+- **Dissolvenze con la forma**: `c.curvaIn/curvaOut` (`Curva {k, s}`), `curvaFade`/`fadeAl`/`CURVE` in
+  `src/core/progetto.ts`, uguali per volume e trasparenza; in timeline si piega la linea, tasto destro = menu.
+- **.dpv e .daprod**: il .dpv è il progetto leggero (JSON, i media restano dove sono); il **.daprod** (`src/pacchetto.ts`)
+  è uno zip stored (zip64 oltre i 4 GB) con `progetto.json`, `media/` e LEGGIMI. All'apertura i media si leggono da
+  dentro lo zip (`m.dentro {off, len}` → `MediaRT.off/len`, `media_leggi` con l'offset); Rust copia i byte e il CRC
+  (`pacchetto_copia`). Doppio clic sul file: `fileAssociations` + `file_di_avvio` / evento `apri-file`.
+- **Timeline che cresce**: `kV()` in `src/ui/timeline.ts` (spazio libero × `zoomV`, Ctrl+Shift+rotella); nell'app
+  Ctrl +/− fa `setZoom` della webview (nel browser lo zoom resta quello del browser: lo zoom CSS rompe i clic).
+- TRASPARENZA (tasto B, era ELASTICO) = la linea gialla dell'opacità sui video; IN/OUT si vedono solo se ci sono (Alt+X o ✕).
 - Si parte con **2 tracce video e 2 audio**. **Alt+Shift+trascina** = la clip e tutto quello dopo, su tutte le tracce.
   **V** = timeline stretta (la colonna di destra scende fino in fondo).
 - **Sottotitoli AI**: Whisper via transformers.js in `src/media/voce.worker.ts` (libreria dalla CDN, modello da
