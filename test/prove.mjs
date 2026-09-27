@@ -1183,9 +1183,9 @@ try {
     await pg.waitForTimeout(800);
     await pg.evaluate(async () => {
       const T = window.__dpvTest;
-      const f = await T.ripresaDiProva(16, 16);
+      const f = await T.ripresaDiProva(20, 20);
       const [m] = await T.importaFile([{ name: f.name, file: f }], { chiediFormato: false });
-      window.__dpv.edit('prova', (p) => { const v1 = p.tracks.filter((t) => t.kind === 'video').slice(-1)[0]; p.clips.push(T.P.newClip('media', v1.id, 0, 400, { media: m.id, name: m.name })); });
+      window.__dpv.edit('prova', (p) => { const v1 = p.tracks.filter((t) => t.kind === 'video').slice(-1)[0]; p.clips.push(T.P.newClip('media', v1.id, 0, 500, { media: m.id, name: m.name })); });
     });
     const suona = (da) => pg.evaluate(async (da) => {
       const m = window.__dpvTest.motore;
@@ -1226,12 +1226,12 @@ try {
         secondi: (headFine - testa) * rate.den / rate.num, durataMs,
       };
     }, da);
-    const a = await suona(200);
+    const a = await suona(250);
     prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.partito && a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
     const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
     prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
-    const b = await suona(200);
+    const b = await suona(250);
     // col proxy (un fotogramma chiave ogni mezzo secondo), su una macchina lenta il flusso rimasto indietro riparte dal
     // fotogramma chiave dopo per restare a tempo con l'audio: qualche ripartenza va bene, a raffica no (il vecchio
     // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
