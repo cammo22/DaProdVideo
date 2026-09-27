@@ -1193,7 +1193,16 @@ try {
       await new Promise((ok) => setTimeout(ok, 1200));
       const n0 = window.__dpvTest.statoDecoder().nati;
       const buf = new Uint8Array(64 * 36 * 4);
-      const hash = () => { m.rec.leggiPiccolo(64, 36, buf); let h = 0; for (let i = 0; i < buf.length; i++) h = (h * 31 + buf[i]) | 0; return h; };
+      const posizionePallina = () => {
+        m.rec.leggiPiccolo(64, 36, buf);
+        let peso = 0, xPesata = 0;
+        for (let y = 0; y < 36; y++) for (let x = 0; x < 64; x++) {
+          const i = (y * 64 + x) * 4;
+          const rosso = Math.max(0, buf[i] - buf[i + 1]);
+          if (rosso > 45 && buf[i] > buf[i + 2]) { peso += rosso; xPesata += x * rosso; }
+        }
+        return peso ? Math.round(xPesata / peso) : null;
+      };
       const testa = window.__dpv.head;
       m.play(1);
       const partito = await new Promise((ok) => {
@@ -1204,10 +1213,10 @@ try {
         };
         controlla();
       });
-      const hs = [];
-      for (let i = 0; i < 8; i++) { await new Promise((ok) => setTimeout(ok, 250)); hs.push(hash()); }
+      const posizioni = [];
+      for (let i = 0; i < 8; i++) { await new Promise((ok) => setTimeout(ok, 250)); posizioni.push(posizionePallina()); }
       m.stop();
-      return { partito, nati: window.__dpvTest.statoDecoder().nati - n0, diversi: new Set(hs).size };
+      return { partito, nati: window.__dpvTest.statoDecoder().nati - n0, diversi: new Set(posizioni.filter((x) => x !== null)).size, posizioni };
     }, da);
     const a = await suona(250);
     prova('play dal mezzo di una ripresa col GOP lungo: il video si muove', a.partito && a.diversi >= 4 && a.nati <= 3, JSON.stringify(a));
