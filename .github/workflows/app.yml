@@ -1,4 +1,5 @@
-# Compila le app di DaProd Video: EXE portatile e installabile (Windows), DMG (Mac universale), APK (Android).
+# Compila le app di DaProd Video: EXE portatile e installabile (Windows), DMG (Mac universale).
+# L'APK (Android) per ora è in pausa: il lavoro Android è sospeso, il job resta qui spento (if: false) per riprenderlo.
 #
 #  - su ogni PR: controllo dei tipi, prove automatiche (test/prove.mjs) e compilazione di tutte le app,
 #    lasciate fra gli artefatti (controllo che funzioni)
@@ -10,7 +11,7 @@
 # ANDROID_KEY_PASSWORD si firma con la chiave DaProd; senza, con una chiave tenuta nella cache della CI
 # (resta la stessa fra una release e l'altra, così gli aggiornamenti si installano sopra).
 # EXE e DMG non sono firmati da Microsoft/Apple (vedi README).
-name: App (Windows, Mac, Android)
+name: App (Windows, Mac)
 
 on:
   push:
@@ -126,6 +127,8 @@ jobs:
           path: uscita/*
 
   android:
+    # in pausa: per riaccenderlo togli questa riga e rimetti android nei needs e nel pattern della release
+    if: ${{ false }}
     needs: versione
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -188,7 +191,7 @@ jobs:
           path: uscita/*
 
   release:
-    needs: [versione, prove, desktop, android]
+    needs: [versione, prove, desktop]
     if: needs.versione.outputs.pubblica == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -196,7 +199,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: file
-          pattern: '{windows,mac,android}'
+          pattern: '{windows,mac}'
           merge-multiple: true
       - name: Pubblica la release
         env:
@@ -217,7 +220,6 @@ jobs:
           | 🪟 Windows | `-portatile.exe` | niente installazione: doppio clic e parte (se SmartScreen avvisa: *Ulteriori informazioni → Esegui comunque*) |
           | 💿 Windows | `-setup.exe` | installa DaProd Video con il collegamento nel menu Start |
           | 🍎 Mac | `.dmg` | trascina l'app in Applicazioni; la prima volta *tasto destro → Apri* (non è firmata da Apple) |
-          | 🤖 Android | `.apk` | aprilo sul telefono e consenti l'installazione da origini sconosciute |
 
           ▶ Oppure prova nel browser: https://cammo22.github.io/DaProdVideo/app/
           FINE

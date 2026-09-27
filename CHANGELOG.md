@@ -6,6 +6,8 @@ per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pa
 
 ## [1.0.7] — 2026-09-27 · Il pacchetto .daprod, LIVE con la webcam, il contenitore a cartelle e le dissolvenze che hanno una forma 📦
 
+> 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser). L'APK torna più avanti.
+
 ### Il pacchetto .daprod: il progetto con dentro tutti i suoi file
 - **File → Salva il pacchetto .daprod (con tutti i file)**: il montaggio e tutti i video, le musiche e le immagini in **un file solo**. Lo porti su un altro computer, lo apri con DaProd Video (doppio clic o File → Apri) e ritrovi **tutto identico**.
 - È uno **zip vero** (si apre anche con 7-Zip o Esplora risorse): dentro c'è `progetto.json`, la cartella `media/` e un LEGGIMI. I file entrano **così come sono**, senza perdere qualità, e DaProd li legge direttamente da dentro, senza scompattare niente. Funziona anche oltre i 4 GB.
