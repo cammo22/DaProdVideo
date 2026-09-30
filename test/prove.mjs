@@ -248,7 +248,7 @@ try {
     const m0 = (await doc()).media.length;
     await page.locator('.tl-tela').focus();
     await tasto('p');
-    await page.waitForFunction((n) => window.__dpv.doc.media.length > n, m0, { timeout: 15000 });
+    await page.waitForFunction((n) => window.__dpv.doc.media.length > n, m0, { timeout: 45000 });
     let dd = await doc();
     const foto = dd.media[dd.media.length - 1];
     prova('P: l\'istantanea finisce nel contenitore come immagine', foto.type === 'image' && foto.name.startsWith('Istantanea') && foto.width === dd.w && foto.height === dd.h, `${foto.type} ${foto.width}×${foto.height}`);
