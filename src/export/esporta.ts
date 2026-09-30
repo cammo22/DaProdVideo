@@ -133,6 +133,11 @@ export class Lettori {
     return s.cur ?? s.next;
   }
 
+  /** il fotogramma che viene subito dopo quello appena preso per la clip (serve al movimento fluido dei rallentatori) */
+  dopo(c: Clip): Fotogramma | null {
+    return this.l.get(c.id)?.next ?? null;
+  }
+
   pulisci(giro: number) {
     for (const [id, s] of this.l) if (giro - s.usato > 2) this.chiudi(id);
   }
@@ -206,7 +211,7 @@ export async function esporta(p0: Project, o: Opzioni, avanza: (a: Avanzamento) 
             if (src && src.clip.kind === 'media') presi.set(src, await lettori.prendi(src.clip, src.t, f));
           }
         }
-        comp.render(pp, strati, false, f, (s) => presi.get(s) ?? null);
+        comp.render(pp, strati, false, f, (s) => presi.get(s) ?? null, (s) => lettori.dopo(s.clip));
         await vsrc.add((f - a) / r, 1 / r);
         lettori.pulisci(f);
         if ((f - a) % 5 === 0) avanza({ fatti: f - a, totale, fase: 'video', fpsResa: (f - a) / ((performance.now() - t0) / 1000) });
@@ -239,7 +244,7 @@ export async function fotogrammaPng(p: Project, f: number): Promise<Blob> {
   const strati = pianoVideo(p, f);
   const presi = new Map<Sorgente, Fotogramma | null>();
   for (const s of strati) for (const src of [s.b, s.a]) if (src && src.clip.kind === 'media') presi.set(src, await lettori.prendi(src.clip, src.t, 0));
-  comp.render(p, strati, false, f, (s) => presi.get(s) ?? null);
+  comp.render(p, strati, false, f, (s) => presi.get(s) ?? null, (s) => lettori.dopo(s.clip));
   const blob = await canvas.convertToBlob({ type: 'image/png' });
   lettori.tutto();
   comp.distruggi();

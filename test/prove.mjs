@@ -29,6 +29,7 @@ page.on('pageerror', (e) => errori.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
 
 const doc = () => page.evaluate(() => window.__dpv.doc);
+const doc0 = (pg) => pg.evaluate(() => window.__dpv.doc);
 const conta = () => page.evaluate(() => window.__dpv.doc.clips.length);
 /** il blocchetto transizione che sta sul fotogramma f */
 const bloccoSul = (d, f) => d.clips.find((c) => c.kind === 'fx' && c.fxb?.tipo === 'transizione' && c.start <= f && c.start + c.len >= f);
@@ -1399,6 +1400,191 @@ try {
   }
     }
     await page.close();
+  }
+
+  console.log('▶ 1.1.3: velocità delle clip, movimento fluido, cursore che si aggancia ai tagli');
+  {
+    const pv = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+    pv.on('pageerror', (e) => errori.push(e.message));
+    pv.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
+    await pv.goto(srv.url + '/app/');
+    await pv.waitForSelector('.pulsantiera');
+    await pv.click('text=Prova con il montaggio dimostrativo');
+    await pv.waitForFunction(() => window.__dpv.doc.clips.length >= 8, null, { timeout: 90000 });
+    await pv.waitForTimeout(1500);
+
+    // il cursore si aggancia al taglio anche senza Shift (Alt lo lascia libero)
+    {
+      await pv.evaluate(() => { const tl = window.__dpvTest.ui().tl; tl.adattaTutto(); });
+      await pv.waitForTimeout(300);
+      const info = await pv.evaluate(() => {
+        const d = window.__dpv.doc, tl = window.__dpvTest.ui().tl;
+        const v1 = d.tracks.find((t) => t.name === 'V1').id;
+        const cs = d.clips.filter((c) => c.track === v1 && c.kind === 'media').sort((a, b) => a.start - b.start);
+        const taglio = cs[1].start;
+        return { taglio, x: (taglio - tl.scrollF) * tl.ppf, ppf: tl.ppf };
+      });
+      const tela = await pv.locator('.tl-tela').boundingBox();
+      await pv.mouse.click(tela.x + info.x + 5, tela.y + 12);
+      await pv.waitForTimeout(150);
+      const h1 = await pv.evaluate(() => Math.round(window.__dpv.head));
+      prova('il cursore si aggancia al taglio (senza tenere Shift)', h1 === info.taglio, `${h1} vs ${info.taglio} (${info.ppf} px/fotogramma)`);
+      await pv.keyboard.down('Alt');
+      await pv.mouse.click(tela.x + info.x + 5 + info.ppf * 4, tela.y + 12);
+      await pv.keyboard.up('Alt');
+      await pv.waitForTimeout(150);
+      const h2 = await pv.evaluate(() => Math.round(window.__dpv.head));
+      prova('con Alt il cursore resta libero', h2 !== info.taglio, h2);
+    }
+
+    // lo stiratore: stesso tono, durata nuova
+    {
+      const r = await pv.evaluate(() => {
+        const { ST } = window.__dpvTest;
+        const sr = 48000, n = sr * 2, x = new Float32Array(n);
+        for (let i = 0; i < n; i++) x[i] = Math.sin((2 * Math.PI * 440 * i) / sr) * 0.5;
+        const out = {};
+        for (const v of [0.25, 0.5, 2, 4]) {
+          const [y] = ST.stiraTutto([x], sr, v);
+          const a = Math.floor(y.length * 0.2), b = Math.floor(y.length * 0.8);
+          let z = 0; for (let i = a + 1; i < b; i++) if (y[i - 1] < 0 && y[i] >= 0) z++;
+          out[v] = { len: y.length, freq: z / ((b - a) / sr) };
+        }
+        // a flusso, con pezzi piccoli come quelli del decoder, deve dare lo stesso
+        const s = new ST.Stiratore(1, sr, 0.5);
+        let tot = 0;
+        for (let i = 0; i < n; i += 1024) tot += s.push([x.subarray(i, Math.min(n, i + 1024))])[0].length;
+        tot += s.fine()[0].length;
+        out.flusso = tot;
+        return out;
+      });
+      prova('velocità ×2 e ×4: la durata si accorcia e il tono resta a 440 Hz', r[2].len === 48000 && Math.abs(r[2].freq - 440) < 4 && r[4].len === 24000 && Math.abs(r[4].freq - 440) < 6, JSON.stringify(r));
+      prova('rallentando a ×0.5 e ×0.25 il tono resta', Math.abs(r[0.5].freq - 440) < 4 && Math.abs(r[0.25].freq - 440) < 4 && r[0.5].len === 192000, JSON.stringify(r));
+      prova('lo stiratore a flusso (pezzi da 1024) dà la stessa durata', Math.abs(r.flusso - 192000) < 1920, r.flusso);
+    }
+
+    // cambiare velocità: la durata cambia, le legate vanno insieme, il dopo scorre, niente si copre
+    const prima = await pv.evaluate(() => structuredClone(window.__dpv.doc));
+    const v1 = prima.tracks.find((t) => t.name === 'V1').id;
+    const c1 = prima.clips.filter((c) => c.track === v1 && c.kind === 'media').sort((a, b) => a.start - b.start)[0];
+    {
+      await pv.evaluate((id) => { window.__dpv.select([id]); }, c1.id);
+      await pv.keyboard.press('Alt+e');
+      await pv.waitForSelector('.dialogo');
+      prova('Alt+E apre la finestra della velocità', (await pv.textContent('.dialogo .dlg-testa b')) === 'Velocità della clip');
+      await pv.fill('.dialogo input.num', '200');
+      await pv.click('.dialogo .btn.primario');
+      await pv.waitForTimeout(250);
+      const dopo = await doc0(pv);
+      const c = dopo.clips.find((x) => x.id === c1.id);
+      const leg = dopo.clips.filter((x) => x.link && x.link === c1.link && x.id !== c1.id);
+      const dopoOrig = prima.clips.find((x) => x.track === v1 && x.start >= c1.start + c1.len && x.kind === 'media');
+      const dopoNuova = dopo.clips.find((x) => x.id === dopoOrig.id);
+      prova('×2: la clip dura la metà', c.speed === 2 && c.len === Math.round(c1.len / 2), `${c.speed} ${c.len} vs ${c1.len}`);
+      prova('l\'audio legato va alla stessa velocità e dura uguale', leg.length > 0 && leg.every((x) => x.speed === 2 && x.len === c.len), JSON.stringify(leg.map((x) => [x.speed, x.len])));
+      prova('le clip dopo scorrono indietro di quanto si è accorciata', dopoNuova.start === dopoOrig.start - (c1.len - c.len), `${dopoNuova.start} vs ${dopoOrig.start}`);
+      prova('con la velocità niente si copre', !coperte(dopo));
+    }
+    {
+      // annulla
+      await pv.keyboard.press('Control+z');
+      await pv.waitForTimeout(200);
+      const dopo = await doc0(pv);
+      const c = dopo.clips.find((x) => x.id === c1.id);
+      prova('annulla riporta la velocità normale', c.speed === 1 && c.len === c1.len, `${c.speed} ${c.len}`);
+    }
+    {
+      // rallentata e con il movimento mosso: è quello del rallentatore
+      const pal = await pv.evaluate(() => {
+        const d = window.__dpv.doc;
+        const m = d.media.find((x) => x.name.startsWith('Pallina'));
+        const c = d.clips.find((x) => x.media === m.id && d.tracks.find((t) => t.id === x.track).kind === 'video');
+        return { id: c.id, start: c.start, len: c.len };
+      });
+      await pv.evaluate((id) => {
+        window.__dpv.select([id]);
+        window.__dpv.edit('lento', (p) => { p.clips = p.clips.filter((c) => c.kind !== 'fx'); window.__dpvTest.M.cambiaVelocita(p, window.__dpvTest.M.withLinked(p, [id]), 0.25, { ripple: true, fluido: 0 }); });
+      }, pal.id);
+      const centroide = async (f) => {
+        await pv.evaluate((f) => window.__motore.vaiA(f), f);
+        let ultimo = null, uguali = 0;
+        for (let i = 0; i < 16; i++) {
+          await pv.waitForTimeout(220);
+          const v = await pv.evaluate(() => {
+            const px = new Uint8Array(480 * 270 * 4);
+            window.__motore.rec.leggiPiccolo(480, 270, px);
+            let sx = 0, n = 0;
+            for (let y = 0; y < 270; y++) for (let x = 0; x < 480; x++) { const j = (y * 480 + x) * 4; if (px[j] > 200 && px[j + 1] < 120 && px[j + 2] < 150) { sx += x; n++; } }
+            return n > 20 ? sx / n : -1;
+          });
+          uguali = ultimo !== null && v > 0 && Math.abs(v - ultimo) < 1e-6 ? uguali + 1 : 0;
+          if (uguali >= 2) return v;
+          ultimo = v;
+        }
+        return ultimo;
+      };
+      const misura = async () => {
+        const xs = [];
+        for (let i = 0; i < 9; i++) xs.push(await centroide(pal.start + 40 + i));
+        const dx = xs.slice(1).map((x, i) => x - xs[i]);
+        const media = dx.reduce((a, b) => a + b, 0) / dx.length;
+        const scarto = Math.sqrt(dx.reduce((a, b) => a + (b - media) ** 2, 0) / dx.length);
+        return { xs, media, scarto };
+      };
+      const fermo = await misura();
+      await pv.evaluate((id) => window.__dpv.edit('fluido', (p) => { p.clips.find((c) => c.id === id).fluido = 2; }), pal.id);
+      const fluido = await misura();
+      const sfum = await (async () => { await pv.evaluate((id) => window.__dpv.edit('sfumato', (p) => { p.clips.find((c) => c.id === id).fluido = 1; }), pal.id); return misura(); })();
+      console.log('   moto: fermo', JSON.stringify(fermo.xs.map((x) => +x.toFixed(2))), '\n         mosso', JSON.stringify(fluido.xs.map((x) => +x.toFixed(2))), '\n         sfumato', JSON.stringify(sfum.xs.map((x) => +x.toFixed(2))));
+      prova('senza movimento fluido il rallentatore scatta (la pallina si muove a scalini)', fermo.scarto > fermo.media * 0.8, JSON.stringify({ media: fermo.media, scarto: fermo.scarto }));
+      prova('col movimento mosso la pallina scorre regolare', fluido.scarto < fluido.media * 0.5 && fluido.media > 0.3, JSON.stringify({ media: fluido.media, scarto: fluido.scarto }));
+      prova('anche lo sfumato attenua lo scatto', sfum.scarto < fermo.scarto * 0.8, JSON.stringify({ media: sfum.media, scarto: sfum.scarto, fermo: fermo.scarto }));
+      // l'export usa lo stesso movimento fluido (legge i fotogrammi dal file, non dal monitor)
+      const esportaBreve = async (fluido) => {
+        await pv.evaluate(({ id, fluido, a }) => {
+          window.__dpv.edit('fluido export', (p) => { p.clips.find((c) => c.id === id).fluido = fluido; p.inF = a; p.outF = a + 12; });
+        }, { id: pal.id, fluido, a: pal.start + 42 });
+        return pv.evaluate(async () => {
+          delete window.showSaveFilePicker;
+          const { esporta } = window.__dpvTest;
+          let blob = null;
+          const vecchio = URL.createObjectURL;
+          URL.createObjectURL = (b) => { blob = b; return vecchio.call(URL, b); };
+          await esporta(window.__dpv.doc, { formato: 'webm', w: 480, h: 270, qualita: 'alta', soloInOut: true, nome: 'lento.webm' }, () => {}, () => false);
+          URL.createObjectURL = vecchio;
+          const v = document.createElement('video');
+          v.muted = true;
+          v.src = URL.createObjectURL(blob);
+          await new Promise((ok, ko) => { v.onloadeddata = ok; v.onerror = ko; });
+          const cv = document.createElement('canvas'); cv.width = 480; cv.height = 270;
+          const ctx = cv.getContext('2d', { willReadFrequently: true });
+          const xs = [];
+          for (let i = 0; i < 11; i++) {
+            v.currentTime = (i + 0.5) / 25;
+            await new Promise((ok) => { v.onseeked = ok; });
+            ctx.drawImage(v, 0, 0, 480, 270);
+            const d = ctx.getImageData(0, 0, 480, 270).data;
+            let sx = 0, n = 0;
+            for (let y = 0; y < 270; y++) for (let x = 0; x < 480; x++) { const j = (y * 480 + x) * 4; if (d[j] > 200 && d[j + 1] < 130 && d[j + 2] < 160) { sx += x; n++; } }
+            xs.push(n > 20 ? sx / n : -1);
+          }
+          return xs;
+        });
+      };
+      const stat = (xs) => { const dx = xs.slice(1).map((x, i) => x - xs[i]); const m = dx.reduce((a, b) => a + b, 0) / dx.length; return { media: m, scarto: Math.sqrt(dx.reduce((a, b) => a + (b - m) ** 2, 0) / dx.length) }; };
+      const exFermo = stat(await esportaBreve(0)), exFluido = stat(await esportaBreve(2));
+      prova('nell\'export il rallentatore mosso scorre più regolare di quello fermo', exFluido.scarto < exFermo.scarto * 0.5 && exFluido.media > 0.3, JSON.stringify({ exFermo, exFluido }));
+      // l'audio rallentato: il mixaggio dura quanto la clip nuova e non è muto
+      const au = await pv.evaluate(async () => {
+        const { mixaggio } = window.__dpvTest;
+        const p = window.__dpv.doc;
+        let tot = 0, n = 0, rms = 0;
+        for await (const b of mixaggio(p, 0, 3)) { const d = b.getChannelData(0); for (let i = 0; i < d.length; i += 7) { rms += d[i] * d[i]; n++; } tot += b.duration; }
+        return { tot, rms: Math.sqrt(rms / Math.max(1, n)) };
+      });
+      prova('il mixaggio dell\'audio rallentato ha suono e la durata giusta', au.rms > 0.005 && Math.abs(au.tot - 3) < 0.05, JSON.stringify(au));
+    }
+    await pv.close();
   }
 
   console.log('▶ LIVE con più finestre');

@@ -2,7 +2,9 @@
 // poi si combina sull'uscita con la transizione e la trasparenza. Stesso codice per i monitor e per l'export.
 import type { Project, Transition } from '../core/tipi';
 import type { Strato, Sorgente } from './piano';
+import type { VideoSample } from 'mediabunny';
 import { fotogramma, type Fotogramma } from '../media/fotogrammi';
+import { Interpolatore } from './fluido';
 
 /** chi fornisce i fotogrammi esatti (l'export); senza, si usano quelli dei monitor */
 export type Fornitore = (s: Sorgente) => Fotogramma | null;
@@ -1189,6 +1191,9 @@ export class Compositore {
   private used = new Set<string>();
   private blank: WebGLTexture;
   private fornitore: Fornitore | undefined;
+  /** dà il fotogramma che viene dopo quello di fornitore (per il movimento fluido dei rallentatori) */
+  private successivo: Fornitore | undefined;
+  private interp: Interpolatore | null = null;
   /** il buffer con l'ultima uscita (2 = il mix, 4 = con gli effetti a tempo, 3 = col colore finale) */
   private uscita = 2;
   perso = false;
@@ -1283,8 +1288,10 @@ export class Compositore {
    * Disegna gli strati sull'uscita (la tela). W,H = dimensione del progetto; la tela può essere più piccola
    * (anteprima): tutto scala. playing = in riproduzione (i fotogrammi arrivano dal flusso).
    */
-  render(p: Project, strati: Strato[], playing: boolean, frame: number, fornitore?: Fornitore) {
+  render(p: Project, strati: Strato[], playing: boolean, frame: number, fornitore?: Fornitore, successivo?: Fornitore) {
     this.fornitore = fornitore;
+    this.successivo = successivo;
+    this.interp?.inizia();
     const gl = this.gl;
     if (this.perso || gl.isContextLost()) return;
     const cw = this.canvas.width, ch = this.canvas.height;
@@ -1371,6 +1378,7 @@ export class Compositore {
     for (const [k, t] of this.texs) {
       if (!this.used.has(k) && !k.startsWith('img:')) { gl.deleteTexture(t.tex); this.texs.delete(k); }
     }
+    this.interp?.finisce();
   }
 
   private sovr: { firma: string; tela: HTMLCanvasElement | OffscreenCanvas } | null = null;
@@ -1470,6 +1478,26 @@ export class Compositore {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
+  /** il fotogramma di mezzo fra quello preso e il successivo (null se non serve o il successivo non c'è ancora) */
+  private fluido(p: Project, s: Sorgente, i: number, playing: boolean, f: VideoSample, t: Tex): WebGLTexture | null {
+    const c = s.clip;
+    const m = mediaOf(p, c);
+    if (!m || !c.media) return null;
+    const g = this.successivo
+      ? this.successivo(s)
+      : fotogramma(c.id + '~', c.media, f.timestamp + 1.05 / Math.max(1, m.fps || 25), playing, this.canvas.width * Math.min(1, c.tf.scale));
+    if (!g || g instanceof ImageBitmap || g === f) return null;
+    const dt = g.timestamp - f.timestamp;
+    const un = 1 / Math.max(1, m.fps || 25);
+    // dev'essere proprio il fotogramma dopo (mentre la ricerca è in corso può arrivare uno vecchio o uno lontano) e s.t deve stare in mezzo
+    if (dt < un * 0.3 || dt > un * 1.9) return null;
+    const w = (s.t - f.timestamp) / dt;
+    if (w < 0.02 || w > 0.98) return null;
+    const tb = this.upload('v:' + c.id + ':' + i + 'b', g.toCanvasImageSource(), g.displayWidth, g.displayHeight, g);
+    this.interp ??= new Interpolatore(this.gl);
+    return this.interp.mezzo('f:' + c.id + ':' + i, t, tb, f, w, f.displayWidth, f.displayHeight, c.fluido === 2);
+  }
+
   /** disegna una sorgente nel buffer i (0 = A, 1 = B). Ritorna false se non c'è ancora niente da mostrare */
   private layer(p: Project, s: Sorgente, i: number, playing: boolean, frame: number): boolean {
     const gl = this.gl;
@@ -1494,6 +1522,8 @@ export class Compositore {
         const vf = f.toCanvasImageSource();
         const t = this.upload('v:' + c.id + ':' + i, vf, f.displayWidth, f.displayHeight, f);
         tex = t.tex;
+        // rallentatore con il movimento fluido: fra questo fotogramma e il prossimo se ne inventa uno in mezzo
+        if (c.fluido && c.speed < 0.98) tex = this.fluido(p, s, i, playing, f, t) ?? tex;
         orient = f.rotation;
         sw = orient % 180 ? f.displayHeight : f.displayWidth;
         sh = orient % 180 ? f.displayWidth : f.displayHeight;
@@ -1691,6 +1721,7 @@ export class Compositore {
     this.texs.clear();
     for (const f of this.fbo) { gl.deleteFramebuffer(f.fb); gl.deleteTexture(f.tex); }
     this.fbo = [];
+    this.interp?.distruggi();
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }

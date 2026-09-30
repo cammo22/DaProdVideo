@@ -22,6 +22,7 @@ import { attivaDi, eliminaSequenza, nuovaSequenza, passaA, rinominaSequenza, seq
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto, effettiAccesi, effetto } from '../effetti';
 import { ascoltaSuono, banco } from '../media/audio';
 import { avviso, chiedi, clamp, h, icona, menuContesto, type VoceMenu } from './dom';
+import { etichettaVelocita, finestraVelocita, impostaVelocita } from './velocita';
 import { registraBersaglio } from './trascina';
 import { EFFETTI as DVE, TENDINE, nomeModello } from '../render/transizioni';
 
@@ -1133,6 +1134,7 @@ export class Timeline {
       let nome = c.name;
       if (c.link) nome = '⛓ ' + nome;
       if (isVideoClip(c) && c.opacity < 1 && !c.opKeys.length) nome += `  ${Math.round(c.opacity * 100)}%`;
+      if (c.speed && Math.abs(c.speed - 1) > 0.005) nome += `  ⏩${etichettaVelocita(c.speed)}${c.fluido ? '≈' : ''}`;
       if (c.fx.key !== 'none') nome += '  ⬚chiave';
       if (this.haVolume(c, t) && !c.gainKeys.length && c.gain !== 0) nome += `  ${c.gain > 0 ? '+' : ''}${c.gain} dB`;
       // il nome parte dopo la maniglia della dissolvenza (il quadratino in alto a sinistra)
@@ -1431,8 +1433,9 @@ export class Timeline {
       if (c.zona === 'righello' || (c.zona === 'vuoto' && e.pointerType === 'touch')) {
         motore.setMonitor('recorder');
         this.presa = { tipo: 'cursore' };
+        this.cursoreAgganciato = null;
         motore.stop();
-        store.setHead(Math.max(0, Math.round(c.f)));
+        store.setHead(this.agganciaCursore(Math.max(0, Math.round(c.f)), e.altKey));
       } else if (c.clip && c.zona === 'fx') {
         if (!store.sel.has(c.clip.id)) store.select(M.withLinked(store.doc, [c.clip.id]));
         this.menuEffetti(e.clientX, e.clientY, c.clip);
@@ -1655,12 +1658,27 @@ export class Timeline {
     return best;
   }
 
+  /** il cursore si aggancia da solo ai tagli, ai marcatori e ad attacco/stacco (Alt = libero): un po' più di calamita
+   *  delle clip, e una volta agganciato ci resta finché non ti allontani davvero */
+  private agganciaCursore(f: number, libero: boolean): number {
+    if (!modi.snap || libero) { this.snapLinea = null; this.cursoreAgganciato = null; return f; }
+    const punti = M.snapPoints(store.doc, new Set(), []);
+    const soglia = 12 / this.ppf;
+    const ag = this.cursoreAgganciato;
+    if (ag !== null && Math.abs(ag - f) <= soglia * 1.6) { this.snapLinea = ag; return ag; }
+    let best = f, bd = soglia;
+    for (const s of punti) { const d = Math.abs(s - f); if (d < bd) { bd = d; best = s; } }
+    this.cursoreAgganciato = best !== f ? best : null;
+    this.snapLinea = this.cursoreAgganciato;
+    return best;
+  }
+  private cursoreAgganciato: number | null = null;
+
   private muovi(x: number, y: number, e: PointerEvent) {
     const q = this.presa!;
     const p = store.doc;
     if (q.tipo === 'cursore') {
-      let f = Math.max(0, Math.round(this.xF(x)));
-      if (modi.snap && e.shiftKey) f = this.aggancia(f, new Set());
+      const f = this.agganciaCursore(Math.max(0, Math.round(this.xF(x))), e.altKey);
       // trascinando il cursore si sente l'audio a colpetti (come far scorrere il nastro sulle testine)
       const now = performance.now();
       if (f !== Math.round(store.head) && now - this.ultimoScrub > 70) { this.ultimoScrub = now; banco.scrub(p, f2s(f, p.rate)); }
@@ -2179,6 +2197,15 @@ export class Timeline {
         { nome: 'Effetto a tempo qui', sotto: fxVoci },
         { nome: 'Effetti al volo', sotto: (isVideoClip(clip) ? EFFETTI_VIDEO : EFFETTI_AUDIO).map((e) => ({ nome: e.nome, spunta: e.acceso(clip, store.doc), disattiva: !adatte(e, [clip]).length, fn: () => alternaEffetto(e.id, M.withLinked(store.doc, [clip.id])) })) },
         { nome: 'Dissolvenza in apertura/chiusura', tasto: '8', fn: () => esegui('dissolviInOut') },
+        {
+          nome: `Velocità${clip.speed && clip.speed !== 1 ? ' · ' + etichettaVelocita(clip.speed) : ''}`, tasto: 'Alt+E', disattiva: !M.conVelocita(store.doc, clip),
+          sotto: [
+            ...[0.25, 0.5, 2, 4].map((x) => ({ nome: x < 1 ? `Rallenta a ${x * 100}%` : `Velocizza a ${x * 100}%`, spunta: clip.speed === x, fn: () => impostaVelocita(M.withLinked(store.doc, store.sel.has(clip.id) ? store.sel : [clip.id]), x) })),
+            { nome: 'Velocità normale (100%)', disattiva: !clip.speed || clip.speed === 1, fn: () => impostaVelocita(M.withLinked(store.doc, store.sel.has(clip.id) ? store.sel : [clip.id]), 1) },
+            { sep: true },
+            { nome: 'Velocità personalizzata…', fn: () => finestraVelocita(M.withLinked(store.doc, store.sel.has(clip.id) ? store.sel : [clip.id])) },
+          ],
+        },
       );
       if (this.haVolume(clip, t)) {
         const lf = f - clip.start;

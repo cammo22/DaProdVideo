@@ -641,6 +641,12 @@ button svg { pointer-events: none; }
 .form { display: grid; grid-template-columns: 150px 1fr; gap: 9px 12px; align-items: center; }
 .form label { color: var(--testo2); }
 .form .mini-select { padding: 5px 8px; font-size: 13px; }
+.vel-riga { display: flex; gap: 10px; align-items: center; }
+.vel-riga .num { width: 84px; }
+.vel-riga input[type=range] { flex: 1; }
+.vel-preset { display: flex; flex-wrap: wrap; gap: 5px; }
+.vel-preset .btn { padding: 4px 9px; min-width: 40px; }
+.spunta-riga { display: flex; gap: 6px; align-items: center; cursor: pointer; }
 .barra-avanz { height: 8px; border-radius: 4px; background: #0b0a0f; margin-top: 12px; overflow: hidden; box-shadow: inset 0 1px 3px #000; }
 .barra-avanz i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--mag), var(--oro)); box-shadow: 0 0 10px var(--oro); transition: width 0.2s; }
 .export-stato { margin-top: 12px; color: var(--testo2); font-size: 12.5px; min-height: 18px; }

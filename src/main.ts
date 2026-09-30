@@ -66,4 +66,5 @@ import * as S from './core/sottotitoli';
 import * as PV from './render/provino';
 import * as TR from './core/traccia';
 import * as TK from './media/traccia';
-(window as unknown as Record<string, unknown>).__dpvTest = { M, TC, P, esporta, creaEdl, motore, guadagnoClip, pianoVideo, Z, statoDecoder, ripresaDiProva, importaFile, apriFile, PK, proxyStato: (id: string) => mediaRT(id)?.proxyStato, mediaRT, B, S, SU, V, AG, LV, SQ, SOT, FE, G, mixaggio, PV, TR, TK, ui: () => banco };
+import * as ST from './media/stira';
+(window as unknown as Record<string, unknown>).__dpvTest = { M, TC, P, esporta, creaEdl, motore, guadagnoClip, pianoVideo, Z, statoDecoder, ripresaDiProva, importaFile, apriFile, PK, proxyStato: (id: string) => mediaRT(id)?.proxyStato, mediaRT, B, S, SU, V, AG, LV, SQ, SOT, FE, G, mixaggio, PV, TR, TK, ST, ui: () => banco };
