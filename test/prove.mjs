@@ -775,7 +775,7 @@ try {
     prova('il titolo d\'apertura entra all\'inizio e sposta avanti il resto', fine1 === fine0 + 75 && dd.clips.some((c) => c.kind === 'title' && c.start === 0 && c.name.includes('apertura')), `${fine0} → ${fine1}`);
     await tasto('Control+z');
     await page.click('.fin-voce[data-s=lingue]');
-    prova('Lingue e AI: i sottotitoli con l\'AI pronti (il doppiaggio arriverà)', (await page.locator('.fin-presto.pronto').count()) === 2 && (await page.locator('.fin-presto[disabled]').count()) === 1);
+    prova('Lingue e AI: i sottotitoli con l\'AI pronti e la voce AI accesa (niente più "presto")', (await page.locator('.fin-presto.pronto').count()) === 2 && (await page.locator('.fin-presto[disabled]').count()) === 0 && (await page.locator('.fin-pagina[data-s=lingue] .ai-vai').count()) === 1);
     // le novità della versione (dal CHANGELOG dentro l'app) e il confronto fra versioni
     {
       const cmp = await page.evaluate(() => { const { AG } = window.__dpvTest; return [AG.piuNuova('1.0.10', '1.0.9'), AG.piuNuova('1.0.5', '1.0.5'), AG.piuNuova('1.0.4', '1.0.5'), /proxy/i.test(AG.noteDi('1.0.4')?.note ?? '')]; });
