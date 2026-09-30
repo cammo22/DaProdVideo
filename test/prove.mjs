@@ -1170,6 +1170,64 @@ try {
     await pg.close();
   }
 
+  console.log('▶ LIVE: voce e audio del computer separati');
+  {
+    const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+    pg.on('pageerror', (e) => errori.push(e.message));
+    await pg.goto(srv.url + '/app/');
+    await pg.waitForSelector('.pulsantiera');
+    await pg.evaluate(() => {
+      const tono = (freq) => { const ctx = new AudioContext(); const o = ctx.createOscillator(); o.frequency.value = freq; const d = ctx.createMediaStreamDestination(); o.connect(d); o.start(); return d.stream.getAudioTracks()[0]; };
+      window.__dpvTest.LV.impostaSorgenteLive(
+        async (conAudio) => {
+          const c = document.createElement('canvas'); c.width = 640; c.height = 360;
+          c.style.cssText = 'position:fixed;left:0;top:0;width:32px;height:18px;z-index:9999;pointer-events:none';
+          document.body.append(c);
+          const x = c.getContext('2d'); let n = 0;
+          setInterval(() => { n++; x.fillStyle = `hsl(${n * 4 % 360} 70% 50%)`; x.fillRect(0, 0, 640, 360); }, 33);
+          const st = c.captureStream(30);
+          if (conAudio) st.addTrack(tono(300));
+          return st;
+        },
+        async () => new MediaStream([tono(700)]),
+      );
+    });
+    await pg.click('.pagina-btn[data-p=live]');
+    await pg.waitForTimeout(300);
+    await pg.evaluate(() => { const o = window.__dpvTest.ui().live.opz; o.conto = false; });
+    await pg.keyboard.press('r');
+    await pg.waitForTimeout(3000);
+    await pg.keyboard.press('f');
+    await pg.evaluate(() => window.__dpvTest.ui().live.ultima);
+    const r = await pg.evaluate(() => {
+      const d = window.__dpv.doc;
+      const regs = d.media.filter((m) => m.name.startsWith('Registrazione'));
+      const mic = regs.find((m) => m.name.includes('microfono'));
+      const sch = regs.find((m) => !m.name.includes('microfono'));
+      const kind = (c) => d.tracks.find((t) => t.id === c.track).kind;
+      const cMic = d.clips.find((c) => c.media === mic?.id), cSch = d.clips.find((c) => c.media === sch?.id && kind(c) === 'video');
+      const cAudio = d.clips.find((c) => c.media === sch?.id && kind(c) === 'audio');
+      return {
+        n: regs.length, micTipo: mic?.type, schHaAudio: sch?.hasAudio, micDur: mic?.duration, schDur: sch?.duration,
+        cMic: cMic && { track: cMic.track, start: cMic.start, len: cMic.len, link: cMic.link, name: cMic.name },
+        cAudio: cAudio && { track: cAudio.track, start: cAudio.start, link: cAudio.link, name: cAudio.name },
+        cSch: cSch && { start: cSch.start, link: cSch.link },
+        tracce: d.tracks.filter((t) => t.kind === 'audio').length,
+      };
+    });
+    prova('LIVE: microfono e audio del computer in due file (il video ha quello del computer)', r.n === 2 && r.micTipo === 'audio' && r.schHaAudio && Math.abs(r.micDur - r.schDur) < 0.6, JSON.stringify(r));
+    prova('LIVE: la voce va su un\'altra traccia audio, nello stesso punto e legata allo schermo', !!r.cMic && !!r.cAudio && r.cMic.track !== r.cAudio.track && r.cMic.start === r.cSch.start && r.cMic.link === r.cSch.link && r.cAudio.link === r.cSch.link && r.cMic.name === 'Microfono', JSON.stringify(r));
+    // con l'interruttore spento tutto va in un file solo, come prima
+    await pg.evaluate(() => { window.__dpvTest.ui().live.opz.separato = false; });
+    await pg.keyboard.press('r');
+    await pg.waitForTimeout(2200);
+    await pg.keyboard.press('f');
+    await pg.evaluate(() => window.__dpvTest.ui().live.ultima);
+    const n2 = await pg.evaluate(() => window.__dpv.doc.media.filter((m) => m.name.startsWith('Registrazione')).length);
+    prova('LIVE: con "Voce e computer separati" spento il microfono non ha il file suo', n2 === 3, n2);
+    await pg.close();
+  }
+
   console.log('▶ 1.1.2: effetti che si sommano davvero, tappe di mezzo, stira e ritaglia, tracking, effetti/transizioni/titoli nuovi');
   {
     const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });

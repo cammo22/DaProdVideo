@@ -48,6 +48,11 @@ function formato(soloVideo = false): string {
   return '';
 }
 
+function formatoAudio(): string {
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4']) if (MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+
 const due = (n: number) => String(n).padStart(2, '0');
 const orologio = (ms: number) => { const s = Math.floor(ms / 1000); return `${due(Math.floor(s / 3600))}:${due(Math.floor(s / 60) % 60)}:${due(s % 60)}`; };
 
@@ -65,27 +70,29 @@ async function cuci(tratti: Tratto[], mp4: boolean, note: string[]): Promise<Blo
   try {
     const v0 = await ingressi[0].getPrimaryVideoTrack();
     const a0 = await ingressi[0].getPrimaryAudioTrack();
-    if (!v0?.codec) return null;
+    // solo audio (il microfono registrato a parte): niente video, si cuce lo stesso
+    if (!v0?.codec && !a0?.codec) return null;
     const output = new Output({ format: mp4 ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(), target: new BufferTarget() });
-    const sv = new EncodedVideoPacketSource(v0.codec);
-    output.addVideoTrack(sv);
+    const sv = v0?.codec ? new EncodedVideoPacketSource(v0.codec) : null;
+    if (sv) output.addVideoTrack(sv);
     const sa = a0?.codec ? new EncodedAudioPacketSource(a0.codec) : null;
     if (sa) output.addAudioTrack(sa);
     await output.start();
-    const cv = await v0.getDecoderConfig();
+    const cv = await v0?.getDecoderConfig();
     const ca = await a0?.getDecoderConfig();
     let primoV = true, primoA = true;
     /** dove comincia il pezzo nel file cucito, in secondi */
     let inizio = 0;
     for (const [i, inp] of ingressi.entries()) {
-      const v = await inp.getPrimaryVideoTrack();
+      const v = sv ? await inp.getPrimaryVideoTrack() : null;
       const a = sa ? await inp.getPrimaryAudioTrack() : null;
-      if (!v) { note.push(`pezzo ${i + 1}: niente video`); continue; }
+      if (sv && !v) { note.push(`pezzo ${i + 1}: niente video`); continue; }
+      if (!sv && !a) { note.push(`pezzo ${i + 1}: niente audio`); continue; }
       // video e audio del pezzo partono insieme: si toglie a tutti e due lo stesso inizio
-      const base = Math.min(await v.getFirstTimestamp(), a ? await a.getFirstTimestamp() : Infinity);
+      const base = Math.min(v ? await v.getFirstTimestamp() : Infinity, a ? await a.getFirstTimestamp() : Infinity);
       const taglio = tratti[i].taglio;
       let fine = inizio, nv = 0, na = 0, via = 0;
-      for await (const pk of new EncodedPacketSink(v).packets()) {
+      if (v && sv) for await (const pk of new EncodedPacketSink(v).packets()) {
         // dopo il taglio c'è il tratto di grazia: via (togliere la coda non rovina i fotogrammi prima)
         if (pk.timestamp - base > taglio) { via++; continue; }
         nv++;
@@ -111,7 +118,7 @@ async function cuci(tratti: Tratto[], mp4: boolean, note: string[]): Promise<Blo
     }
     await output.finalize();
     const buf = (output.target as BufferTarget).buffer;
-    return buf ? new Blob([buf], { type: mp4 ? 'video/mp4' : 'video/webm' }) : null;
+    return buf ? new Blob([buf], { type: sv ? (mp4 ? 'video/mp4' : 'video/webm') : mp4 ? 'audio/mp4' : 'audio/webm' }) : null;
   } catch {
     return null;
   } finally {
@@ -231,6 +238,8 @@ class Regia {
 interface Opzioni {
   mic: boolean;
   micId: string;
+  /** microfono e audio del computer in due file (e due tracce), così dopo si livellano i volumi */
+  separato: boolean;
   sistema: boolean;
   cam: boolean;
   camId: string;
@@ -249,7 +258,7 @@ interface Opzioni {
   layout: Disposizione;
 }
 const OPZ0: Opzioni = {
-  mic: true, micId: '', sistema: true, cam: false, camId: '', camAngolo: 'bd', camTonda: true,
+  mic: true, micId: '', separato: true, sistema: true, cam: false, camId: '', camAngolo: 'bd', camTonda: true,
   qualita: 1080, fps: 30, cursore: true, conto: true, timeline: true, presentazione: false, sfondo: 'notte', finestre: false, layout: 'solo',
 };
 function leggiOpzioni(): Opzioni {
@@ -264,7 +273,7 @@ const bitrate = (q: number, f: number) => Math.round((q <= 720 ? 5 : q <= 1080 ?
 interface Nastro { fatto: Promise<Tratto>; ferma: (taglio: number) => void }
 function nastro(flusso: MediaStream, tipo: string, vbps: number): Nastro {
   const tracce = flusso.getTracks().map((t) => t.clone());
-  const rec = new MediaRecorder(new MediaStream(tracce), { mimeType: tipo || undefined, videoBitsPerSecond: vbps, audioBitsPerSecond: 192_000 });
+  const rec = new MediaRecorder(new MediaStream(tracce), { mimeType: tipo || undefined, videoBitsPerSecond: vbps || undefined, audioBitsPerSecond: 192_000 });
   const dati: Blob[] = [];
   let taglio = Infinity, fermo = false, tardivi = 0, attesa = 0;
   const fatto = new Promise<Tratto>((ok) => {
@@ -335,11 +344,15 @@ export class Live {
   private giroFonti = 0;
   private tipo = '';
   private tipoCam = '';
+  private tipoMic = '';
   private fase: Fase = 'fermo';
   /** il pezzo che si sta registrando adesso, e i tratti (uno per ogni pezzo fra le pause), dello schermo e della webcam */
   private pezzo: { chiudi: () => void } | null = null;
   private pezzi: Promise<Tratto>[] = [];
   private pezziCam: Promise<Tratto>[] = [];
+  /** il microfono registrato a parte (audio separato) */
+  private pezziMic: Promise<Tratto>[] = [];
+  private micSep: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;
   private vuCtx: AudioContext | null = null;
   private vuSorgente: MediaStreamAudioSourceNode | null = null;
@@ -384,7 +397,7 @@ export class Live {
 
     // ——— le scelte ———
     const salva = () => { try { localStorage.setItem('dpv-live', JSON.stringify(this.opz)); } catch { /* niente */ } };
-    const fisse = new Set<keyof Opzioni>(['mic', 'sistema', 'cam', 'qualita', 'fps', 'cursore', 'micId', 'camId', 'finestre']);
+    const fisse = new Set<keyof Opzioni>(['mic', 'sistema', 'separato', 'cam', 'qualita', 'fps', 'cursore', 'micId', 'camId', 'finestre']);
     const cambia = <K extends keyof Opzioni>(k: K, v: Opzioni[K]) => {
       if (this.fase !== 'fermo' && fisse.has(k)) { avviso('Questo si cambia prima di registrare', 'info'); this.sinc.forEach((f) => f()); return false; }
       this.opz[k] = v;
@@ -392,7 +405,7 @@ export class Live {
       this.sinc.forEach((f) => f());
       return true;
     };
-    const interruttore = (k: 'mic' | 'sistema' | 'cam' | 'cursore' | 'conto' | 'timeline' | 'presentazione' | 'finestre', ic: string | null, testo: string, info: string, dopo?: () => void) => {
+    const interruttore = (k: 'mic' | 'sistema' | 'separato' | 'cam' | 'cursore' | 'conto' | 'timeline' | 'presentazione' | 'finestre', ic: string | null, testo: string, info: string, dopo?: () => void) => {
       const led = h('span', { class: 'led' });
       const b = h('button', { class: 'fin-interruttore', title: info, on: { click: () => { if (cambia(k, !this.opz[k])) dopo?.(); } } },
         led, ic ? icona(ic, 14) : null, h('span', { class: 'fin-int-testo' }, testo));
@@ -452,6 +465,7 @@ export class Live {
           sezione('Cosa registro'),
           h('div', { class: 'live-riga' }, interruttore('mic', 'mic', 'Microfono', 'La tua voce mentre registri'), this.selMic),
           interruttore('sistema', 'altoparlante', 'Audio del computer', 'Il suono di quello che registri (dove il sistema lo permette)'),
+          interruttore('separato', null, 'Voce e computer separati', 'Se registri tutti e due, il microfono va in un file suo e su una traccia audio a parte: dopo puoi livellare i volumi di voce e computer uno per uno'),
           h('div', { class: 'live-riga' }, interruttore('cam', 'webcam', 'Webcam', 'La tua faccia in un angolo: registrata a parte, va sulla traccia sopra', () => { if (this.opz.cam) void this.apriCam(); else this.chiudiCam(); }), this.selCam),
           h('div', { class: 'live-riga cam-scelte' },
             chips('camAngolo', ANGOLI.map(([a, s]): [Angolo, string, string] => [a, s, 'La webcam in questo angolo'])),
@@ -711,7 +725,14 @@ export class Live {
         this.pezziCam.push(c.fatto);
       } catch { /* la webcam no, lo schermo sì */ }
     }
-    this.pezzo = { chiudi: () => { const t = (performance.now() - t0) / 1000; n.ferma(t); c?.ferma(t); } };
+    let mc: Nastro | null = null;
+    if (this.micSep) {
+      try {
+        mc = nastro(this.micSep, this.tipoMic, 0);
+        this.pezziMic.push(mc.fatto);
+      } catch { /* il microfono a parte no: resta muto, lo schermo va lo stesso */ }
+    }
+    this.pezzo = { chiudi: () => { const t = (performance.now() - t0) / 1000; n.ferma(t); c?.ferma(t); mc?.ferma(t); } };
   }
 
   async registra() {
@@ -773,7 +794,13 @@ export class Live {
       } catch { avviso('Il microfono non si apre: registro senza', 'info', 2400); }
     }
     let mix: MediaStream | null = null;
-    if (audio.length === 1) { tracce.push(...audio[0].getAudioTracks()); void mixer?.close().catch(() => {}); }
+    this.micSep = null;
+    if (o.separato && mic && audio.length > 1) {
+      // voce e computer in due file: l'audio del computer resta col video, il microfono ha il suo registratore
+      tracce.push(...schermo.getAudioTracks());
+      this.micSep = new MediaStream(mic.getAudioTracks());
+      void mixer?.close().catch(() => {});
+    } else if (audio.length === 1) { tracce.push(...audio[0].getAudioTracks()); void mixer?.close().catch(() => {}); }
     else if (audio.length > 1) {
       const ctx = mixer ?? new AudioContext({ sampleRate: 48000 });
       void ctx.resume().catch(() => {});
@@ -797,9 +824,10 @@ export class Live {
     this.flusso = new MediaStream(tracce);
     this.tipo = formato();
     this.tipoCam = formato(true);
+    this.tipoMic = formatoAudio();
     this.video.srcObject = this.regia ? this.regia.flusso : schermo;
     void this.video.play().catch(() => {});
-    if (audio.length) this.avviaVu(mix ?? mic ?? audio[0], mix ? 'microfono + computer' : mic ? 'microfono' : 'audio del computer');
+    if (audio.length) this.avviaVu(this.micSep ?? mix ?? mic ?? audio[0], this.micSep ? 'microfono (il computer a parte)' : mix ? 'microfono + computer' : mic ? 'microfono' : 'audio del computer');
     const st = st0;
     this.info.textContent = [st.width && st.height ? `${st.width}×${st.height}` : '', st.frameRate ? `${Math.round(st.frameRate)} fps` : '', mic ? 'microfono' : '', schermo.getAudioTracks().length ? 'audio del computer' : '', this.cam ? 'webcam' : ''].filter(Boolean).join(' · ');
     // se si ferma la condivisione dalla barra del sistema, è come premere FERMA
@@ -827,6 +855,7 @@ export class Live {
     }
     this.pezzi = [];
     this.pezziCam = [];
+    this.pezziMic = [];
     this.segni = [];
     try {
       this.nuovoPezzo();
@@ -940,7 +969,7 @@ export class Live {
     this.stato.textContent = 'Metto in ordine la registrazione…';
     const foto = this.foto();
     const durata = this.durataUltima = this.fatto;
-    const pezzi = this.pezzi, pezziCam = this.pezziCam, segni = this.segni, flussi = this.flussi, ctx = this.audioCtx;
+    const pezzi = this.pezzi, pezziCam = this.pezziCam, pezziMic = this.pezziMic, segni = this.segni, flussi = this.flussi, ctx = this.audioCtx;
     // la regia disegna finché l'ultimo pezzo non ha dato tutto
     const regia = this.regia;
     this.regia = null;
@@ -949,20 +978,22 @@ export class Live {
     this.aggiornaTasti();
     this.pezzi = [];
     this.pezziCam = [];
+    this.pezziMic = [];
+    this.micSep = null;
     this.segni = [];
     this.flussi = [];
     this.audioCtx = null;
     this.flusso = null;
     this.ultima = (async () => {
       // i flussi si spengono solo quando l'ultimo pezzo ha dato tutto
-      const [tratti, trattiCam] = await Promise.all([Promise.all(pezzi), Promise.all(pezziCam)]);
+      const [tratti, trattiCam, trattiMic] = await Promise.all([Promise.all(pezzi), Promise.all(pezziCam), Promise.all(pezziMic)]);
       this.diagnosi = tratti.map((x, i) => `tratto ${i + 1}: ${Math.round(x.blob.size / 1024)} kB, ${x.nota}`);
       regia?.ferma();
       this.chiudiFlussi(flussi, ctx);
       if (this.fase === 'fermo') this.video.srcObject = null;
       // la webcam resta accesa per l'anteprima solo se si è ancora su LIVE
       if (!this.visibile) this.chiudiCam();
-      await this.consegna(tratti.filter((x) => x.blob.size), trattiCam.filter((x) => x.blob.size), durata, segni, foto);
+      await this.consegna(tratti.filter((x) => x.blob.size), trattiCam.filter((x) => x.blob.size), trattiMic.filter((x) => x.blob.size), durata, segni, foto);
     })().catch((e) => {
       this.stato.textContent = 'Non sono riuscito a mettere via la registrazione';
       avviso('La registrazione non si salva: ' + String(e), 'errore', 4000);
@@ -979,7 +1010,7 @@ export class Live {
   }
 
   /** la registrazione finita: cucita, sul disco (nell'app), nel contenitore e in fondo alla timeline */
-  private async consegna(tratti: Tratto[], trattiCam: Tratto[], durata: number, segni: number[], foto: string) {
+  private async consegna(tratti: Tratto[], trattiCam: Tratto[], trattiMic: Tratto[], durata: number, segni: number[], foto: string) {
     if (!tratti.length) { this.stato.textContent = 'La registrazione è vuota'; return; }
     const mp4 = /mp4/.test(tratti[0].blob.type);
     // di solito un file solo; se la cucitura non riesce, i pezzi vanno uno dopo l'altro (sempre senza buchi)
@@ -991,6 +1022,15 @@ export class Live {
       const camMp4 = /mp4/.test(trattiCam[0].blob.type);
       camBlob = await cuci(trattiCam, camMp4, note) ?? (trattiCam.length === 1 ? await rimetteInOrdine(trattiCam[0].blob, camMp4) : null);
       this.diagnosi.push(...note.map((x) => 'webcam ' + x));
+    }
+    // il microfono a parte: un file audio solo (o pezzo per pezzo, come lo schermo)
+    let micFiles: Blob[] = [];
+    if (trattiMic.length) {
+      const note: string[] = [];
+      const micMp4 = /mp4/.test(trattiMic[0].blob.type);
+      const cucitoMic = await cuci(trattiMic, micMp4, note);
+      micFiles = cucitoMic ? [cucitoMic] : trattiMic.map((x) => x.blob);
+      this.diagnosi.push(...note.map((x) => 'microfono ' + x));
     }
     const ora = new Date();
     const radice = `Registrazione ${ora.getFullYear()}-${due(ora.getMonth() + 1)}-${due(ora.getDate())} ${due(ora.getHours())}.${due(ora.getMinutes())}.${due(ora.getSeconds())}`;
@@ -1008,15 +1048,21 @@ export class Live {
       if (m) schermi.push(m);
     }
     if (!schermi.length) { this.stato.textContent = 'Non sono riuscito a leggere la registrazione'; return; }
+    const estAudio = (b: Blob) => (/mp4/.test(b.type) ? 'm4a' : 'webm');
+    const mics: MediaItem[] = [];
+    for (const [i, blob] of micFiles.entries()) {
+      const m = await importa(`${radice} microfono${micFiles.length > 1 ? ` parte ${i + 1}` : ''}.${estAudio(blob)}`, blob);
+      if (m) mics.push(m);
+    }
     const mCam = camBlob ? await importa(`${radice} webcam.${/mp4/.test(camBlob.type) ? 'mp4' : 'webm'}`, camBlob) : undefined;
-    const ids = this.opz.timeline ? this.inTimeline(schermi, mCam ?? null, segni) : [];
+    const ids = this.opz.timeline ? this.inTimeline(schermi, mCam ?? null, segni, mics) : [];
     if (ids.length) store.select(ids);
     const { id, name: nome } = schermi[0];
     this.stato.textContent = `Fatto: ${nome}`;
     const riga = h('button', { class: 'live-voce', title: 'Aprila nel monitor', on: { click: () => { motore.caricaPlayer(id); motore.setMonitor('player'); document.dispatchEvent(new CustomEvent('dpv:pagina', { detail: 'montaggio' })); } } },
       foto ? h('img', { class: 'live-voce-foto', src: foto, alt: '' }) : icona('video', 14),
       h('span', { class: 'live-voce-testo' }, h('b', null, nome.replace(/\.(webm|mp4)$/, '')),
-        h('small', null, [orologio(durata), mCam ? 'webcam' : '', segni.length ? `${segni.length} segni` : ''].filter(Boolean).join(' · '))));
+        h('small', null, [orologio(durata), mCam ? 'webcam' : '', mics.length ? 'voce a parte' : '', segni.length ? `${segni.length} segni` : ''].filter(Boolean).join(' · '))));
     if (this.lista.querySelector('.nota')) this.lista.replaceChildren();
     this.lista.prepend(riga);
     avviso(`🎬 ${nome}: nel contenitore${this.opz.timeline ? ' e in fondo alla timeline' : ''}`, 'ok', 3200);
@@ -1026,7 +1072,7 @@ export class Live {
    * In fondo alla timeline, dal basso: lo sfondo (stile presentazione), lo schermo, la webcam sopra. Se le tracce
    * video non bastano se ne aggiungono. Tutto legato insieme, così si sposta in un colpo; i segni diventano marcatori.
    */
-  private inTimeline(schermi: MediaItem[], cam: MediaItem | null, segni: number[]): string[] {
+  private inTimeline(schermi: MediaItem[], cam: MediaItem | null, segni: number[], mics: MediaItem[] = []): string[] {
     const o = this.opz;
     return store.edit('Registrazione in timeline', (p) => {
       const inizio = projectEnd(p);
@@ -1043,17 +1089,30 @@ export class Live {
       const tSchermo = dalBasso[k++].id;
       const tCam = cam ? dalBasso[k++].id : null;
       const a = p.tracks.find((t) => t.kind === 'audio' && !t.lock)?.id;
+      // il microfono a parte va su un'altra traccia audio (se serve se ne fa una nuova), così ha il suo fader
+      let tMic: string | null = null;
+      if (mics.length) {
+        const at = p.tracks.filter((t) => t.kind === 'audio' && !t.lock);
+        tMic = at.find((t) => t.id !== a)?.id ?? null;
+        if (!tMic) { const nt = newTrack('audio', nextTrackName(p, 'audio')); p.tracks.push(nt); tMic = nt.id; }
+      }
       const ids: string[] = [];
       let f = inizio;
       let link: string | undefined;
-      for (const m of schermi) {
+      for (const [i, m] of schermi.entries()) {
         const nuovi = M.placeSource(p, { mediaId: m.id, srcIn: m.t0 || 0, srcOut: m.duration }, f, null, { video: tSchermo, audio: a ? [a] : [] }, 'libero');
         ids.push(...nuovi);
         const v = p.clips.find((c) => nuovi.includes(c.id) && c.track === tSchermo) ?? p.clips.find((c) => c.id === nuovi[0]);
         if (!v) continue;
         if (o.presentazione) v.tf = presentazione();
         link ??= v.link ?? (v.link = uid('l'));
-        for (const c of p.clips) if (nuovi.includes(c.id)) c.link = link;
+        for (const c of p.clips) if (nuovi.includes(c.id)) { c.link = link; if (tMic && c.track !== tSchermo) c.name = 'Audio del computer'; }
+        // la voce di questo pezzo, nello stesso punto e legata al resto
+        if (tMic && mics[i]) {
+          const voce = M.placeSource(p, { mediaId: mics[i].id, srcIn: mics[i].t0 || 0, srcOut: mics[i].duration }, v.start, null, { video: null, audio: [tMic] }, 'libero');
+          for (const c of p.clips) if (voce.includes(c.id)) { c.link = link; c.name = 'Microfono'; c.len = Math.min(c.len, v.len); }
+          ids.push(...voce);
+        }
         f = Math.max(f, v.start + v.len);
       }
       if (tSfondo && f > inizio) {
