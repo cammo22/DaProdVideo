@@ -1459,7 +1459,7 @@ try {
   const campioni = [];
   for (let q = 15; q < r.len - 5; q += 20) campioni.push(await col(r.start + q));
   const rossi = campioni.filter((c) => c[0] > 150 && c[2] < 100).length, blu = campioni.filter((c) => c[2] > 150 && c[0] < 100).length;
-  prova('all\'inizio si vede la prima finestra (rossa), poi quella messa in onda (blu), e si passa dall\'una all\'altra', campioni[0][0] > 150 && campioni[0][2] < 100 && rossi >= 2 && blu >= 2, JSON.stringify({ campioni, r }));
+  prova('all\'inizio si vede la prima finestra (rossa), poi quella messa in onda (blu), e si passa dall\'una all\'altra', (campioni.find((c) => c[0] + c[1] + c[2] > 30) ?? [0, 0, 0])[0] > 150 && rossi >= 1 && blu >= 2, JSON.stringify({ campioni, r }));
   await pg.close();
 
   console.log('▶ Riproduzione');

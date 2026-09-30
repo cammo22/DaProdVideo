@@ -819,6 +819,12 @@ export class Live {
         return;
       }
     }
+    // con più finestre: si parte solo quando la prima ha già un'immagine, se no i primi fotogrammi escono neri
+    if (this.regia) {
+      const v = this.regia.fonti[0]?.video;
+      for (let i = 0; v && i < 60 && !(v.videoWidth && v.readyState >= 2); i++) await new Promise((r) => setTimeout(r, 50));
+      this.regia.disegna();
+    }
     this.pezzi = [];
     this.pezziCam = [];
     this.segni = [];
