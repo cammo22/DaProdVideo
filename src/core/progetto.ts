@@ -152,18 +152,48 @@ export function nomeCurva(cv?: Curva): string {
 /** la S dei movimenti: parte e arriva piano */
 export const dolceMoto = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
 
-/** la posizione della clip al fotogramma locale lf: ferma (tf) o in movimento verso tfFine lungo tutta la clip */
-export function tfAl(c: Clip, lf: number): Transform {
-  const b = c.tfFine;
-  if (!b) return c.tf;
-  const a = c.tf, t = dolceMoto(lf / Math.max(1, c.len - 1));
-  const m = (u: number, v: number) => u + (v - u) * t;
-  return {
-    x: m(a.x, b.x), y: m(a.y, b.y), scale: m(a.scale, b.scale), rot: m(a.rot, b.rot),
-    cropL: m(a.cropL, b.cropL), cropR: m(a.cropR, b.cropR), cropT: m(a.cropT, b.cropT), cropB: m(a.cropB, b.cropB),
-    angoli: m(a.angoli ?? 0, b.angoli ?? 0), ombra: m(a.ombra ?? 0, b.ombra ?? 0),
+/** Un valore lungo il tempo che passa per tutte le tappe, senza scatti e senza sforare: curva di Hermite con la
+ *  pendenza limitata (ai capi ferma: con due sole tappe fa la stessa S dolce di sempre). ts crescenti, x da 0 a 1. */
+export function passaPer(ts: number[], vs: number[], x: number): number {
+  const n = ts.length;
+  if (n === 1 || x <= ts[0]) return vs[0];
+  if (x >= ts[n - 1]) return vs[n - 1];
+  let k = 1;
+  while (k < n - 1 && x > ts[k]) k++;
+  const dt = Math.max(1e-9, ts[k] - ts[k - 1]);
+  const pend = (i: number) => {
+    if (i === 0 || i === n - 1) return 0;
+    const a = (vs[i] - vs[i - 1]) / Math.max(1e-9, ts[i] - ts[i - 1]), b = (vs[i + 1] - vs[i]) / Math.max(1e-9, ts[i + 1] - ts[i]);
+    // un massimo o un minimo: lì si ferma (niente rimbalzi oltre la tappa)
+    return a * b <= 0 ? 0 : (2 * a * b) / (a + b);
   };
+  const m0 = pend(k - 1) * dt, m1 = pend(k) * dt, u = (x - ts[k - 1]) / dt, u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * vs[k - 1] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * vs[k] + (u3 - u2) * m1;
 }
+
+const CAMPI_TF = ['x', 'y', 'scale', 'rot', 'cropL', 'cropR', 'cropT', 'cropB', 'angoli', 'ombra', 'sx'] as const;
+const PARTENZA_TF: Record<string, number> = { angoli: 0, ombra: 0, sx: 1 };
+
+/** le tappe del movimento di una clip in ordine: la partenza, quelle di mezzo, l'arrivo (vuoto se la clip sta ferma) */
+export function tappeTf(c: Clip): { t: number; tf: Transform }[] {
+  if (!c.tfFine) return [];
+  const mezzo = (c.via ?? []).filter((v) => v.t > 0.001 && v.t < 0.999).sort((a, b) => a.t - b.t);
+  return [{ t: 0, tf: c.tf }, ...mezzo, { t: 1, tf: c.tfFine }];
+}
+
+/** la posizione della clip al fotogramma locale lf: ferma (tf) o in movimento verso tfFine, passando per le tappe di mezzo */
+export function tfAl(c: Clip, lf: number): Transform {
+  if (!c.tfFine) return c.tf;
+  const x = Math.max(0, Math.min(1, lf / Math.max(1, c.len - 1)));
+  const tappe = tappeTf(c);
+  const ts = tappe.map((t) => t.t);
+  const o: Record<string, number> = {};
+  for (const k of CAMPI_TF) o[k] = passaPer(ts, tappe.map((t) => (t.tf as unknown as Record<string, number | undefined>)[k] ?? PARTENZA_TF[k] ?? 0), x);
+  return o as unknown as Transform;
+}
+
+/** quanto della clip è passato (0..1) al fotogramma f: serve a mettere una tappa sotto il cursore */
+export const quantoDellaClip = (c: Clip, f: number) => Math.max(0, Math.min(1, (f - c.start) / Math.max(1, c.len - 1)));
 
 export function fadeAl(c: Clip, lf: number): number {
   let g = 1;

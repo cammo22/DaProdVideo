@@ -8,7 +8,9 @@ import { frameToTc, fps } from '../core/timecode';
 import { avviso, h } from './dom';
 import * as M from '../core/montaggio';
 import { esegui, modi, mettiBlocco } from '../azioni';
-import { EFFETTI, TENDINE } from '../render/transizioni';
+import { DIREZIONALI, EFFETTI, TENDINE } from '../render/transizioni';
+import { oggettoSulQuadro, tracciate } from '../core/traccia';
+import type { Project } from '../core/tipi';
 import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto } from '../effetti';
 import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, haCentro, nomeBlocco, nuovoBlocco, posaBlocco, taglioDelBlocco, taglioVicino, transizioneSul } from '../core/blocchi';
 import { SUONI } from '../core/suoni';
@@ -16,6 +18,17 @@ import { ascoltaSuono } from '../media/audio';
 import { bolla, MOVIMENTI, movimentoPronto, presentazione, SFONDI } from '../core/cornici';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
+
+/** tutti gli stili della titolatrice (l'elenco delle proprietà) */
+const STILI_TITOLO: [string, string][] = [
+  ['fisso', 'Fisso'], ['sottopancia', 'Sottopancia'], ['notiziario', 'Notiziario (due targhe)'], ['rullo', 'Rullo (sale)'], ['crawl', 'Crawl (scorre)'],
+  ['neon', 'Neon (si accende)'], ['cinema', 'Cinema (si avvicina)'], ['macchina', 'Macchina da scrivere'], ['rimbalzo', 'Rimbalzo'],
+  ['social', 'Social (fascia)'], ['citazione', 'Citazione'], ['gradiente', 'Sfumato'], ['etichetta', 'Etichetta'], ['rivela', 'Rivela'],
+  ['glitch', 'Glitch'], ['grande', 'Grande'], ['cascata', 'Cascata (lettere che cadono)'], ['assembla', 'Si compone (lettere da lontano)'],
+  ['onda', 'Onda (lettere che ondeggiano)'], ['evidenzia', 'Evidenziatore'], ['karaoke', 'Karaoke'], ['estruso', '3D (lettere con spessore)'],
+  ['ombraLunga', 'Ombra lunga'], ['contorno', 'Solo contorno'],
+];
+const ANIMAZIONI: [string, string][] = [['', 'Come lo stile'], ['dissolve', 'Dissolve'], ['sale', 'Sale'], ['scende', 'Scende'], ['sinistra', 'Da sinistra'], ['destra', 'Da destra'], ['zoom', 'Zoom'], ['rimbalza', 'Rimbalza']];
 
 export class Ispettore {
   el: HTMLElement;
@@ -96,6 +109,7 @@ export class Ispettore {
       out.push(this.gruppo('immagine', 'Immagine', [
         this.cursore('Opacità', 0, 100, 1, (c) => Math.round(c.opacity * 100), (c, v) => { c.opacity = v / 100; c.opKeys = []; }, '%', video),
         this.cursore('Zoom', 20, 300, 1, (c) => Math.round(c.tf.scale * 100), (c, v) => { c.tf.scale = v / 100; }, '%', video),
+        this.cursore('Larghezza (stira)', 20, 300, 1, (c) => Math.round((c.tf.sx ?? 1) * 100), (c, v) => { c.tf.sx = v / 100; }, '%', video),
         this.pulsanti([
           ['Adatta', () => store.edit('Adatta', () => { for (const c of video) c.tf = { ...TF0 }; })],
           ['Riempi', () => store.edit('Riempi', () => { for (const c of video) { const mm = mediaOf(p, c); if (mm?.width) { const w = mm.rotation % 180 ? mm.height : mm.width, hh = mm.rotation % 180 ? mm.width : mm.height; const kf = Math.min(p.w / w, p.h / hh), kc = Math.max(p.w / w, p.h / hh); c.tf.scale = kc / kf; } } })],
@@ -104,18 +118,20 @@ export class Ispettore {
           ['Bolla ↘', () => store.edit('Bolla', () => { for (const c of video) c.tf = bolla(p, mediaOf(p, c), 'bd'); })],
           ['Presentazione', () => store.edit('Presentazione', () => { for (const c of video) c.tf = presentazione(); })],
         ]),
-        h('p', { class: 'nota' }, 'Sull\'immagine del monitor: trascina per spostare, tira un angolo per ingrandire, il pallino in alto la gira.'),
+        h('p', { class: 'nota' }, 'Sull\'immagine del monitor: trascina per spostare, tira un angolo per ingrandire (Maiusc: stira, Ctrl: dal centro), tira un lato per stirare da una parte sola, il pallino in alto la gira. Ctrl+clic sceglie quella che sta sotto. ✂ Ritaglia: i lati ritagliano.'),
         h('div', { class: 'isp-riga' }, h('label', null, 'Movimento'),
           h('div', { class: 'isp-chips' }, MOVIMENTI.map((m) => h('button', {
             class: 'chip' + ((m.id === 'fermo') === !video[0].tfFine && m.id === 'fermo' ? ' acceso' : ''),
             title: m.id === 'fermo' ? 'Resta dov\'è' : 'Dall\'inizio alla fine della clip, partendo (o arrivando) dove sta adesso',
             on: { click: () => store.edit('Movimento: ' + m.nome, (pp) => { for (const c of video) { const x = clipById(pp, c.id); if (x) movimentoPronto(pp, x, m.id); } }) },
           }, m.nome)))),
-        video[0].tfFine ? h('p', { class: 'nota' }, 'Si muove: all\'inizio della clip sta dove l\'hai messa col cursore all\'inizio, alla fine dove l\'hai messa alla fine (sul monitor: ◀ Inizio / Fine ▶).') : null,
+        video[0].tfFine ? h('p', { class: 'nota' }, `Si muove: parte da dove l'hai messa all'inizio, passa da ${(video[0].via ?? []).length ? (video[0].via ?? []).length + ' tappe di mezzo e ' : 'nessuna tappa di mezzo, '}arriva dove l'hai messa alla fine. Sul monitor: ◀ Inizio / Fine ▶, ＋ Tappa; o ferma il cursore fra due tappe e muovi: ne nasce una.`) : null,
         this.cursore('Angoli tondi', 0, 100, 1, (c) => Math.round((c.tf.angoli ?? 0) * 100), (c, v) => { c.tf.angoli = v / 100; }, '%', video),
         this.cursore('Ombra', 0, 100, 1, (c) => Math.round((c.tf.ombra ?? 0) * 100), (c, v) => { c.tf.ombra = v / 100; }, '%', video),
         video.some((c) => c.opKeys.length) ? h('p', { class: 'nota' }, 'Questa clip ha una linea elastica: la trasparenza cambia nel tempo. Muovere l\'opacità la toglie.') : null,
       ]));
+      const sg = this.seguiGruppo(video);
+      if (sg) out.push(sg);
       out.push(this.gruppo('colore', 'Colore della clip', [
         this.cursore('Luce', -50, 50, 1, (c) => Math.round(c.fx.bright * 100), (c, v) => { c.fx.bright = v / 100; }, '', video),
         this.cursore('Contrasto', 50, 150, 1, (c) => Math.round(c.fx.contrast * 100), (c, v) => { c.fx.contrast = v / 100; }, '%', video),
@@ -190,6 +206,30 @@ export class Ispettore {
     this.corpo.replaceChildren(...out);
   }
 
+  /** "Segui": un oggetto tracciato in una ripresa, e chi lo segue (titoli, immagini, centri degli effetti) */
+  private seguiGruppo(cs: Clip[]): HTMLElement | null {
+    const p = store.doc;
+    const c0 = cs[0];
+    const righe: HTMLElement[] = [];
+    if (c0.kind === 'media' && isVideoClip(c0, p) && mediaOf(p, c0)?.type === 'video') {
+      const tr = c0.traccia;
+      righe.push(this.pulsanti([[tr ? '🎯 Rifai il tracking' : '🎯 Segna un oggetto sul monitor', () => document.dispatchEvent(new CustomEvent('dpv:mira'))]]));
+      if (tr) {
+        righe.push(h('p', { class: 'nota' }, `Oggetto seguito: ${tr.punti.length} punti, sicurezza ${Math.round(tr.fiducia * 100)}%. Il percorso azzurro si vede sul monitor.`));
+        righe.push(this.spunta('Tieni ferma la ripresa sull\'oggetto (stabilizza)', (c) => !!c.stabilizza, (c, v) => { c.stabilizza = v || undefined; }, [c0]));
+        righe.push(this.pulsanti([['Togli il tracking', () => store.edit('Toglie il tracking', (pp) => { for (const z of pp.clips) { if (z.id === c0.id) { delete z.traccia; delete z.stabilizza; } if (z.segue === c0.id) delete z.segue; if (z.fxb?.segue === c0.id) delete z.fxb.segue; } })]]));
+      } else righe.push(h('p', { class: 'nota' }, 'Metti il cursore dove l\'oggetto si vede bene, premi il tasto e trascina il mirino sopra: il programma lo segue per tutta la ripresa.'));
+    }
+    const seguibili = tracciate(p).filter((x) => x.id !== c0.id);
+    const get = (c: Clip) => (c.kind === 'fx' ? c.fxb?.segue : c.segue) ?? '';
+    if (seguibili.length) {
+      const opz: [string, string][] = [['', 'Nessuno (sta fermo)'], ...seguibili.map((x) => [x.id, x.name] as [string, string])];
+      righe.push(this.scelta('Segue', opz, get, (c, v) => agganciaSegue(store.doc, c, v), cs));
+      if (get(c0)) righe.push(h('p', { class: 'nota' }, 'Segue l\'oggetto: trascinandolo sul monitor lo sposti rispetto a lui (lo scarto).'));
+    }
+    return righe.length ? this.gruppo('segui', 'Segui un oggetto', righe, !c0.traccia && !get(c0)) : null;
+  }
+
   /** le transizioni all'inizio e alla fine della clip: i blocchetti che stanno su quei bordi */
   private transizioniClip(v: Clip): HTMLElement {
     const p = store.doc;
@@ -246,24 +286,34 @@ export class Ispettore {
     if (tr) {
       const opz: [string, string][] = [['mix', 'Dissolvenza incrociata'], ['dip', 'Passaggio a colore'], ...EFFETTI.map((m) => ['dve:' + m.p, 'Effetto · ' + m.nome] as [string, string]), ...TENDINE.map((m) => ['wipe:' + m.p, 'Tendina ' + m.nome] as [string, string])];
       const trDi = (c: Clip) => c.fxb!.tr!;
+      const tipo = fb.tr?.type;
+      const dve = tipo === 'dve', wipe = tipo === 'wipe';
       out.push(this.gruppo('btipo', 'Transizione', [
         this.scelta('Modello', opz, (c) => c.fxb?.id ?? 'mix', (c, v) => { c.fxb = cambiaModello(c.fxb!, v); c.name = nomeBlocco(c.fxb); }, bs),
+        this.scelta('Come corre', [['', 'Come vuole l\'effetto'], ['dolce', 'Dolce (parte e arriva piano)'], ['entra', 'Parte piano, poi corre'], ['esce', 'Corre, poi arriva piano']], (c) => trDi(c)?.curva ?? '', (c, v) => { trDi(c).curva = (v || undefined) as 'dolce'; }, bs),
+        dve ? this.cursore('Intensità', 20, 200, 5, (c) => Math.round((trDi(c)?.forza ?? c.fxb?.forza ?? 1) * 100), (c, v) => { trDi(c).forza = v / 100; }, '%', bs) : null,
+        dve && DIREZIONALI.has(fb.tr!.pattern) ? this.scelta('Direzione', [['0', 'Come sta'], ['1', 'Ruotata di 90°'], ['2', 'Ruotata di 180°'], ['3', 'Ruotata di 270°']], (c) => String(trDi(c)?.dir ?? 0), (c, v) => { trDi(c).dir = Number(v) || undefined; }, bs) : null,
         this.spunta('Al contrario', (c) => !!trDi(c)?.reverse, (c, v) => { trDi(c).reverse = v; }, bs),
-        this.colore('Colore (passaggio o bordo)', (c) => (trDi(c)?.type === 'dip' ? trDi(c).color : trDi(c)?.borderColor ?? '#ffd54a'), (c, v) => { const t = trDi(c); if (t.type === 'dip') t.color = v; else t.borderColor = v; }, bs),
-        this.cursore('Bordo', 0, 20, 0.5, (c) => (trDi(c)?.border ?? 0) * 100, (c, v) => { trDi(c).border = v / 100; }, '', bs),
-        this.cursore('Morbidezza', 0, 30, 0.5, (c) => (trDi(c)?.soft ?? 0) * 100, (c, v) => { trDi(c).soft = v / 100; }, '', bs),
+        wipe || tipo === 'dip' ? this.colore(tipo === 'dip' ? 'Colore del passaggio' : 'Colore del bordo', (c) => (trDi(c)?.type === 'dip' ? trDi(c).color : trDi(c)?.borderColor ?? '#ffd54a'), (c, v) => { const t = trDi(c); if (t.type === 'dip') t.color = v; else t.borderColor = v; }, bs) : null,
+        wipe ? this.cursore('Bordo', 0, 20, 0.5, (c) => (trDi(c)?.border ?? 0) * 100, (c, v) => { trDi(c).border = v / 100; }, '', bs) : null,
+        wipe ? this.cursore('Morbidezza', 0, 30, 0.5, (c) => (trDi(c)?.soft ?? 0) * 100, (c, v) => { trDi(c).soft = v / 100; }, '', bs) : null,
       ]));
     } else {
-      const colori = ['flash', 'lampoNero', 'strobo', 'dalNero', 'alNero', 'dalBianco', 'alBianco'].includes(fb.id);
+      const colori = ['flash', 'lampoNero', 'strobo', 'dalNero', 'alNero', 'dalBianco', 'alBianco', 'duotone', 'bokeh', 'scintille'].includes(fb.id);
+      const centro = haCentro(fb.id);
+      const segue = !!fb.segue;
       out.push(this.gruppo('btipo', 'Effetto', [
         this.scelta('Effetto', EFFETTI_TEMPO.map((e) => [e.id, `${e.nome} · ${e.info}`] as [string, string]), (c) => c.fxb?.id ?? 'flash', (c, v) => { c.fxb = cambiaModello(c.fxb!, v); c.name = effettoTempo(v)!.nome; }, bs),
         this.cursore('Forza', 10, 150, 1, (c) => Math.round((c.fxb?.forza ?? 1) * 100), (c, v) => { c.fxb!.forza = v / 100; }, '%', bs),
+        this.cursore('Si ripete', 1, 12, 1, (c) => c.fxb?.ripeti ?? 1, (c, v) => { c.fxb!.ripeti = v > 1 ? v : undefined; }, 'volte', bs),
         colori ? this.colore('Colore', (c) => c.fxb?.colore ?? '#ffffff', (c, v) => { c.fxb!.colore = v; }, bs) : null,
-        haCentro(fb.id) ? h('p', { class: 'nota' }, 'Il centro dell\'effetto è il mirino sul monitor: trascinalo dove vuoi. Con "Movimento" parte da un punto e arriva a un altro.') : null,
-        haCentro(fb.id) ? this.pulsanti([
-          [fb.posFine ? 'Movimento spento' : 'Movimento', () => store.edit('Movimento dell\'effetto', () => { for (const c of bs) { if (c.fxb!.posFine) delete c.fxb!.posFine; else { c.fxb!.pos ??= [0.5, 0.5]; c.fxb!.posFine = [...c.fxb!.pos] as [number, number]; } } })],
-          ['Al centro', () => store.edit('Effetto al centro', () => { for (const c of bs) { delete c.fxb!.pos; delete c.fxb!.posFine; } })],
+        centro ? h('p', { class: 'nota' }, 'Il centro dell\'effetto è il mirino sul monitor: trascinalo dove vuoi. Con "Movimento" parte da un punto e arriva a un altro, e passa da tutte le tappe che aggiungi (＋ Tappa, o fermati fra due tappe e muovi il mirino).') : null,
+        centro ? this.pulsanti([
+          [fb.posFine ? 'Movimento spento' : 'Movimento', () => store.edit('Movimento dell\'effetto', () => { for (const c of bs) { if (c.fxb!.posFine) { delete c.fxb!.posFine; delete c.fxb!.via; } else { c.fxb!.pos ??= [0.5, 0.5]; c.fxb!.posFine = [...c.fxb!.pos] as [number, number]; } } })],
+          ['Al centro', () => store.edit('Effetto al centro', () => { for (const c of bs) { delete c.fxb!.pos; delete c.fxb!.posFine; delete c.fxb!.via; delete c.fxb!.segue; } })],
         ]) : null,
+        centro && tracciate(p).length ? this.scelta('Segue', [['', 'Nessuno (sta dove l\'hai messo)'], ...tracciate(p).map((x) => [x.id, x.name] as [string, string])], (c) => c.fxb?.segue ?? '', (c, v) => agganciaSegue(store.doc, c, v), bs) : null,
+        segue ? h('p', { class: 'nota' }, 'Il centro segue l\'oggetto tracciato: il mirino sul monitor sposta lo scarto.') : null,
       ]));
     }
     // il suono dentro l'FX: acceso/spento, quale, quanto forte
@@ -301,11 +351,19 @@ export class Ispettore {
     });
     const agg = () => { if (document.activeElement !== testo) testo.value = tt[0].gen?.title?.text ?? ''; };
     this.campi.push({ el: testo, aggiorna: agg });
+    const sotto = h('textarea', { class: 'campo-testo', rows: 2 }) as HTMLTextAreaElement;
+    sotto.value = t0.sotto ?? '';
+    let timer2 = 0;
+    sotto.addEventListener('input', () => {
+      clearTimeout(timer2);
+      timer2 = window.setTimeout(() => set('Sottotitolo del titolo', (s) => { s.sotto = sotto.value || undefined; }), 250);
+    });
+    this.campi.push({ el: sotto, aggiorna: () => { if (document.activeElement !== sotto) sotto.value = tt[0].gen?.title?.sotto ?? ''; } });
     const tsel = (nome: string, opts: [string, string][], get: (s: TitleSpec) => string, put: (s: TitleSpec, v: string) => void) =>
       this.scelta(nome, opts, (c) => get(c.gen!.title!), (c, v) => put(c.gen!.title!, v), tt);
     return this.gruppo('titolo', 'Titolatrice', [
       h('label', { class: 'etichetta' }, 'Testo (a capo per più righe)'), testo,
-      tsel('Stile', [['fisso', 'Fisso'], ['sottopancia', 'Sottopancia'], ['rullo', 'Rullo (sale)'], ['crawl', 'Crawl (scorre)'], ['neon', 'Neon (si accende)'], ['cinema', 'Cinema (si avvicina)'], ['macchina', 'Macchina da scrivere'], ['rimbalzo', 'Rimbalzo'], ['social', 'Social (fascia)'], ['citazione', 'Citazione']], (s) => s.style, (s, v) => { s.style = v as TitleSpec['style']; }),
+      tsel('Stile', STILI_TITOLO, (s) => s.style, (s, v) => { s.style = v as TitleSpec['style']; }),
       tsel('Carattere', [['Rajdhani', 'Rajdhani'], ['Orbitron', 'Orbitron'], ['Georgia', 'Georgia (graziato)'], ['Arial Black', 'Arial Black'], ['Courier New', 'Macchina da scrivere'], ['Impact', 'Impact']], (s) => s.font, (s, v) => { s.font = v; }),
       this.cursore('Dimensione', 16, 240, 1, (c) => c.gen!.title!.size, (c, v) => { c.gen!.title!.size = v; }, 'pt', tt),
       this.cursore('Altezza', 5, 95, 1, (c) => Math.round(c.gen!.title!.y * 100), (c, v) => { c.gen!.title!.y = v / 100; }, '%', tt),
@@ -314,7 +372,12 @@ export class Ispettore {
       this.colore('Contorno', (c) => c.gen!.title!.outline === 'none' ? '#000000' : c.gen!.title!.outline, (c, v) => { c.gen!.title!.outline = v; }, tt),
       this.spunta('Ombra', (c) => c.gen!.title!.shadow, (c, v) => { c.gen!.title!.shadow = v; }, tt),
       this.spunta('Fascia dietro', (c) => c.gen!.title!.box, (c, v) => { c.gen!.title!.box = v; }, tt),
-      this.colore('Colore fascia', (c) => c.gen!.title!.boxColor.slice(0, 7), (c, v) => { c.gen!.title!.boxColor = v + 'cc'; }, tt),
+      this.colore('Colore fascia / secondo colore', (c) => c.gen!.title!.boxColor.slice(0, 7), (c, v) => { c.gen!.title!.boxColor = v + 'cc'; }, tt),
+      h('label', { class: 'etichetta' }, 'Sottotitolo (la riga piccola sotto)'), sotto,
+      tsel('Entra', ANIMAZIONI, (s) => s.ingresso ?? '', (s, v) => { s.ingresso = v || undefined; }),
+      tsel('Esce', ANIMAZIONI, (s) => s.uscita ?? '', (s, v) => { s.uscita = v || undefined; }),
+      this.cursore('Spazio fra le lettere', -5, 60, 1, (c) => Math.round((c.gen!.title!.spaziatura ?? 0) * 100), (c, v) => { c.gen!.title!.spaziatura = v / 100; }, '%', tt),
+      tsel('Spessore', [['', 'Come lo stile'], ['400', 'Normale'], ['600', 'Medio'], ['700', 'Grassetto'], ['900', 'Nero']], (s) => (s.peso ? String(s.peso) : ''), (s, v) => { s.peso = v ? Number(v) : undefined; }),
     ]);
   }
 
@@ -429,6 +492,34 @@ export class Ispettore {
   private pulsanti(lista: [string, () => void][]): HTMLElement {
     return h('div', { class: 'isp-pulsanti' }, lista.map(([n, fn]) => h('button', { class: 'btn-mini', on: { click: fn } }, n)));
   }
+}
+
+/** sposta tutte le posizioni della clip (partenza, tappe, arrivo) dello stesso tanto */
+function spostaChiavi(c: Clip, dx: number, dy: number) {
+  const tutte = [c.tf, ...(c.tfFine ? [c.tfFine] : []), ...(c.via ?? []).map((v) => v.tf)];
+  for (const t of tutte) { t.x = Math.round(t.x + dx); t.y = Math.round(t.y + dy); }
+}
+
+/** la clip (o il centro dell'effetto) comincia o smette di seguire un oggetto tracciato, senza che salti: resta dov'è adesso */
+function agganciaSegue(p: Project, c: Clip, id: string) {
+  const f = Math.max(c.start, Math.min(end(c) - 1, Math.floor(store.head + 1e-6)));
+  const off = (sid?: string): [number, number] => {
+    const sorg = sid ? p.clips.find((x) => x.id === sid) : undefined;
+    return (sorg && oggettoSulQuadro(p, sorg, f)) || [0, 0];
+  };
+  if (c.kind === 'fx' && c.fxb) {
+    const b = c.fxb;
+    const vecchio = off(b.segue), nuovo = off(id || undefined);
+    const dx = (vecchio[0] - nuovo[0]) / p.w, dy = (vecchio[1] - nuovo[1]) / p.h;
+    b.pos = [(b.pos ?? [0.5, 0.5])[0] + dx, (b.pos ?? [0.5, 0.5])[1] + dy];
+    if (b.posFine) b.posFine = [b.posFine[0] + dx, b.posFine[1] + dy];
+    for (const v of b.via ?? []) v.pos = [v.pos[0] + dx, v.pos[1] + dy];
+    if (id) b.segue = id; else delete b.segue;
+    return;
+  }
+  const vecchio = off(c.segue), nuovo = off(id || undefined);
+  spostaChiavi(c, vecchio[0] - nuovo[0], vecchio[1] - nuovo[1]);
+  if (id) c.segue = id; else delete c.segue;
 }
 
 export { FX0 };

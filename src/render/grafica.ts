@@ -12,6 +12,23 @@ export function nuovaTela(w: number, h: number): Tela {
   return c;
 }
 
+const dolceT = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
+const casuale = (x: number) => { const s = Math.sin(x * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+/** la lettera che cade e rimbalza (0 in alto, 1 a terra) */
+const rimbalzoLettera = (x: number) => {
+  if (x < 1 / 2.75) return 7.5625 * x * x;
+  if (x < 2 / 2.75) { x -= 1.5 / 2.75; return 7.5625 * x * x + 0.75; }
+  if (x < 2.5 / 2.75) { x -= 2.25 / 2.75; return 7.5625 * x * x + 0.9375; }
+  x -= 2.625 / 2.75;
+  return 7.5625 * x * x + 0.984375;
+};
+/** un colore mescolato con un altro (k = quanto del secondo) */
+function mescola(a: string, b: string, k: number): string {
+  const n = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) || 0);
+  const x = n(a), y = n(b);
+  return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * k)).join(',')})`;
+}
+
 const cacheTitoli = new Map<string, { tela: Tela; w: number; h: number }>();
 
 /**
@@ -27,13 +44,14 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   const st = spec.style;
   // il cinema: maiuscole, lettere larghe e sottili (anche il grande, l'etichetta e il glitch sono in maiuscolo)
   const testo = st === 'cinema' || st === 'grande' || st === 'etichetta' || st === 'glitch' ? spec.text.toUpperCase() : spec.text;
+  const sotto = (spec.sotto ?? '').trim();
   const lines = testo.split('\n');
   const lineH = size * (st === 'citazione' ? 1.35 : st === 'grande' ? 1.0 : 1.2);
-  const peso = st === 'cinema' ? 500 : st === 'grande' ? 900 : st === 'social' || st === 'rimbalzo' || st === 'etichetta' || st === 'glitch' ? 800 : 700;
+  const peso = spec.peso ?? (st === 'cinema' ? 500 : st === 'grande' ? 900 : st === 'social' || st === 'rimbalzo' || st === 'etichetta' || st === 'glitch' || st === 'estruso' || st === 'ombraLunga' ? 800 : 700);
   const famiglia = st === 'macchina' ? '"Share Tech Mono", "Courier New", monospace' : st === 'citazione' ? 'Georgia, "Times New Roman", serif'
     : `"${spec.font}", "Rajdhani", "Segoe UI", sans-serif`;
   const font = `${st === 'citazione' ? 'italic ' : ''}${peso} ${size}px ${famiglia}`;
-  const spazio = st === 'cinema' ? size * 0.32 : 0;
+  const spazio = (st === 'cinema' ? size * 0.32 : 0) + size * (spec.spaziatura ?? 0);
   const misura = nuovaTela(8, 8).getContext('2d') as Ctx2D;
   misura.font = font;
   const larga = (l: string) => misura.measureText(l).width + spazio * Math.max(0, l.length - 1);
@@ -54,13 +72,13 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   let x0: number, y0: number;
   if (spec.style === 'rullo') { y0 = H * 0.1 + lineH / 2; }
   else if (spec.style === 'crawl') { y0 = h * spec.y; }
-  else if (spec.style === 'sottopancia') { y0 = H * 0.82 - textH / 2 + lineH / 2; }
-  else { y0 = H * spec.y - textH / 2 + lineH / 2; }
-  const align = spec.style === 'crawl' || st === 'macchina' ? 'left' : (spec.style === 'sottopancia' || st === 'social') && spec.align === 'center' ? 'left' : spec.align;
+  else if (spec.style === 'sottopancia' || st === 'notiziario') { y0 = H * 0.82 - textH / 2 + lineH / 2; }
+  else { y0 = H * spec.y - (textH + (sotto ? size * 0.62 : 0)) / 2 + lineH / 2; }
+  const align = spec.style === 'crawl' || st === 'macchina' ? 'left' : (spec.style === 'sottopancia' || st === 'social' || st === 'notiziario') && spec.align === 'center' ? 'left' : spec.align;
   ctx.textAlign = align as CanvasTextAlign;
   if (spec.style === 'crawl') x0 = size / 2;
   else if (st === 'macchina' && spec.align === 'center') x0 = (W - textW) / 2;
-  else if (align === 'left') x0 = spec.style === 'sottopancia' || st === 'social' ? W * 0.08 : W * 0.1;
+  else if (align === 'left') x0 = spec.style === 'sottopancia' || st === 'social' || st === 'notiziario' ? W * 0.08 : W * 0.1;
   else if (align === 'right') x0 = W * 0.9;
   else x0 = W / 2;
   // sottopancia: la fascia colorata sotto al nome, come nei TG
@@ -115,6 +133,25 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
     const bx = align === 'left' ? x0 - pad : align === 'right' ? x0 - textW - pad : x0 - textW / 2 - pad;
     ctx.fillRect(bx, y0 - lineH / 2 - pad / 2, textW + pad * 2, textH + pad);
   }
+  const pr = Math.max(0, Math.min(1, spec.rivela ?? 1));
+  const accento = spec.boxColor.slice(0, 7);
+  const sx0 = align === 'left' ? x0 : align === 'right' ? x0 - textW : x0 - textW / 2;
+  if (st === 'evidenzia') {
+    // il pennarello: una barra colorata dietro le lettere, che si stende da sinistra
+    ctx.fillStyle = accento;
+    ctx.globalAlpha = 0.9;
+    lines.forEach((l, i) => ctx.fillRect(sx0 - size * 0.15, y0 + i * lineH - lineH * 0.42, (larga(l) + size * 0.3) * pr, lineH * 0.8));
+    ctx.globalAlpha = 1;
+  }
+  if (st === 'notiziario') {
+    // due targhe: la prima riga su fondo pieno, la seconda su una fascia scura, come nei telegiornali
+    lines.forEach((l, i) => {
+      const bw = larga(l) + pad * 2.4, by = y0 + i * lineH - lineH / 2 - pad * 0.2;
+      ctx.fillStyle = i === 0 ? accento : '#101218ee';
+      ctx.fillRect(sx0 - pad * 1.2, by, bw, lineH + pad * 0.4);
+      if (i === 0) { ctx.fillStyle = '#ffffff'; ctx.fillRect(sx0 - pad * 1.2, by + lineH + pad * 0.4, bw, Math.max(2, size * 0.05)); }
+    });
+  }
   // "rivela": il testo si scopre da sinistra, dietro una barra colorata che scorre
   const sinistra = align === 'left' ? x0 : align === 'right' ? x0 - textW : x0 - textW / 2;
   if (st === 'rivela') {
@@ -126,6 +163,94 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
   }
   lines.forEach((l, i) => {
     const y = y0 + i * lineH;
+    if (st === 'cascata' || st === 'assembla' || st === 'onda') {
+      // lettera per lettera: ognuna ha il suo tempo (cadono, arrivano da lontano, ondeggiano)
+      ctx.textAlign = 'left';
+      const n = l.length;
+      for (let k = 0; k < n; k++) {
+        const xk = sx0 + misura.measureText(l.slice(0, k)).width + spazio * k;
+        let dx = 0, dy = 0, al = 1, rot = 0;
+        if (st === 'cascata') {
+          const tk = Math.max(0, Math.min(1, (pr * (n + 3) - k) / 3));
+          dy = -(1 - rimbalzoLettera(tk)) * size * 1.7;
+          al = Math.min(1, tk * 4);
+        } else if (st === 'assembla') {
+          const h1 = casuale(k * 3.1 + i), h2 = casuale(k * 7.7 + i + 1), h3 = casuale(k * 1.3 + 5);
+          const e = dolceT(pr * 1.5 - h3 * 0.5);
+          dx = (h1 - 0.5) * W * 0.6 * (1 - e); dy = (h2 - 0.5) * H * 0.7 * (1 - e); rot = (h1 - 0.5) * 3 * (1 - e);
+          al = Math.min(1, e * 2);
+        } else dy = Math.sin((spec.rivela ?? 0) * 4.2 + k * 0.55) * size * 0.14;
+        if (al <= 0.01) continue;
+        const wk = misura.measureText(l[k]).width;
+        ctx.save();
+        ctx.globalAlpha = al;
+        ctx.translate(xk + wk / 2 + dx, y + dy);
+        ctx.rotate(rot);
+        if (spec.shadow) { ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = size * 0.1; ctx.shadowOffsetY = size * 0.05; }
+        if (spec.outline && spec.outline !== 'none') { ctx.strokeStyle = spec.outline; ctx.lineWidth = Math.max(1, size * 0.07); ctx.strokeText(l[k], -wk / 2, 0); }
+        ctx.fillStyle = spec.color;
+        ctx.fillText(l[k], -wk / 2, 0);
+        ctx.restore();
+      }
+      ctx.textAlign = align as CanvasTextAlign;
+      return;
+    }
+    if (st === 'estruso') {
+      // le lettere hanno spessore: tante copie in fila, sempre più scure, e la faccia davanti
+      const prof = Math.max(4, Math.round(size * 0.16));
+      for (let k = prof; k >= 1; k--) {
+        ctx.fillStyle = mescola(accento, '#000000', 0.15 + 0.55 * (k / prof));
+        ctx.fillText(l, x0 + k * size * 0.008, y + k * size * 0.010);
+      }
+      ctx.fillStyle = spec.color;
+      ctx.fillText(l, x0, y);
+      return;
+    }
+    if (st === 'ombraLunga') {
+      // l'ombra lunga in diagonale, che sfuma
+      const lun = Math.round(size * 0.7);
+      for (let k = lun; k >= 1; k--) {
+        ctx.fillStyle = accento;
+        ctx.globalAlpha = 0.85 * (1 - k / (lun + 4));
+        ctx.fillText(l, x0 + k * 0.72, y + k * 0.72);
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = spec.color;
+      ctx.fillText(l, x0, y);
+      return;
+    }
+    if (st === 'contorno') {
+      // solo il filo delle lettere, con un velo di colore dentro
+      ctx.strokeStyle = spec.color;
+      ctx.lineWidth = Math.max(2, size * 0.035);
+      ctx.strokeText(l, x0, y);
+      ctx.globalAlpha = 0.18 + 0.4 * pr;
+      ctx.fillStyle = spec.color;
+      ctx.fillText(l, x0, y);
+      ctx.globalAlpha = 1;
+      return;
+    }
+    if (st === 'karaoke') {
+      // il testo spento, e sopra quello acceso che avanza da sinistra
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = spec.color;
+      ctx.fillText(l, x0, y);
+      ctx.globalAlpha = 1;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx0 - size, y - lineH, (larga(l) + size * 0.3) * pr + size, lineH * 2);
+      ctx.clip();
+      ctx.shadowColor = accento; ctx.shadowBlur = size * 0.25;
+      ctx.fillStyle = accento;
+      ctx.fillText(l, x0, y);
+      ctx.restore();
+      return;
+    }
+    if (st === 'notiziario') {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(l, x0, y);
+      return;
+    }
     if (st === 'gradiente') {
       // le lettere sfumano da un colore all'altro, con l'alone del secondo
       const g = ctx.createLinearGradient(sinistra, y - size / 2, sinistra + textW, y + size / 2);
@@ -202,6 +327,19 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
     ctx.fillStyle = spec.color;
     ctx.fillText(l, x0, y);
   });
+  if (sotto) {
+    // la riga piccola sotto il titolo
+    const ss = size * 0.42;
+    ctx.save();
+    ctx.font = `500 ${ss}px ${famiglia}`;
+    if ('letterSpacing' in ctx) (ctx as unknown as { letterSpacing: string }).letterSpacing = size * 0.04 + 'px';
+    ctx.textAlign = align as CanvasTextAlign;
+    ctx.fillStyle = spec.color;
+    ctx.globalAlpha = 0.85;
+    if (spec.shadow) { ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = size * 0.08; ctx.shadowOffsetY = size * 0.03; }
+    sotto.split('\n').forEach((r, k) => ctx.fillText(r, x0, y0 + lines.length * lineH - lineH / 2 + ss * 0.9 + k * ss * 1.25));
+    ctx.restore();
+  }
   if (st === 'rivela') {
     ctx.restore();
     const r = Math.max(0, Math.min(1, spec.rivela ?? 1));
@@ -218,18 +356,51 @@ export function telaTitolo(spec: TitleSpec, W: number, H: number): { tela: Tela;
 
 /** la macchina da scrivere: il testo fino alla lettera che si vede al tempo t (una lettera ogni 1/18 di secondo) */
 export function specAlTempo(spec: TitleSpec, t: number): TitleSpec {
+  const n = spec.text.replace(/\n/g, '').length;
+  const a = (d: number) => Math.min(1, Math.round((t / d) * 30) / 30);
   // "rivela": in 0,8 secondi il testo si scopre (a scatti di 1/30, così la cache dei titoli regge)
-  if (spec.style === 'rivela') { const r = Math.min(1, Math.round((t / 0.8) * 30) / 30); return r >= 1 ? spec : { ...spec, rivela: r }; }
+  switch (spec.style) {
+    case 'rivela': { const r = a(0.8); return r >= 1 ? spec : { ...spec, rivela: r }; }
+    case 'evidenzia': { const r = a(0.7); return r >= 1 ? spec : { ...spec, rivela: r }; }
+    case 'contorno': { const r = a(1.2); return r >= 1 ? spec : { ...spec, rivela: r }; }
+    case 'cascata': { const r = a(0.05 * n + 0.7); return r >= 1 ? spec : { ...spec, rivela: r }; }
+    case 'assembla': { const r = a(1.3); return r >= 1 ? spec : { ...spec, rivela: r }; }
+    case 'karaoke': { const r = a(Math.max(1, 0.09 * n + 0.5)); return { ...spec, rivela: r }; }
+    // l'onda non finisce mai: la fase è il tempo (a scatti di 1/30)
+    case 'onda': return { ...spec, rivela: Math.round(t * 30) / 30 };
+  }
   if (spec.style !== 'macchina') return spec;
-  const n = Math.max(0, Math.floor(t * 18));
-  return n >= spec.text.length ? spec : { ...spec, text: spec.text.slice(0, n), intero: spec.text };
+  const k = Math.max(0, Math.floor(t * 18));
+  return k >= spec.text.length ? spec : { ...spec, text: spec.text.slice(0, k), intero: spec.text };
 }
 
 const dolce = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
 const salto = (x: number) => { const t = Math.max(0, Math.min(1, x)) - 1; return 1 + 2.7 * t * t * t + 1.7 * t * t; };
 
-/** spostamento, grandezza e trasparenza del titolo animato al tempo locale t su una durata d (pixel del progetto) */
+/** spostamento, grandezza e trasparenza del titolo animato al tempo locale t su una durata d (pixel del progetto):
+ *  il modo del suo stile, più come entra e come esce (qualunque stile) */
 export function motoTitolo(spec: TitleSpec, w: number, h: number, W: number, H: number, t: number, d: number): { dx: number; dy: number; scala?: number; alfa?: number } {
+  const b = motoStile(spec, w, h, W, H, t, d);
+  if (!spec.ingresso && !spec.uscita) return b;
+  let { dx, dy } = b, sc = b.scala ?? 1, al = b.alfa ?? 1;
+  const app = (tipo: string, u: number, entrata: boolean) => {
+    const e = dolce(u), inv = 1 - e;
+    switch (tipo) {
+      case 'dissolve': al *= e; break;
+      case 'sale': dy += H * 0.12 * inv * (entrata ? 1 : -1); al *= e; break;
+      case 'scende': dy -= H * 0.12 * inv * (entrata ? 1 : -1); al *= e; break;
+      case 'sinistra': dx -= W * 0.5 * inv; al *= Math.min(1, e * 2); break;
+      case 'destra': dx += W * 0.5 * inv; al *= Math.min(1, e * 2); break;
+      case 'zoom': sc *= entrata ? 0.55 + 0.45 * e : 1 + 0.5 * inv; al *= e; break;
+      case 'rimbalza': sc *= Math.max(0.001, salto(u)); break;
+    }
+  };
+  if (spec.ingresso && t < 0.7) app(spec.ingresso, t / 0.7, true);
+  if (spec.uscita && d - t < 0.7) app(spec.uscita, Math.max(0, (d - t) / 0.7), false);
+  return { dx, dy, scala: sc, alfa: al };
+}
+
+function motoStile(spec: TitleSpec, w: number, h: number, W: number, H: number, t: number, d: number): { dx: number; dy: number; scala?: number; alfa?: number } {
   const k = d > 0 ? Math.min(1, Math.max(0, t / d)) : 0;
   const resta = d - t;
   const entra = (s: number) => dolce(t / s), esce = (s: number) => dolce(resta / s);
@@ -242,6 +413,11 @@ export function motoTitolo(spec: TitleSpec, w: number, h: number, W: number, H: 
     case 'cinema': return { dx: 0, dy: 0, scala: 1 + 0.08 * k, alfa: Math.min(entra(0.9), esce(0.9)) };
     case 'rimbalzo': return { dx: 0, dy: 0, scala: Math.max(0.001, Math.min(salto(t / 0.45), resta < 0.3 ? dolce(resta / 0.3) : 1)) };
     case 'social': return { dx: -W * 0.7 * (1 - Math.min(entra(0.35), esce(0.3))), dy: 0 };
+    case 'notiziario': return { dx: -W * 0.6 * (1 - Math.min(entra(0.45), esce(0.35))), dy: 0 };
+    case 'ombraLunga': return { dx: 0, dy: H * 0.02 * (1 - entra(0.6)), alfa: Math.min(entra(0.6), esce(0.5)) };
+    case 'estruso': return { dx: 0, dy: 0, scala: 0.8 + 0.2 * entra(0.5), alfa: Math.min(entra(0.35), esce(0.4)) };
+    case 'contorno': return { dx: 0, dy: 0, alfa: Math.min(entra(0.4), esce(0.5)) };
+    case 'karaoke': return { dx: 0, dy: 0, alfa: Math.min(entra(0.3), esce(0.4)) };
     case 'citazione': return { dx: 0, dy: H * 0.03 * (1 - entra(0.8)), alfa: Math.min(entra(0.8), esce(0.7)) };
     case 'gradiente': return { dx: 0, dy: H * 0.04 * (1 - entra(0.7)), alfa: Math.min(entra(0.7), esce(0.6)) };
     case 'etichetta': return { dx: -W * 0.03 * (1 - entra(0.3)), dy: 0, scala: Math.max(0.001, Math.min(salto(t / 0.35), resta < 0.25 ? dolce(resta / 0.25) : 1)) };

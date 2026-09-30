@@ -6,15 +6,21 @@
 // clip. Poi si allungano dai bordi. Un blocco segue la clip su cui sta (quella che ha sotto il suo centro).
 // Qui c'è il catalogo, il calcolo di ogni fotogramma (lo stesso per il monitor e per l'export) e le regole per posarli.
 import type { BloccoFx, Clip, Project, Transition } from './tipi';
-import { end, newClip, newTransition } from './progetto';
+import { end, newClip, newTransition, passaPer } from './progetto';
+import { oggettoSulQuadro } from './traccia';
 import { suonoTransizione } from './suoni';
 import { fps } from './timecode';
 import { nomeModello, tipoDi } from '../render/transizioni';
 
 export type V3 = [number, number, number];
 
+/** le quantità degli effetti nuovi (colore, particelle, specchi…): ognuna 0 o più, e si sommano come le altre */
+export const CAMPI_FX = ['eco', 'duo', 'poster', 'solar', 'termico', 'visore', 'retino', 'muto', 'gocce', 'specchio', 'quadri', 'rullo', 'pesce',
+  'raggi', 'bokeh', 'scint', 'anam', 'neve', 'pioggia', 'polvere', 'coriandoli'] as const;
+type CampiFx = { [K in typeof CAMPI_FX[number]]: number };
+
 /** come si muove l'immagine in quel fotogramma: tutti gli effetti accesi si sommano qui */
-export interface StatoFx {
+export interface StatoFx extends CampiFx {
   /** ingrandimento (1 = niente) e spostamento in frazioni di quadro, rotazione in radianti */
   zoom: number; dx: number; dy: number; rot: number;
   blur: number; pixel: number; rgb: number; glitch: number; seme: number;
@@ -31,6 +37,8 @@ export interface StatoFx {
   cx: number; cy: number;
   /** dove sta il sole del riflesso d'obiettivo, se l'hai messo tu (NaN = passa da solo in alto) */
   soleX: number; soleY: number;
+  /** il colore scelto degli effetti che ne hanno uno (duotone, bokeh, scintille): l'ultimo vince */
+  tinta: V3;
 }
 
 const neutro = (): StatoFx => ({
@@ -38,27 +46,46 @@ const neutro = (): StatoFx => ({
   flash: 0, flashCol: [1, 1, 1], fade: 0, fadeCol: [0, 0, 0], luce: 0, lucePh: 0, bande: 0, vhs: 0,
   bagliore: 0, flare: 0, flarePh: 0, arco: 0, arcoPh: 0, espo: 0, neon: 0,
   onda: 0, bolla: 0, vortice: 0, caleido: 0, calore: 0, zblur: 0,
-  cx: 0.5, cy: 0.5, soleX: NaN, soleY: NaN,
+  cx: 0.5, cy: 0.5, soleX: NaN, soleY: NaN, tinta: [1, 0.24, 0.5],
+  ...(Object.fromEntries(CAMPI_FX.map((k) => [k, 0])) as CampiFx),
 });
 
 /** gli effetti che hanno un centro da mettere dove vuoi sul quadro (e da far muovere lungo il blocco) */
-const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare']);
+const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare', 'pizzico', 'gocce', 'raggi', 'pesce']);
 export const haCentro = (id: string) => { const e = effettoTempo(id); return !!e && CENTRATI.has(e.motore); };
 
-/** il centro del blocco al fotogramma f: fermo in pos, o in viaggio da pos a posFine (partenza e arrivo dolci) */
-export function centroBlocco(bl: Clip, f: number): [number, number] {
+/** le tappe del centro di un effetto in ordine: la partenza, quelle di mezzo, l'arrivo (vuoto se il centro sta fermo) */
+export function tappePos(b: BloccoFx): { t: number; pos: [number, number] }[] {
+  if (!b.posFine) return [];
+  const mezzo = (b.via ?? []).filter((v) => v.t > 0.001 && v.t < 0.999).sort((x, y) => x.t - y.t);
+  return [{ t: 0, pos: b.pos ?? [0.5, 0.5] }, ...mezzo, { t: 1, pos: b.posFine }];
+}
+
+/** il centro del blocco al fotogramma f: fermo in pos, o in viaggio da pos a posFine passando per le tappe di mezzo
+ *  (partenza e arrivo dolci); se segue un oggetto tracciato (con il progetto p) parte da lui e pos è lo scarto */
+export function centroBlocco(bl: Clip, f: number, p?: Project): [number, number] {
   const b = bl.fxb!;
-  const a = b.pos ?? [0.5, 0.5];
-  if (!b.posFine) return a;
-  const x = Math.max(0, Math.min(1, (f - bl.start + 0.5) / Math.max(1, bl.len)));
-  const t = x * x * (3 - 2 * x);
-  return [a[0] + (b.posFine[0] - a[0]) * t, a[1] + (b.posFine[1] - a[1]) * t];
+  let pos: [number, number] = b.pos ?? [0.5, 0.5];
+  const tappe = tappePos(b);
+  if (tappe.length) {
+    const x = Math.max(0, Math.min(1, (f - bl.start + 0.5) / Math.max(1, bl.len)));
+    const ts = tappe.map((t) => t.t);
+    pos = [passaPer(ts, tappe.map((t) => t.pos[0]), x), passaPer(ts, tappe.map((t) => t.pos[1]), x)];
+  }
+  if (b.segue && p) {
+    const sorg = p.clips.find((c) => c.id === b.segue);
+    const o = sorg && oggettoSulQuadro(p, sorg, f);
+    if (o) return [0.5 + o[0] / p.w + (pos[0] - 0.5), 0.5 + o[1] / p.h + (pos[1] - 0.5)];
+  }
+  return pos;
 }
 
 type Motore = 'flash' | 'scossa' | 'camera' | 'zoomColpo' | 'battito' | 'zoomLento' | 'glitch' | 'rgb' | 'negativo' | 'strobo'
   | 'pixel' | 'sfocaEntra' | 'sfocaEsce' | 'dalColore' | 'alColore' | 'luce' | 'bande' | 'bn' | 'tornaColore' | 'vhs'
   | 'bagliore' | 'flare' | 'tremolio' | 'bruciato' | 'arcobaleno' | 'neon' | 'sogno'
-  | 'onda' | 'bolla' | 'vortice' | 'caleido' | 'calore' | 'zoomSfocato';
+  | 'onda' | 'bolla' | 'vortice' | 'caleido' | 'calore' | 'zoomSfocato'
+  | 'eco' | 'vibra' | 'raggi' | 'bokeh' | 'scintille' | 'anamorfico' | 'duotone' | 'posterizza' | 'solarizza' | 'termico' | 'visore'
+  | 'retino' | 'filmMuto' | 'pizzico' | 'gocce' | 'specchio' | 'quadri' | 'rullo' | 'pesce' | 'neve' | 'pioggia' | 'polvere' | 'coriandoli';
 
 export interface EffettoTempo {
   id: string;
@@ -66,7 +93,7 @@ export interface EffettoTempo {
   info: string;
   /** secondi di partenza del blocco */
   durata: number;
-  gruppo: 'rapidi' | 'lunghi' | 'luci' | 'distorsioni';
+  gruppo: 'rapidi' | 'lunghi' | 'luci' | 'distorsioni' | 'colore' | 'particelle';
   motore: Motore;
   /** colore di partenza (lampi e dissolvenze) */
   colore?: string;
@@ -109,6 +136,34 @@ export const EFFETTI_TEMPO: EffettoTempo[] = [
   { id: 'caleido', nome: 'Caleidoscopio', info: 'l\'immagine si specchia a spicchi', durata: 2, gruppo: 'distorsioni', motore: 'caleido' },
   { id: 'calore', nome: 'Aria calda', info: 'il tremolio dell\'asfalto d\'estate', durata: 3, gruppo: 'distorsioni', motore: 'calore' },
   { id: 'zoomSfocato', nome: 'Zoom sfocato', info: 'un colpo verso il centro, con la scia', durata: 0.5, gruppo: 'distorsioni', motore: 'zoomSfocato' },
+  // 1.1.2: più rapidi
+  { id: 'eco', nome: 'Eco visivo', info: 'un\'immagine fantasma che rincorre la vera', durata: 0.8, gruppo: 'rapidi', motore: 'eco' },
+  { id: 'vibra', nome: 'Vibrazione', info: 'un tremito fitto, come sopra un motore', durata: 1, gruppo: 'rapidi', motore: 'vibra' },
+  // più luci
+  { id: 'raggi', nome: 'Raggi di luce', info: 'raggi che escono da un punto luminoso (mirino sul monitor)', durata: 2, gruppo: 'luci', motore: 'raggi' },
+  { id: 'bokeh', nome: 'Bokeh', info: 'cerchi di luce sfocati che fluttuano', durata: 4, gruppo: 'luci', motore: 'bokeh', colore: '#ffd9a0' },
+  { id: 'scintille', nome: 'Scintille', info: 'stelline che brillano qua e là', durata: 3, gruppo: 'luci', motore: 'scintille', colore: '#fff2c0' },
+  { id: 'anamorfico', nome: 'Lente anamorfica', info: 'le luci si allungano in strisce azzurre, come al cinema', durata: 2, gruppo: 'luci', motore: 'anamorfico' },
+  // il colore
+  { id: 'duotone', nome: 'Duotone', info: 'due soli colori: ombre scure e luci del colore che scegli', durata: 4, gruppo: 'colore', motore: 'duotone', colore: '#ff3d7f' },
+  { id: 'posterizza', nome: 'Posterizza', info: 'pochi colori piatti, come una stampa serigrafica', durata: 3, gruppo: 'colore', motore: 'posterizza' },
+  { id: 'solarizza', nome: 'Solarizza', info: 'le luci si invertono, come in camera oscura', durata: 2, gruppo: 'colore', motore: 'solarizza' },
+  { id: 'termico', nome: 'Termocamera', info: 'colori di calore: blu freddo, giallo e bianco caldo', durata: 3, gruppo: 'colore', motore: 'termico' },
+  { id: 'visore', nome: 'Visore notturno', info: 'verde, grana e righe: si vede al buio', durata: 4, gruppo: 'colore', motore: 'visore' },
+  { id: 'retino', nome: 'Retino pop', info: 'puntini da fumetto stampato', durata: 3, gruppo: 'colore', motore: 'retino' },
+  { id: 'filmMuto', nome: 'Film muto', info: 'bianco e nero antico con graffi, polvere e sfarfallio', durata: 5, gruppo: 'colore', motore: 'filmMuto' },
+  // più distorsioni
+  { id: 'pizzico', nome: 'Pizzico', info: 'il centro si stringe come in un imbuto (mirino sul monitor)', durata: 0.8, gruppo: 'distorsioni', motore: 'pizzico' },
+  { id: 'gocce', nome: 'Gocce', info: 'cerchi che si allargano dal centro come sull\'acqua', durata: 2, gruppo: 'distorsioni', motore: 'gocce' },
+  { id: 'pesce', nome: 'Occhio di pesce', info: 'obiettivo grandangolare che gonfia il centro', durata: 2, gruppo: 'distorsioni', motore: 'pesce' },
+  { id: 'specchio', nome: 'Specchio', info: 'metà quadro si riflette sull\'altra metà', durata: 2, gruppo: 'distorsioni', motore: 'specchio' },
+  { id: 'quadri', nome: 'Quattro schermi', info: 'l\'immagine si moltiplica in riquadri specchiati', durata: 2, gruppo: 'distorsioni', motore: 'quadri' },
+  { id: 'rullo', nome: 'Rullo TV', info: 'l\'immagine scorre in verticale, come un vecchio televisore', durata: 1.5, gruppo: 'distorsioni', motore: 'rullo' },
+  // le particelle
+  { id: 'neve', nome: 'Neve', info: 'fiocchi che cadono piano', durata: 6, gruppo: 'particelle', motore: 'neve' },
+  { id: 'pioggia', nome: 'Pioggia', info: 'pioggia fitta, di traverso', durata: 6, gruppo: 'particelle', motore: 'pioggia' },
+  { id: 'polvere', nome: 'Polvere sospesa', info: 'granelli che fluttuano nella luce', durata: 6, gruppo: 'particelle', motore: 'polvere' },
+  { id: 'coriandoli', nome: 'Coriandoli', info: 'una pioggia di festa', durata: 4, gruppo: 'particelle', motore: 'coriandoli' },
 ];
 
 export const effettoTempo = (id: string) => EFFETTI_TEMPO.find((e) => e.id === id);
@@ -118,6 +173,8 @@ const SUONO_EFFETTO: Record<string, string> = {
   flash: 'zap', lampoNero: 'colpo', scossa: 'impatto', zoomColpo: 'colpo', glitch: 'glitch', rgb: 'zap', negativo: 'colpo',
   pixel: 'glitch', fuoco: 'riverso', sfoca: 'discesa', dalBianco: 'riverso', alBianco: 'riser', battito: 'battito', vhs: 'nastro',
   bagliore: 'riverso', flare: 'zap', tremolio: 'glitch', bruciato: 'riser', zoomSfocato: 'whoosh', onda: 'swish', bolla: 'colpo', vortice: 'whoosh',
+  eco: 'riverso', vibra: 'impatto', raggi: 'riser', scintille: 'zap', solarizza: 'glitch', pizzico: 'discesa', gocce: 'swish', quadri: 'colpo',
+  specchio: 'swish', rullo: 'nastro', coriandoli: 'zap',
 };
 
 /** le durate proposte nel contenitore (0 = quella giusta per ogni effetto) */
@@ -150,7 +207,7 @@ export function nuovoBlocco(tipo: 'effetto' | 'transizione', id: string): Blocco
 export function cambiaModello(b: BloccoFx, id: string): BloccoFx {
   const vecchio = suonoDi(b.tipo, b.id), nuovo = suonoDi(b.tipo, id);
   const n: BloccoFx = { ...b, id };
-  if (b.tipo === 'transizione') n.tr = { ...transizioneDa(id), reverse: b.tr?.reverse ?? false };
+  if (b.tipo === 'transizione') n.tr = { ...transizioneDa(id), reverse: b.tr?.reverse ?? false, curva: b.tr?.curva };
   else n.colore = effettoTempo(id)?.colore ?? b.colore;
   if (!b.suono || b.suono === vecchio) { n.suono = nuovo; n.audio = nuovo ? b.audio ?? false : false; }
   return n;
@@ -244,7 +301,7 @@ export function transizioniAttive(p: Project): TransizioneAttiva[] {
     // se le clip sono più corte del blocco, la transizione si stringe dentro di loro
     const s = Math.max(bl.start, tg.a ? tg.a.start : bl.start), e = Math.min(end(bl), tg.b ? end(tg.b) : end(bl));
     if (e - s < 1) continue;
-    out.push({ blocco: bl, tr: { ...bl.fxb.tr, len: e - s }, track: tg.track, s, e, cut: tg.f, a: tg.a, b: tg.b });
+    out.push({ blocco: bl, tr: { ...bl.fxb.tr, len: e - s, forza: bl.fxb.tr.forza ?? bl.fxb.forza }, track: tg.track, s, e, cut: tg.f, a: tg.a, b: tg.b });
   }
   return out;
 }
@@ -294,13 +351,17 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
   const e = effettoTempo(b.id);
   if (!e) return;
   const r = fps(p.rate);
-  const x = Math.max(0, Math.min(1, (f - bl.start + 0.5) / Math.max(1, bl.len)));
+  let x = Math.max(0, Math.min(1, (f - bl.start + 0.5) / Math.max(1, bl.len)));
+  // si ripete: la forma dell'effetto (sale, picco, scende…) rifatta n volte nella durata del blocco
+  const n = Math.max(1, Math.min(16, Math.round(b.ripeti ?? 1)));
+  if (n > 1) x = Math.min(0.9999, (x * n) % 1);
+  const pico = n > 1 ? 0.3 : piccoDi(p, bl);
   const k = Math.max(0, Math.min(1.5, b.forza));
   const t = f / r, tl = (f - bl.start) / r;
   const col = hex(b.colore || e.colore || '#ffffff');
   switch (e.motore) {
     case 'flash': {
-      const pk = piccoDi(p, bl);
+      const pk = pico;
       const env = x < pk ? dolce(x / Math.max(1e-3, pk)) : Math.pow(Math.max(0, 1 - (x - pk) / Math.max(1e-3, 1 - pk)), 1.7);
       [st.flash, st.flashCol] = somma(st.flash, st.flashCol, k * env, col);
       break;
@@ -326,7 +387,7 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
       break;
     }
     case 'zoomColpo': {
-      const pk = piccoDi(p, bl) < 0.1 ? 0 : piccoDi(p, bl);
+      const pk = pico < 0.1 ? 0 : pico;
       const y = x - pk;
       const env = y < 0 ? dolce(1 + y / Math.max(0.05, pk)) * 0.4 : y < 0.12 ? dolce(y / 0.12) : 1 - dolce((y - 0.12) / Math.max(0.05, 1 - pk - 0.12));
       st.zoom *= 1 + k * 0.2 * Math.max(0, env);
@@ -360,7 +421,7 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
     case 'bagliore': st.bagliore += k * Math.sin(Math.PI * x); break;
     case 'flare': { const v = k * Math.min(1, Math.sin(Math.PI * x) * 1.6); if (v > st.flare) st.flarePh = x; st.flare += v; break; }
     case 'tremolio': st.espo += k * 0.55 * (hash(Math.floor(f) * 1.7 + bl.start) - 0.6) * bordi(x, 8); break;
-    case 'bruciato': { const pk = piccoDi(p, bl); st.espo += k * 1.6 * (x < pk ? dolce(x / Math.max(0.05, pk)) : Math.pow(1 - (x - pk) / Math.max(0.05, 1 - pk), 1.5)); break; }
+    case 'bruciato': { const pk = pico; st.espo += k * 1.6 * (x < pk ? dolce(x / Math.max(0.05, pk)) : Math.pow(1 - (x - pk) / Math.max(0.05, 1 - pk), 1.5)); break; }
     case 'arcobaleno': { const v = k * Math.sin(Math.PI * x); if (v > st.arco) st.arcoPh = x; st.arco += v; break; }
     case 'neon': st.neon += Math.min(1, k) * bordi(x, 8); break;
     case 'sogno': { const v = k * bordi(x, 6); st.bagliore += v * 0.8; st.blur += v * 0.18; break; }
@@ -370,7 +431,38 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
     case 'vortice': st.vortice += k * Math.sin(Math.PI * x); break;
     case 'caleido': st.caleido += Math.min(1, k) * bordi(x, 7); break;
     case 'calore': st.calore += k * bordi(x, 6); break;
-    case 'zoomSfocato': { const pk = piccoDi(p, bl) < 0.1 ? 0.3 : piccoDi(p, bl); st.zblur += k * (x < pk ? dolce(x / pk) : 1 - dolce((x - pk) / Math.max(0.05, 1 - pk))); break; }
+    case 'zoomSfocato': { const pk = pico < 0.1 ? 0.3 : pico; st.zblur += k * (x < pk ? dolce(x / pk) : 1 - dolce((x - pk) / Math.max(0.05, 1 - pk))); break; }
+    // 1.1.2: rapidi e luci nuovi
+    case 'eco': st.eco += k * Math.sin(Math.PI * x); break;
+    case 'vibra': {
+      const a = k * 0.006 * bordi(x, 8);
+      st.dx += a * Math.sin(t * 180) ; st.dy += a * Math.sin(t * 151 + 1);
+      break;
+    }
+    case 'raggi': st.raggi += k * bordi(x, 4); break;
+    case 'bokeh': st.bokeh += k * bordi(x, 5); st.tinta = col; break;
+    case 'scintille': st.scint += k * bordi(x, 6); st.tinta = col; break;
+    case 'anamorfico': st.anam += k * bordi(x, 5); break;
+    // il colore
+    case 'duotone': st.duo += Math.min(1, k) * bordi(x, 6); st.tinta = col; break;
+    case 'posterizza': st.poster += Math.min(1, k) * bordi(x, 6); break;
+    case 'solarizza': st.solar += Math.min(1, k) * bordi(x, 5); break;
+    case 'termico': st.termico += Math.min(1, k) * bordi(x, 6); break;
+    case 'visore': st.visore += Math.min(1, k) * bordi(x, 6); break;
+    case 'retino': st.retino += Math.min(1, k) * bordi(x, 6); break;
+    case 'filmMuto': st.muto += Math.min(1, k) * bordi(x, 6); break;
+    // le distorsioni nuove
+    case 'pizzico': st.bolla -= k * Math.sin(Math.PI * Math.min(1, x * 1.2)); break;
+    case 'gocce': st.gocce += k * bordi(x, 6); break;
+    case 'pesce': st.pesce += k * bordi(x, 6); break;
+    case 'specchio': st.specchio += Math.min(1, k) * dolce(Math.min(1, x * 4) * Math.min(1, (1 - x) * 4)); break;
+    case 'quadri': st.quadri += Math.min(1, k) * dolce(Math.min(1, x * 5) * Math.min(1, (1 - x) * 5)); break;
+    case 'rullo': st.rullo += Math.min(1, k) * bordi(x, 6); break;
+    // le particelle
+    case 'neve': st.neve += k * bordi(x, 8); break;
+    case 'pioggia': st.pioggia += k * bordi(x, 8); break;
+    case 'polvere': st.polvere += k * bordi(x, 6); break;
+    case 'coriandoli': st.coriandoli += k * bordi(x, 10); break;
   }
 }
 
@@ -385,8 +477,8 @@ export function statoEffetti(p: Project, f: number, track?: string): StatoFx | n
     st ??= neutro();
     applica(st, p, c, f);
     const e = effettoTempo(c.fxb!.id);
-    if (e && CENTRATI.has(e.motore) && c.fxb!.pos) {
-      const [x, y] = centroBlocco(c, f);
+    if (e && CENTRATI.has(e.motore) && (c.fxb!.pos || c.fxb!.segue)) {
+      const [x, y] = centroBlocco(c, f, p);
       const w = Math.max(0.05, c.fxb!.forza);
       if (e.motore === 'flare') { st.soleX = x; st.soleY = y; continue; }
       px += x * w; py += y * w; peso += w;
@@ -401,6 +493,8 @@ export function statoEffetti(p: Project, f: number, track?: string): StatoFx | n
     st.bagliore = Math.min(2, st.bagliore); st.flare = Math.min(1.5, st.flare); st.arco = Math.min(1.5, st.arco); st.espo = Math.max(-0.8, Math.min(2.5, st.espo));
     st.neon = Math.min(1, st.neon); st.onda = Math.min(2, st.onda); st.bolla = Math.min(1.5, st.bolla); st.vortice = Math.min(2, st.vortice);
     st.caleido = Math.min(1, st.caleido); st.calore = Math.min(2, st.calore); st.zblur = Math.min(1.5, st.zblur);
+    st.bolla = Math.max(-1.2, Math.min(1.5, st.bolla));
+    for (const k of CAMPI_FX) st[k] = Math.min(2, Math.max(0, st[k]));
   }
   return st;
 }

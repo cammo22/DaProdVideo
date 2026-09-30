@@ -35,7 +35,7 @@ export interface Strato {
 
 /** le transizioni che sono soprattutto un effetto sull'immagine (luce, distorsione, sfocatura, pixel): sommate a
  *  un'altra, si applicano sopra quello che fa lei */
-const EFFETTO = new Set([321, 331, 341, 351, 361, 371, 381, 391, 421, 431, 451, 461, 471, 491]);
+const EFFETTO = new Set([321, 331, 341, 351, 361, 371, 381, 391, 421, 431, 451, 461, 471, 491, 651]);
 export const eEffetto = (tr: Transition) => tr.type === 'dip' || (tr.type === 'dve' && EFFETTO.has(tr.pattern));
 
 /** l'ordine della catena: prima quelle che portano dalla vecchia alla nuova (cubo, spinte, tendine, dissolvenza),

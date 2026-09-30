@@ -4,6 +4,9 @@
 // e posata sulla traccia sopra come bolla in un angolo, così dopo si sposta, si ingrandisce o si toglie. Prima di
 // partire il conto 3-2-1; mentre registri M mette un segno (diventa un marcatore); il telecomando resta sopra alle
 // altre finestre (Document Picture-in-Picture nel browser, la finestra piccola e in primo piano nell'app).
+// Più finestre: mentre registri puoi aggiungere altre finestre o schermi (＋ Finestra) e passare dall'una all'altra al volo
+// (clic sulla miniatura, o i tasti 1-9): la Regia disegna quella scelta (o due insieme, affiancate o una in angolo) in una
+// tela di misura fissa e registra quella, così il file resta uno solo e la misura non cambia.
 // Sotto c'è il motore del browser (getDisplayMedia, getUserMedia e MediaRecorder).
 // La PAUSA chiude un pezzo e RIPRENDI ne apre un altro (la pausa di MediaRecorder non la tratta uguale ogni browser:
 // alcuni lasciano il buco nel file); alla fine Mediabunny cuce i pezzi uno dopo l'altro in un file solo, con durata
@@ -151,6 +154,79 @@ async function salvaSulDisco(nome: string, blob: Blob): Promise<string | undefin
 }
 
 
+/** una finestra (o uno schermo) che si può registrare: il suo flusso e un video nascosto che lo fa scorrere */
+interface Fonte { flusso: MediaStream; video: HTMLVideoElement; nome: string; miniatura: HTMLCanvasElement }
+type Disposizione = 'solo' | 'angolo' | 'affiancate';
+
+/** la regia: disegna la finestra scelta (o due) in una tela di misura fissa, tanti fotogrammi al secondo quanti ne vuoi */
+class Regia {
+  fonti: Fonte[] = [];
+  attiva = 0;
+  layout: Disposizione = 'solo';
+  tela: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private tick: Worker | number = 0;
+  track: MediaStreamTrack;
+  flusso: MediaStream;
+
+  constructor(public w: number, public h: number, fps: number) {
+    this.tela = document.createElement('canvas');
+    this.tela.width = w; this.tela.height = h;
+    this.ctx = this.tela.getContext('2d', { alpha: false })!;
+    this.flusso = this.tela.captureStream(fps);
+    this.track = this.flusso.getVideoTracks()[0];
+    this.disegna();
+    // il battito: un lavoratore a parte non viene rallentato quando la finestra dell'app è nascosta o coperta
+    const ms = Math.round(1000 / fps);
+    try {
+      const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms});`], { type: 'text/javascript' }));
+      const w2 = new Worker(url);
+      URL.revokeObjectURL(url);
+      w2.onmessage = () => this.disegna();
+      this.tick = w2;
+    } catch { this.tick = window.setInterval(() => this.disegna(), ms); }
+  }
+
+  private riquadro(v: HTMLVideoElement, x: number, y: number, w: number, h: number) {
+    if (!v.videoWidth || !v.videoHeight) return;
+    const k = Math.min(w / v.videoWidth, h / v.videoHeight);
+    const dw = v.videoWidth * k, dh = v.videoHeight * k;
+    this.ctx.drawImage(v, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  }
+
+  disegna() {
+    const c = this.ctx, W = this.w, H = this.h, n = this.fonti.length;
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, W, H);
+    if (!n) return;
+    const a = this.fonti[Math.min(this.attiva, n - 1)];
+    const b = n > 1 ? this.fonti[(this.attiva + 1) % n] : null;
+    if (this.layout === 'affiancate' && b) {
+      this.riquadro(a.video, 0, 0, W / 2, H);
+      this.riquadro(b.video, W / 2, 0, W / 2, H);
+    } else {
+      this.riquadro(a.video, 0, 0, W, H);
+      if (this.layout === 'angolo' && b) {
+        const pw = W * 0.28, ph = H * 0.28, m = H * 0.03;
+        c.save();
+        c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = 18;
+        c.fillStyle = '#000';
+        c.fillRect(W - pw - m, H - ph - m, pw, ph);
+        c.restore();
+        this.riquadro(b.video, W - pw - m, H - ph - m, pw, ph);
+        c.strokeStyle = '#ffd54a'; c.lineWidth = Math.max(2, H / 360);
+        c.strokeRect(W - pw - m, H - ph - m, pw, ph);
+      }
+    }
+  }
+
+  ferma() {
+    if (typeof this.tick === 'number') clearInterval(this.tick); else this.tick.terminate();
+    this.track.stop();
+    for (const f of this.fonti) { f.video.srcObject = null; f.video.remove(); }
+  }
+}
+
 /** le scelte di LIVE: restano da una volta all'altra */
 interface Opzioni {
   mic: boolean;
@@ -168,10 +244,13 @@ interface Opzioni {
   timeline: boolean;
   presentazione: boolean;
   sfondo: string;
+  /** più finestre: la regia passa dall'una all'altra mentre registri */
+  finestre: boolean;
+  layout: Disposizione;
 }
 const OPZ0: Opzioni = {
   mic: true, micId: '', sistema: true, cam: false, camId: '', camAngolo: 'bd', camTonda: true,
-  qualita: 1080, fps: 30, cursore: true, conto: true, timeline: true, presentazione: false, sfondo: 'notte',
+  qualita: 1080, fps: 30, cursore: true, conto: true, timeline: true, presentazione: false, sfondo: 'notte', finestre: true, layout: 'solo',
 };
 function leggiOpzioni(): Opzioni {
   try { return { ...OPZ0, ...JSON.parse(localStorage.getItem('dpv-live') || '{}') }; } catch { return { ...OPZ0 }; }
@@ -247,6 +326,13 @@ export class Live {
   private cam: MediaStream | null = null;
   /** il microfono aperto solo per provarlo (il VU prima di partire) */
   private micProva: MediaStream | null = null;
+  /** la regia (solo se si registra con più finestre) e la fila delle miniature */
+  private regia: Regia | null = null;
+  private elFonti: HTMLElement;
+  private bAggiungi: HTMLButtonElement;
+  private bProssima: HTMLButtonElement;
+  private aggiungendo = false;
+  private giroFonti = 0;
   private tipo = '';
   private tipoCam = '';
   private fase: Fase = 'fermo';
@@ -288,6 +374,9 @@ export class Live {
     this.bFerma = h('button', { class: 'live-btn ferma', disabled: true, title: 'Ferma: finisce nel contenitore (F)', on: { click: () => this.ferma() } }, '■ FERMA') as HTMLButtonElement;
     this.bSegna = h('button', { class: 'live-btn segna', disabled: true, title: 'Un segno qui: nella timeline diventa un marcatore (M)', on: { click: () => this.segna() } }, icona('marcatore', 14), 'SEGNA') as HTMLButtonElement;
     const bTele = h('button', { class: 'live-btn tele', title: 'Il telecomando resta sopra le altre finestre mentre registri', on: { click: () => void this.apriTelecomando() } }, icona('telecomando', 15), 'TELECOMANDO');
+    this.elFonti = h('div', { class: 'live-fonti' });
+    this.bAggiungi = h('button', { class: 'live-btn', disabled: true, title: 'Aggiungi un\'altra finestra o schermo (N)', on: { click: () => void this.aggiungiFinestra() } }, '＋ FINESTRA') as HTMLButtonElement;
+    this.bProssima = h('button', { class: 'live-btn', disabled: true, title: 'Passa alla finestra dopo (o i tasti 1-9)', on: { click: () => this.prossimaFinestra() } }, '⇄ CAMBIA') as HTMLButtonElement;
     this.lista = h('div', { class: 'live-lista' }, h('p', { class: 'nota' }, 'Le registrazioni di oggi compaiono qui (e nel contenitore, cartella Registrazioni).'));
     this.vu = h('canvas', { class: 'live-vu', width: 300, height: 12, title: 'Clic: prova il microfono' }) as HTMLCanvasElement;
     this.vu.addEventListener('click', () => void this.provaMic());
@@ -295,7 +384,7 @@ export class Live {
 
     // ——— le scelte ———
     const salva = () => { try { localStorage.setItem('dpv-live', JSON.stringify(this.opz)); } catch { /* niente */ } };
-    const fisse = new Set<keyof Opzioni>(['mic', 'sistema', 'cam', 'qualita', 'fps', 'cursore', 'micId', 'camId']);
+    const fisse = new Set<keyof Opzioni>(['mic', 'sistema', 'cam', 'qualita', 'fps', 'cursore', 'micId', 'camId', 'finestre']);
     const cambia = <K extends keyof Opzioni>(k: K, v: Opzioni[K]) => {
       if (this.fase !== 'fermo' && fisse.has(k)) { avviso('Questo si cambia prima di registrare', 'info'); this.sinc.forEach((f) => f()); return false; }
       this.opz[k] = v;
@@ -303,14 +392,14 @@ export class Live {
       this.sinc.forEach((f) => f());
       return true;
     };
-    const interruttore = (k: 'mic' | 'sistema' | 'cam' | 'cursore' | 'conto' | 'timeline' | 'presentazione', ic: string | null, testo: string, info: string, dopo?: () => void) => {
+    const interruttore = (k: 'mic' | 'sistema' | 'cam' | 'cursore' | 'conto' | 'timeline' | 'presentazione' | 'finestre', ic: string | null, testo: string, info: string, dopo?: () => void) => {
       const led = h('span', { class: 'led' });
       const b = h('button', { class: 'fin-interruttore', title: info, on: { click: () => { if (cambia(k, !this.opz[k])) dopo?.(); } } },
         led, ic ? icona(ic, 14) : null, h('span', { class: 'fin-int-testo' }, testo));
       this.sinc.push(() => { b.classList.toggle('acceso', this.opz[k]); led.classList.toggle('acceso', this.opz[k]); });
       return b;
     };
-    const chips = <K extends 'qualita' | 'fps' | 'camAngolo' | 'camTonda' | 'sfondo'>(k: K, lista: [Opzioni[K], string, string?][], dopo?: () => void) => {
+    const chips = <K extends 'qualita' | 'fps' | 'camAngolo' | 'camTonda' | 'sfondo' | 'layout'>(k: K, lista: [Opzioni[K], string, string?][], dopo?: () => void) => {
       const bb = lista.map(([v, testo, tit]) => {
         const b = h('button', { class: 'chip', title: tit ?? '', on: { click: () => { if (cambia(k, v)) dopo?.(); } } }, testo);
         this.sinc.push(() => b.classList.toggle('acceso', this.opz[k] === v));
@@ -339,6 +428,7 @@ export class Live {
     this.miniPausa = h('button', { class: 'live-btn', on: { click: () => this.pausa() } }, '❚❚') as HTMLButtonElement;
     this.mini = h('div', { class: 'live-mini' },
       h('i', { class: 'live-mini-punto' }), this.miniTempo, this.miniPausa,
+      h('button', { class: 'live-btn', title: 'Passa alla finestra dopo (tasti 1-9)', on: { click: () => this.prossimaFinestra() } }, '⇄'),
       h('button', { class: 'live-btn segna', title: 'Segno (M)', on: { click: () => this.segna() } }, icona('marcatore', 14)),
       h('button', { class: 'live-btn ferma', title: 'Ferma (F)', on: { click: () => this.ferma() } }, '■'),
       h('button', { class: 'live-btn', title: 'Torna alla finestra grande', on: { click: () => void this.chiudiTelecomando() } }, '⤢'));
@@ -348,7 +438,7 @@ export class Live {
     const sezione = (t: string) => h('h4', { class: 'live-sez' }, t);
     this.el = h('section', { class: 'pannello live' },
       h('header', { class: 'fin-testa' }, h('span', { class: 'live-marchio' }, h('i'), 'LIVE'), h('span', null, 'registra lo schermo e mettilo nel montaggio'),
-        h('span', { class: 'live-tastiera' }, h('kbd', null, 'R'), ' registra ', h('kbd', null, 'Spazio'), ' pausa ', h('kbd', null, 'M'), ' segno ', h('kbd', null, 'F'), ' ferma')),
+        h('span', { class: 'live-tastiera' }, h('kbd', null, 'R'), ' registra ', h('kbd', null, 'Spazio'), ' pausa ', h('kbd', null, 'M'), ' segno ', h('kbd', null, '1-9'), ' finestra ', h('kbd', null, 'N'), ' nuova ', h('kbd', null, 'F'), ' ferma')),
       h('div', { class: 'live-dentro' },
         h('div', { class: 'live-schermo' }, h('div', { class: 'live-quadro' }, vuoto, this.video), this.camVideo, this.contoEl),
         h('div', { class: 'live-comandi' },
@@ -356,6 +446,8 @@ export class Live {
             this.tempo, this.stato, this.info,
             h('div', { class: 'live-tasti' }, this.bReg, this.bPausa, this.bFerma),
             h('div', { class: 'live-tasti due' }, this.bSegna, bTele),
+            h('div', { class: 'live-tasti due' }, this.bAggiungi, this.bProssima),
+            this.elFonti,
             h('div', { class: 'live-vu-riga' }, icona('mic', 13), this.vu, this.vuNome)),
           sezione('Cosa registro'),
           h('div', { class: 'live-riga' }, interruttore('mic', 'mic', 'Microfono', 'La tua voce mentre registri'), this.selMic),
@@ -364,6 +456,9 @@ export class Live {
           h('div', { class: 'live-riga cam-scelte' },
             chips('camAngolo', ANGOLI.map(([a, s]): [Angolo, string, string] => [a, s, 'La webcam in questo angolo'])),
             chips('camTonda', [[true, 'Bolla', 'Tonda'], [false, 'Riquadro', 'Un riquadro con gli angoli tondi']])),
+          sezione('Finestre'),
+          interruttore('finestre', null, 'Più finestre al volo', 'Aggiungi altre finestre o schermi e passa dall\'una all\'altra mentre registri: il video resta uno solo'),
+          chips('layout', [['solo', 'Una sola', 'La finestra scelta a tutto quadro'], ['angolo', 'In angolo', 'La scelta grande e la prossima piccola in un angolo'], ['affiancate', 'Affiancate', 'Due finestre una accanto all\'altra']], () => this.applicaLayout()),
           sezione('Qualità'),
           chips('qualita', QUALITA.map(([q, n]): [number, string] => [q, n])),
           h('div', { class: 'live-riga' }, chips('fps', [[30, '30 fps'], [60, '60 fps', 'Più fluido (giochi, animazioni): file più grandi']]),
@@ -376,7 +471,7 @@ export class Live {
           sezione('Registrate'),
           this.lista,
           h('p', { class: 'nota' }, puoRegistrare()
-            ? 'Il sistema chiede ogni volta cosa registrare. La pausa non lascia buchi: il file riprende da dove eri. Su Windows e nel browser Chrome/Edge c\'è anche l\'audio del computer.'
+            ? 'Il sistema chiede ogni volta cosa registrare. Con "Più finestre" puoi aggiungerne altre mentre registri (＋ FINESTRA, N) e passare dall\'una all\'altra (clic sulla miniatura o tasti 1-9, L cambia la disposizione). La pausa non lascia buchi: il file riprende da dove eri. Su Windows e nel browser Chrome/Edge c\'è anche l\'audio del computer.'
             : 'Qui non si può registrare lo schermo: su Android il sistema non lo permette alle app come questa. Usa la versione per Windows o Mac, o Chrome/Edge sul computer.'))));
     this.video.addEventListener('loadedmetadata', () => vuoto.classList.add('via'));
     this.video.addEventListener('emptied', () => vuoto.classList.remove('via'));
@@ -412,6 +507,9 @@ export class Live {
     if (k === 'r' && this.fase === 'fermo') void this.registra();
     else if ((k === ' ' || k === 'p') && (this.fase === 'registra' || this.fase === 'pausa')) this.pausa();
     else if (k === 'm' && this.fase === 'registra') this.segna();
+    else if (/^[1-9]$/.test(k) && this.regia && this.fase !== 'fermo') this.passaA(Number(k) - 1);
+    else if (k === 'n' && this.regia && this.fase !== 'fermo') void this.aggiungiFinestra();
+    else if (k === 'l' && this.regia && this.fase !== 'fermo') this.ciclaLayout();
     else if ((k === 'f' || k === 'escape') && this.fase !== 'fermo') this.ferma();
     else preso = false;
     if (preso) {
@@ -558,6 +656,8 @@ export class Live {
     this.bPausa.disabled = f !== 'registra' && f !== 'pausa';
     this.bFerma.disabled = f === 'fermo';
     this.bSegna.disabled = f !== 'registra';
+    this.bAggiungi.disabled = !this.regia || f === 'fermo';
+    this.bProssima.disabled = !this.regia || f === 'fermo' || this.regia.fonti.length < 2;
     this.bPausa.textContent = f === 'pausa' ? '▶ RIPRENDI' : '❚❚ PAUSA';
     this.miniPausa.textContent = f === 'pausa' ? '▶' : '❚❚';
     this.el.classList.toggle('in-onda', f === 'registra' || f === 'pausa');
@@ -646,7 +746,21 @@ export class Live {
       return;
     }
     this.flussi = [schermo];
-    const tracce: MediaStreamTrack[] = [...schermo.getVideoTracks()];
+    let tracce: MediaStreamTrack[];
+    const st0 = schermo.getVideoTracks()[0]?.getSettings?.() ?? {};
+    if (o.finestre) {
+      // più finestre: la misura è quella della prima, ridotta alla qualità scelta; la regia disegna quella in onda
+      let w = st0.width || Math.round(o.qualita * 16 / 9), hh = st0.height || o.qualita;
+      const kk = Math.min(1, o.qualita / hh);
+      w = Math.max(2, Math.round((w * kk) / 2) * 2); hh = Math.max(2, Math.round((hh * kk) / 2) * 2);
+      const r = new Regia(w, hh, o.fps);
+      r.layout = o.layout;
+      r.fonti.push(this.nuovaFonte(schermo, 1));
+      this.regia = r;
+      tracce = [r.track];
+      this.giroFonti = window.setInterval(() => this.aggiornaMiniature(), 400);
+      this.disegnaFonti();
+    } else tracce = [...schermo.getVideoTracks()];
     // l'audio: il microfono e quello del computer, mescolati in una traccia sola
     const audio: MediaStream[] = [];
     if (schermo.getAudioTracks().length) audio.push(new MediaStream(schermo.getAudioTracks()));
@@ -683,13 +797,14 @@ export class Live {
     this.flusso = new MediaStream(tracce);
     this.tipo = formato();
     this.tipoCam = formato(true);
-    this.video.srcObject = schermo;
+    this.video.srcObject = this.regia ? this.regia.flusso : schermo;
     void this.video.play().catch(() => {});
     if (audio.length) this.avviaVu(mix ?? mic ?? audio[0], mix ? 'microfono + computer' : mic ? 'microfono' : 'audio del computer');
-    const st = schermo.getVideoTracks()[0]?.getSettings?.() ?? {};
+    const st = st0;
     this.info.textContent = [st.width && st.height ? `${st.width}×${st.height}` : '', st.frameRate ? `${Math.round(st.frameRate)} fps` : '', mic ? 'microfono' : '', schermo.getAudioTracks().length ? 'audio del computer' : '', this.cam ? 'webcam' : ''].filter(Boolean).join(' · ');
     // se si ferma la condivisione dalla barra del sistema, è come premere FERMA
-    schermo.getVideoTracks()[0]?.addEventListener('ended', () => this.ferma());
+    const f0 = this.regia?.fonti[0];
+    schermo.getVideoTracks()[0]?.addEventListener('ended', () => (f0 ? this.togliFinestra(f0) : this.ferma()));
     if (o.conto) {
       this.fase = 'conto';
       this.aggiornaTasti();
@@ -766,6 +881,7 @@ export class Live {
     for (const f of flussi) for (const t of f.getTracks()) t.stop();
     void ctx?.close().catch(() => {});
     if (flussi !== this.flussi) return;
+    this.chiudiRegia();
     this.flussi = [];
     this.audioCtx = null;
     this.flusso = null;
@@ -819,6 +935,12 @@ export class Live {
     const foto = this.foto();
     const durata = this.durataUltima = this.fatto;
     const pezzi = this.pezzi, pezziCam = this.pezziCam, segni = this.segni, flussi = this.flussi, ctx = this.audioCtx;
+    // la regia disegna finché l'ultimo pezzo non ha dato tutto
+    const regia = this.regia;
+    this.regia = null;
+    clearInterval(this.giroFonti);
+    this.disegnaFonti();
+    this.aggiornaTasti();
     this.pezzi = [];
     this.pezziCam = [];
     this.segni = [];
@@ -829,6 +951,7 @@ export class Live {
       // i flussi si spengono solo quando l'ultimo pezzo ha dato tutto
       const [tratti, trattiCam] = await Promise.all([Promise.all(pezzi), Promise.all(pezziCam)]);
       this.diagnosi = tratti.map((x, i) => `tratto ${i + 1}: ${Math.round(x.blob.size / 1024)} kB, ${x.nota}`);
+      regia?.ferma();
       this.chiudiFlussi(flussi, ctx);
       if (this.fase === 'fermo') this.video.srcObject = null;
       // la webcam resta accesa per l'anteprima solo se si è ancora su LIVE
@@ -943,6 +1066,126 @@ export class Live {
       segni.forEach((t, i) => p.markers.push({ id: uid('k'), f: inizio + Math.round(t * r), name: `Segno ${i + 1}`, color: '#ff4d6d' }));
       return ids;
     });
+  }
+
+  // ——— più finestre ———
+  private nomeFonte(s: MediaStream, n: number) {
+    const l = (s.getVideoTracks()[0]?.label ?? '').replace(/^(window|screen|web-contents-media-stream):.*/i, '').trim();
+    return l || `Finestra ${n}`;
+  }
+
+  private nuovaFonte(flusso: MediaStream, n: number): Fonte {
+    // il video sta nella pagina ma quasi invisibile: se no il browser non lo fa scorrere
+    const video = h('video', { muted: true, autoplay: true, playsinline: true, style: 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none' }) as HTMLVideoElement;
+    video.muted = true;
+    video.srcObject = flusso;
+    document.body.append(video);
+    void video.play().catch(() => {});
+    return { flusso, video, nome: this.nomeFonte(flusso, n), miniatura: h('canvas', { width: 112, height: 63 }) as HTMLCanvasElement };
+  }
+
+  /** un'altra finestra o schermo: si sceglie col selettore del sistema e va subito in onda */
+  async aggiungiFinestra() {
+    const r = this.regia;
+    if (!r || this.fase === 'fermo') { avviso('Premi prima REGISTRA: poi puoi aggiungere altre finestre', 'info', 2200); return; }
+    if (this.aggiungendo) return;
+    this.aggiungendo = true;
+    try {
+      const o = this.opz;
+      const s = sorgenteProva ? await sorgenteProva(false) : await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: o.fps }, height: { ideal: o.qualita }, width: { ideal: Math.round(o.qualita * 16 / 9) }, ...({ cursor: o.cursore ? 'always' : 'never' } as object) },
+        audio: false,
+        ...({ selfBrowserSurface: 'exclude' } as object),
+      } as DisplayMediaStreamOptions);
+      // nel frattempo la registrazione può essere finita
+      if (this.regia !== r) { for (const t of s.getTracks()) t.stop(); return; }
+      this.flussi.push(s);
+      const f = this.nuovaFonte(s, r.fonti.length + 1);
+      r.fonti.push(f);
+      r.attiva = r.fonti.length - 1;
+      s.getVideoTracks()[0]?.addEventListener('ended', () => this.togliFinestra(f));
+      this.disegnaFonti();
+      this.aggiornaTasti();
+      this.stato.textContent = `● In onda: ${f.nome.slice(0, 28)}`;
+    } catch { /* il selettore è stato chiuso */ } finally { this.aggiungendo = false; }
+  }
+
+  /** una finestra si è chiusa (o l'hai tolta): se era l'ultima è come premere FERMA */
+  private togliFinestra(f: Fonte) {
+    const r = this.regia;
+    if (!r) return;
+    const i = r.fonti.indexOf(f);
+    if (i < 0) return;
+    if (r.fonti.length <= 1) { this.ferma(); return; }
+    r.fonti.splice(i, 1);
+    if (r.attiva >= i) r.attiva = Math.max(0, r.attiva - 1);
+    for (const t of f.flusso.getTracks()) t.stop();
+    f.video.srcObject = null;
+    f.video.remove();
+    r.disegna();
+    this.disegnaFonti();
+    this.aggiornaTasti();
+  }
+
+  passaA(i: number) {
+    const r = this.regia;
+    if (!r || i < 0 || i >= r.fonti.length) return;
+    r.attiva = i;
+    r.disegna();
+    this.disegnaFonti();
+    this.stato.textContent = `● In onda: ${i + 1} · ${r.fonti[i].nome.slice(0, 28)}`;
+  }
+
+  prossimaFinestra() {
+    const r = this.regia;
+    if (!r || r.fonti.length < 2) { avviso('C\'è una sola finestra: aggiungine un\'altra con ＋ FINESTRA', 'info', 2200); return; }
+    this.passaA((r.attiva + 1) % r.fonti.length);
+  }
+
+  private ciclaLayout() {
+    const l: Disposizione[] = ['solo', 'angolo', 'affiancate'];
+    this.opz.layout = l[(l.indexOf(this.opz.layout) + 1) % l.length];
+    try { localStorage.setItem('dpv-live', JSON.stringify(this.opz)); } catch { /* niente */ }
+    this.sinc.forEach((f) => f());
+    this.applicaLayout();
+  }
+
+  private applicaLayout() {
+    if (!this.regia) return;
+    this.regia.layout = this.opz.layout;
+    this.regia.disegna();
+    this.disegnaFonti();
+  }
+
+  /** la fila delle miniature: chi è in onda è acceso, chi sta per andarci (in angolo o affiancata) è segnato */
+  private disegnaFonti() {
+    const r = this.regia;
+    if (!r) { this.elFonti.replaceChildren(); return; }
+    const n = r.fonti.length;
+    this.elFonti.replaceChildren(...r.fonti.map((f, i) => h('div', {
+      class: 'live-fonte' + (i === r.attiva ? ' in-onda' : '') + (n > 1 && this.opz.layout !== 'solo' && i === (r.attiva + 1) % n ? ' seconda' : ''),
+      title: `${f.nome}: clic per metterla in onda (tasto ${i + 1})`, 'data-i': String(i), on: { click: () => this.passaA(i) },
+    }, f.miniatura, h('span', { class: 'live-fonte-nome' }, `${i + 1} · ${f.nome}`),
+      n > 1 ? h('button', { class: 'live-fonte-x', title: 'Toglila (smette di essere registrabile)', on: { click: (e: Event) => { e.stopPropagation(); this.togliFinestra(f); } } }, '✕') : null)));
+    this.aggiornaMiniature();
+  }
+
+  private aggiornaMiniature() {
+    for (const f of this.regia?.fonti ?? []) {
+      const c = f.miniatura.getContext('2d');
+      if (!c || !f.video.videoWidth) continue;
+      const k = Math.min(112 / f.video.videoWidth, 63 / f.video.videoHeight);
+      c.fillStyle = '#000';
+      c.fillRect(0, 0, 112, 63);
+      c.drawImage(f.video, (112 - f.video.videoWidth * k) / 2, (63 - f.video.videoHeight * k) / 2, f.video.videoWidth * k, f.video.videoHeight * k);
+    }
+  }
+
+  private chiudiRegia() {
+    clearInterval(this.giroFonti);
+    this.regia?.ferma();
+    this.regia = null;
+    this.disegnaFonti();
   }
 
   // ——— il telecomando ———

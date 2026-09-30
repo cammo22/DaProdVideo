@@ -36,15 +36,15 @@ const TIPI: Ramo[] = [
 const LIBRERIA: Ramo[] = [
   { id: 'transizioni', nome: 'Transizioni', icona: 'transizione', figli: [['tr:dissolvenze', 'Dissolvenze'], ['tr:movimento', 'Movimento'], ['tr:3d', '3D e forme'], ['tr:luce', 'Luce'], ['tr:stile', 'Stile'], ['tr:tendine', 'Tendine SMPTE']] },
   { id: 'titoli', nome: 'Titoli', icona: 'titolo', figli: [['tit:titoli', 'Titoli'], ['tit:tv', 'TV e social'], ['tit:conto', 'Countdown'], ['tit:sala', 'Macchine della sala']] },
-  { id: 'effetti', nome: 'Effetti', icona: 'effetti', figli: [['fx:rapidi', 'Rapidi'], ['fx:lunghi', 'Lunghi'], ['fx:luci', 'Luci'], ['fx:distorsioni', 'Distorsioni'], ['fx:clip', 'Stile della clip'], ['fx:audio', 'Audio']] },
+  { id: 'effetti', nome: 'Effetti', icona: 'effetti', figli: [['fx:rapidi', 'Rapidi'], ['fx:lunghi', 'Lunghi'], ['fx:luci', 'Luci'], ['fx:distorsioni', 'Distorsioni'], ['fx:colore', 'Colore'], ['fx:particelle', 'Particelle'], ['fx:clip', 'Stile della clip'], ['fx:audio', 'Audio']] },
 ];
 
 /** i gruppi delle transizioni digitali (numero del modello) */
 const GRUPPI_TR: Record<string, number[]> = {
-  movimento: [301, 302, 303, 304, 311, 591, 321, 421, 431, 481, 551],
-  '3d': [401, 411, 441, 531, 541, 331, 461],
-  luce: [351, 361, 451, 491],
-  stile: [561, 581, 571, 341, 371, 381, 391, 471, 521],
+  movimento: [301, 302, 303, 304, 311, 591, 321, 421, 431, 481, 551, 621, 631],
+  '3d': [401, 411, 441, 531, 541, 331, 461, 601, 801, 611, 641, 681],
+  luce: [351, 361, 451, 491, 671, 721, 651],
+  stile: [561, 581, 571, 341, 371, 381, 391, 471, 521, 661, 691, 701, 711, 731],
 };
 
 const GRANDEZZE = [{ id: 'piccole', px: 86 }, { id: 'medie', px: 112 }, { id: 'grandi', px: 150 }];
@@ -626,6 +626,8 @@ export class Contenitore {
       ['fx:lunghi', 'Lunghi', g('lunghi')],
       ['fx:luci', 'Luci', g('luci')],
       ['fx:distorsioni', 'Distorsioni', g('distorsioni')],
+      ['fx:colore', 'Colore', g('colore')],
+      ['fx:particelle', 'Particelle', g('particelle')],
       ['fx:clip', 'Stile della clip', this.filtra(EFFETTI_VIDEO).map(carta)],
       ['fx:audio', 'Audio', this.filtra(EFFETTI_AUDIO).map(carta)],
     ])));

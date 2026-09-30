@@ -68,6 +68,20 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   è uno zip stored (zip64 oltre i 4 GB) con `progetto.json`, `media/` e LEGGIMI. All'apertura i media si leggono da
   dentro lo zip (`m.dentro {off, len}` → `MediaRT.off/len`, `media_leggi` con l'offset); Rust copia i byte e il CRC
   (`pacchetto_copia`). Doppio clic sul file: `fileAssociations` + `file_di_avvio` / evento `apri-file`.
+- **Tappe, stira, tracking (1.1.2)**: il movimento ha partenza (`tf`), arrivo (`tfFine`) e tappe di mezzo (`c.via`, `fxb.via`, t da 0 a 1);
+  `tfAl`/`centroBlocco` passano da tutte con una Hermite monotona (`passaPer` in `progetto.ts`: con due tappe è la vecchia S).
+  Fermo fra due tappe, trascinare sul monitor ne crea una (`Posiziona.creaTappa`). `Transform.sx` = larghezza stirata (shader:
+  `u_size = dw*sx`); 8 maniglie in `posiziona.ts` (`ridimensiona`: il lato opposto resta fermo, Ctrl dal centro, Maiusc stira,
+  `✂` ritaglia). **Tracking**: `src/media/traccia.ts` (correlazione normalizzata su 192 punti, ~20 Hz, avanti e indietro) mette
+  `c.traccia`; `src/core/traccia.ts` dà `spostaTraccia`: `c.segue`/`fxb.segue` = la clip o il centro segue l'oggetto (tf è lo scarto),
+  `c.stabilizza` = la ripresa si tiene ferma. `riquadroClip` e il compositore sommano lo stesso spostamento.
+- **Effetti e transizioni nuovi (1.1.2)**: le quantità degli effetti nuovi sono `CAMPI_FX` in `blocchi.ts` (uniform `u_<nome>` in
+  `FS_FX`); **sfocatura, scia e colori sdoppiati stanno nello stesso giro** (se no un effetto ne copre un altro: era il bug dei
+  "sommati"). `fxb.ripeti` rifà l'inviluppo n volte. Transizioni digitali: `Transition.forza/dir/curva` (`u_forza`, `u_dir` gira
+  l'effetto di quarti di giro con `gira()`, `u_curva`); i modelli con un verso sono in `DIREZIONALI` (`transizioni.ts`).
+  Titoli: `sotto`, `ingresso/uscita` (in `motoTitolo`), `spaziatura`, `peso`; gli stili a lettere usano `rivela` come avanzamento.
+- **LIVE con più finestre (1.1.2)**: `Regia` in `live.ts` disegna la finestra in onda (o due) in una tela di misura fissa con un
+  Worker come battito e ne registra `captureStream`; `opz.finestre` (di partenza acceso), tasti N / 1-9 / L.
 - **Timeline che cresce**: `kV()` in `src/ui/timeline.ts` (spazio libero × `zoomV`, Ctrl+Shift+rotella); nell'app
   Ctrl +/− fa `setZoom` della webview (nel browser lo zoom resta quello del browser: lo zoom CSS rompe i clic).
 - TRASPARENZA (tasto B, era ELASTICO) = la linea gialla dell'opacità sui video; IN/OUT si vedono solo se ci sono (Alt+X o ✕).

@@ -48,6 +48,12 @@ export interface Transition {
   reverse: boolean;
   /** colore del passaggio per 'dip' */
   color: string;
+  /** effetti digitali: quanto è forte (scia, onda, sfocatura…), 1 = come viene */
+  forza?: number;
+  /** effetti digitali: la direzione gira di 0, 1, 2 o 3 quarti di giro */
+  dir?: number;
+  /** come corre il passaggio (niente = come vuole l'effetto) */
+  curva?: 'lineare' | 'dolce' | 'entra' | 'esce';
 }
 
 export type Look = 'none' | 'vhs' | 'film' | 'bn' | 'seppia' | 'crt';
@@ -84,6 +90,28 @@ export interface BloccoFx {
   pos?: [number, number];
   /** dove arriva il centro alla fine del blocco (niente = fermo) */
   posFine?: [number, number];
+  /** le tappe di mezzo del centro: t = quanto del blocco è passato (0..1), pos = dove sta in quel momento */
+  via?: ViaPos[];
+  /** il centro segue un oggetto tracciato su questa clip (l'id): pos diventa lo scarto dall'oggetto */
+  segue?: string;
+  /** quante volte si ripete nella durata del blocco (1 = una) */
+  ripeti?: number;
+}
+
+/** una tappa intermedia del centro di un effetto */
+export interface ViaPos { t: number; pos: [number, number] }
+
+/** una tappa intermedia della posizione di una clip: t = quanto della clip è passato (0..1) */
+export interface ViaTf { t: number; tf: Transform }
+
+/** i punti tracciati su un video: un oggetto seguito fotogramma per fotogramma. t = secondi della sorgente,
+ *  x e y = dove sta nell'immagine (frazioni 0..1 dall'angolo in alto a sinistra) */
+export interface Traccia {
+  punti: { t: number; x: number; y: number }[];
+  /** dove l'hai segnato all'inizio (secondi della sorgente) */
+  da: number;
+  /** quanto era sicuro il seguito nel punto peggiore (0..1) */
+  fiducia: number;
 }
 
 export interface VideoFx {
@@ -148,6 +176,8 @@ export interface Transform {
   angoli?: number;
   /** ombra morbida sotto la clip 0..1 (si vede quando la clip è più piccola del quadro) */
   ombra?: number;
+  /** allargamento: quanto è larga rispetto all'altezza (1 = proporzioni giuste; tirando i lati si stira) */
+  sx?: number;
 }
 
 export interface TitleSpec {
@@ -156,7 +186,9 @@ export interface TitleSpec {
    *  (si accende tremando), 'cinema' (lettere larghe che si avvicinano), 'macchina' (da scrivere, lettera per
    *  lettera), 'rimbalzo' (entra con un salto), 'social' (fascia colorata che entra di lato), 'citazione' */
   style: 'fisso' | 'sottopancia' | 'rullo' | 'crawl' | 'neon' | 'cinema' | 'macchina' | 'rimbalzo' | 'social' | 'citazione'
-    | 'gradiente' | 'etichetta' | 'rivela' | 'glitch' | 'grande';
+    | 'gradiente' | 'etichetta' | 'rivela' | 'glitch' | 'grande'
+    // lettera per lettera e altri
+    | 'cascata' | 'assembla' | 'onda' | 'evidenzia' | 'karaoke' | 'estruso' | 'ombraLunga' | 'contorno' | 'notiziario';
   font: string;
   size: number;
   color: string;
@@ -170,6 +202,15 @@ export interface TitleSpec {
   intero?: string;
   /** solo per disegnare "rivela": quanto testo si vede (0..1), con la barra colorata sul bordo */
   rivela?: number;
+  /** una riga piccola sotto il titolo (il sottotitolo) */
+  sotto?: string;
+  /** come entra e come esce (qualunque stile): 'dissolve' | 'sale' | 'scende' | 'sinistra' | 'destra' | 'zoom' | 'rimbalza' */
+  ingresso?: string;
+  uscita?: string;
+  /** spazio fra le lettere, in parti della grandezza (0 = quello del carattere) */
+  spaziatura?: number;
+  /** grassetto: 400..900 (niente = quello dello stile) */
+  peso?: number;
 }
 
 export interface GenSpec {
@@ -217,6 +258,14 @@ export interface Clip {
   tf: Transform;
   /** dove arriva alla fine della clip (posizione, grandezza, rotazione…): fra tf e tfFine si muove piano (niente = ferma) */
   tfFine?: Transform;
+  /** le tappe di mezzo fra tf e tfFine (posizioni intermedie): la clip ci passa in ordine di tempo */
+  via?: ViaTf[];
+  /** i punti di un oggetto seguito in questa ripresa (src/core/traccia.ts) */
+  traccia?: Traccia;
+  /** la clip segue l'oggetto tracciato su un'altra clip (l'id): la sua posizione è lo scarto dall'oggetto */
+  segue?: string;
+  /** la ripresa si tiene ferma sull'oggetto tracciato (stabilizza) */
+  stabilizza?: boolean;
   fx: VideoFx;
   trIn?: Transition;
   /** transizione in coda, quando dopo la clip non c'è niente di attaccato (esce su quello che sta sotto) */
