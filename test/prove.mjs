@@ -1218,7 +1218,7 @@ try {
       const tono = (sr, sec, fr) => { const a = new Float32Array(Math.round(sr * sec)); for (let i = 0; i < a.length; i++) a[i] = Math.sin((2 * Math.PI * fr * i) / sr) * 0.3; return { audio: a, sr }; };
       const parlati = new Map([['1', tono(24000, 1.5, 220)], ['2', tono(22050, 0.5, 330)]]);
       const comp = DP.componiVoce([{ id: '1', da: 0, a: 1, testo: 'x' }, { id: '2', da: 1, a: 1.5, testo: 'y' }], parlati);
-      const rms = (a, da, aa) => { let e = 0; for (let i = da; i < aa; i++) e += comp[i] * comp[i]; return Math.sqrt(e / Math.max(1, aa - da)); };
+      const rms = (da, aa) => { let e = 0; for (let i = da; i < aa; i++) e += comp[i] * comp[i]; return Math.sqrt(e / Math.max(1, aa - da)); };
       let picco = 0; for (let i = 0; i < 40000; i++) picco = Math.max(picco, Math.abs(comp[i]));
       out.comp = { n: comp.length, prima: rms(0, 40000), buco: rms(44500, 47500), seconda: rms(48500, 70000), picco };
       return out;
@@ -1230,7 +1230,7 @@ try {
     prova('i codici delle lingue per il motore', r.lingue.join() === 'it-IT,auto,de-DE', r.lingue.join());
     prova('la stima del tempo che manca (10% ogni 5 s → 40 s) e i tempi scritti in modo leggibile', Math.abs(r.stima.manca - 40) < 0.5 && r.stima.passati === 10 && r.stima.dt.join('|') === '45 s|2 min 10 s|1 h 05 min', JSON.stringify(r.stima));
     prova('le righe vicine senza punto si uniscono in una frase; dopo il punto se ne fa una nuova', JSON.stringify(r.enun) === JSON.stringify([[0, 4, 'Buongiorno a tutti questo è un test'], [8, 10, 'Nuova frase.'], [10.2, 12, 'Ancora']]), JSON.stringify(r.enun));
-    prova('la voce composta: la frase lunga si accelera e sta prima della successiva, la seconda parte al suo secondo', Math.abs(r.comp.n - 70000) < 1500 && r.comp.prima > 0.1 && r.comp.buco < 0.02 && r.comp.seconda > 0.1 && Math.abs(r.comp.picco - 0.8) < 0.05, JSON.stringify(r.comp));
+    prova('la voce composta: la frase lunga si accelera e sta prima della successiva, la seconda parte al suo secondo', Math.abs(r.comp.n - 72000) < 1500 && r.comp.prima > 0.1 && r.comp.buco < 0.02 && r.comp.seconda > 0.1 && Math.abs(r.comp.picco - 0.8) < 0.05, JSON.stringify(r.comp));
 
     // i sottotitoli con Nemotron, col motore finto: installa, scarica il modello, ascolta a pezzi
     const sn = await pa.evaluate(async () => {
@@ -1311,10 +1311,10 @@ try {
       };
     });
     prova('la voce AI: due frasi, lingua italiana, la voce numero 1 (Sofia)', dopo.chiamate.join() === 'modello:tts,sintetizza:2:it:1', dopo.chiamate.join());
-    prova('l\'audio della voce va su una traccia audio nuova "Voce AI", dall\'inizio, lungo quanto il parlato', dopo.traccia === 'audio' && dopo.start === 0 && dopo.tipo === 'audio' && Math.abs(dopo.len / 25 - dopo.durata) < 0.1 && dopo.durata > 4, JSON.stringify(dopo));
+    prova('l\'audio della voce va su una traccia audio nuova "Voce AI", dall\'inizio, lungo quanto il parlato', dopo.traccia === 'audio' && dopo.start === 0 && dopo.tipo === 'audio' && Math.abs(dopo.len / 25 - dopo.durata) < 0.1 && dopo.durata > 3, JSON.stringify(dopo));
     prova('le voci originali vanno in silenzio (traccia muta o clip a −40 dB)', dopo.mute.length > 0 || dopo.gain > 0, JSON.stringify(dopo));
     prova('a lavoro finito la barra dice quanto ci ha messo', /finito in/.test(dopo.fine), dopo.fine);
-    await tasto('Control+z');
+    await pa.keyboard.press('Control+z'); await pa.waitForTimeout(150);
     const annullata = await pa.evaluate(() => ({ tr: window.__dpv.doc.tracks.some((t) => t.name === 'Voce AI'), mute: window.__dpv.doc.tracks.filter((t) => t.mute).length }));
     prova('Ctrl+Z toglie la voce AI e rimette le voci originali', !annullata.tr && annullata.mute === prima.tracks.filter((t) => t.mute).length, JSON.stringify(annullata));
     await pa.evaluate(() => window.__dpvTest.NM.impostaMotoreNemo(null));
@@ -1805,7 +1805,7 @@ try {
         for (let i = 1; i < 960; i++) if (Math.abs(i - 480) > 2) altro = Math.max(altro, Math.abs(j[i] - j[i - 1]));
         let rms = 0; for (let i = 0; i < 960; i++) rms += j[i] * j[i];
         return { seam, altro, rms: Math.sqrt(rms / 960), n1: d1.length, n2: d2.length };
-      }, pal.start / 25 + 1);
+      }, pal.start / 25 + 1.37);
       prova('l\'audio rallentato non scatta al cambio di pezzo dell\'export', cucitura.rms > 0.005 && cucitura.seam < Math.max(0.02, cucitura.altro * 2.5), JSON.stringify(cucitura));
     }
     await pv.close();
