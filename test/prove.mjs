@@ -1794,6 +1794,8 @@ try {
       prova('il mixaggio dell\'audio rallentato ha suono e la durata giusta', au.rms > 0.005 && Math.abs(au.tot - 3) < 0.05, JSON.stringify(au));
       // fra un pezzo da 10 s e il successivo l'audio stirato non scatta (il flusso è uno solo per tutto l'export)
       const cucitura = await pv.evaluate(async (ini) => {
+        // senza limitatore: il suo stato riparte a ogni pezzo e farebbe un gradino di volume che non c'entra con la velocità
+        window.__dpv.edit('senza limitatore', (p) => { p.master = { ...(p.master ?? {}), limiter: false, volume: 0 }; });
         const { mixaggio } = window.__dpvTest;
         const it = mixaggio(window.__dpv.doc, ini, ini + 20);
         const c1 = (await it.next()).value, c2 = (await it.next()).value;
