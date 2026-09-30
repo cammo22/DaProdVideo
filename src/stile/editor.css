@@ -768,6 +768,10 @@ button svg { pointer-events: none; }
 .ai-barra.attiva i { animation: ai-luce 1.4s linear infinite; background-size: 200% 100%; }
 @keyframes ai-luce { from { background-position: 0 0; } to { background-position: -200% 0; } }
 .ai-fase { min-height: 16px; font: 600 12px var(--ui); color: var(--testo2); }
+.ai-tempo { min-height: 15px; font: 600 11.5px var(--ui); color: var(--testo2); opacity: 0.85; }
+.fin-sotto { margin-top: 10px; padding-top: 8px; border-top: 1px solid #000; box-shadow: 0 -1px 0 var(--bordo); font: 800 12px var(--ui); color: var(--oro); letter-spacing: 0.5px; }
+.ai-motore { font: 600 11.5px var(--ui); color: var(--testo2); margin: 2px 0; }
+.ai-motore b { color: var(--oro); }
 .mini-select.largo { width: 100%; }
 .btn-mini.oro { background: linear-gradient(180deg, #ffe07a, #e0a200); color: #1a1206; }
 /* i sottotitoli: una riga per volta, col tempo a sinistra */

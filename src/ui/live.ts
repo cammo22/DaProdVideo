@@ -25,7 +25,7 @@ import * as M from '../core/montaggio';
 import { ANGOLI, bolla, presentazione, SFONDI, type Angolo } from '../core/cornici';
 import type { MediaItem } from '../core/tipi';
 import { importaFile } from '../progetti';
-import { invoke, isAndroid, isTauri } from '../platform';
+import { isAndroid, isTauri, salvaMediaSulDisco } from '../platform';
 import { motore } from '../motore';
 import { avviso, h, icona } from './dom';
 
@@ -143,22 +143,7 @@ async function rimetteInOrdine(blob: Blob, mp4: boolean): Promise<Blob> {
 }
 
 /** nell'app la registrazione va sul disco (Video/DaProd Video), così il progetto la ritrova sempre */
-async function salvaSulDisco(nome: string, blob: Blob): Promise<string | undefined> {
-  if (!isTauri) return undefined;
-  try {
-    const path = await invoke<string>('registrazione_percorso', { name: nome });
-    const id = await invoke<number>('export_apri', { path });
-    const PEZZO = 8 << 20;
-    for (let pos = 0; pos < blob.size; pos += PEZZO) {
-      const b = new Uint8Array(await blob.slice(pos, pos + PEZZO).arrayBuffer());
-      await invoke('export_scrivi', b, { headers: { 'x-id': String(id), 'x-pos': String(pos) } });
-    }
-    await invoke('export_chiudi', { id });
-    return path;
-  } catch {
-    return undefined;
-  }
-}
+const salvaSulDisco = salvaMediaSulDisco;
 
 
 /** una finestra (o uno schermo) che si può registrare: il suo flusso e un video nascosto che lo fa scorrere */

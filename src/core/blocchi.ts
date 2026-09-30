@@ -16,7 +16,8 @@ export type V3 = [number, number, number];
 
 /** le quantità degli effetti nuovi (colore, particelle, specchi…): ognuna 0 o più, e si sommano come le altre */
 export const CAMPI_FX = ['eco', 'duo', 'poster', 'solar', 'termico', 'visore', 'retino', 'muto', 'gocce', 'specchio', 'quadri', 'rullo', 'pesce',
-  'raggi', 'bokeh', 'scint', 'anam', 'neve', 'pioggia', 'polvere', 'coriandoli'] as const;
+  'raggi', 'bokeh', 'scint', 'anam', 'neve', 'pioggia', 'polvere', 'coriandoli',
+  'olo', 'prisma', 'matita', 'tunnel', 'nebbia', 'braci', 'vetro', 'nosegn', 'iride', 'mini', 'esa', 'scan'] as const;
 type CampiFx = { [K in typeof CAMPI_FX[number]]: number };
 
 /** come si muove l'immagine in quel fotogramma: tutti gli effetti accesi si sommano qui */
@@ -51,7 +52,7 @@ const neutro = (): StatoFx => ({
 });
 
 /** gli effetti che hanno un centro da mettere dove vuoi sul quadro (e da far muovere lungo il blocco) */
-const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare', 'pizzico', 'gocce', 'raggi', 'pesce']);
+const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare', 'pizzico', 'gocce', 'raggi', 'pesce', 'tunnel', 'irideChiude', 'irideApre']);
 export const haCentro = (id: string) => { const e = effettoTempo(id); return !!e && CENTRATI.has(e.motore); };
 
 /** le tappe del centro di un effetto in ordine: la partenza, quelle di mezzo, l'arrivo (vuoto se il centro sta fermo) */
@@ -85,7 +86,8 @@ type Motore = 'flash' | 'scossa' | 'camera' | 'zoomColpo' | 'battito' | 'zoomLen
   | 'bagliore' | 'flare' | 'tremolio' | 'bruciato' | 'arcobaleno' | 'neon' | 'sogno'
   | 'onda' | 'bolla' | 'vortice' | 'caleido' | 'calore' | 'zoomSfocato'
   | 'eco' | 'vibra' | 'raggi' | 'bokeh' | 'scintille' | 'anamorfico' | 'duotone' | 'posterizza' | 'solarizza' | 'termico' | 'visore'
-  | 'retino' | 'filmMuto' | 'pizzico' | 'gocce' | 'specchio' | 'quadri' | 'rullo' | 'pesce' | 'neve' | 'pioggia' | 'polvere' | 'coriandoli';
+  | 'retino' | 'filmMuto' | 'pizzico' | 'gocce' | 'specchio' | 'quadri' | 'rullo' | 'pesce' | 'neve' | 'pioggia' | 'polvere' | 'coriandoli'
+  | 'ologramma' | 'prisma' | 'matita' | 'tunnel' | 'nebbia' | 'braci' | 'vetro' | 'noSegnale' | 'irideChiude' | 'irideApre' | 'miniatura' | 'esagoni' | 'scansione';
 
 export interface EffettoTempo {
   id: string;
@@ -164,6 +166,20 @@ export const EFFETTI_TEMPO: EffettoTempo[] = [
   { id: 'pioggia', nome: 'Pioggia', info: 'pioggia fitta, di traverso', durata: 6, gruppo: 'particelle', motore: 'pioggia' },
   { id: 'polvere', nome: 'Polvere sospesa', info: 'granelli che fluttuano nella luce', durata: 6, gruppo: 'particelle', motore: 'polvere' },
   { id: 'coriandoli', nome: 'Coriandoli', info: 'una pioggia di festa', durata: 4, gruppo: 'particelle', motore: 'coriandoli' },
+  // 1.1.3: più particolari
+  { id: 'ologramma', nome: 'Ologramma', info: 'azzurro, righe che scorrono e sfarfallio: sembra proiettato', durata: 4, gruppo: 'colore', motore: 'ologramma' },
+  { id: 'matita', nome: 'Schizzo a matita', info: 'contorni e tratteggi a matita su carta', durata: 4, gruppo: 'colore', motore: 'matita' },
+  { id: 'miniatura', nome: 'Miniatura', info: 'a fuoco solo una fascia, colori pieni: sembra un plastico', durata: 4, gruppo: 'colore', motore: 'miniatura' },
+  { id: 'prisma', nome: 'Prisma', info: 'l\'immagine si rompe in schegge coi colori sdoppiati', durata: 1.5, gruppo: 'distorsioni', motore: 'prisma' },
+  { id: 'tunnel', nome: 'Tunnel infinito', info: 'l\'immagine dentro l\'immagine, sempre più piccola (mirino sul monitor)', durata: 3, gruppo: 'distorsioni', motore: 'tunnel' },
+  { id: 'vetro', nome: 'Vetro smerigliato', info: 'come dietro un vetro rugoso', durata: 3, gruppo: 'distorsioni', motore: 'vetro' },
+  { id: 'esagoni', nome: 'Esagoni', info: 'un mosaico di esagoni che va e viene', durata: 1.5, gruppo: 'distorsioni', motore: 'esagoni' },
+  { id: 'noSegnale', nome: 'Segnale perso', info: 'barre e neve del televisore che non prende', durata: 1.5, gruppo: 'rapidi', motore: 'noSegnale' },
+  { id: 'irideChiude', nome: 'Iride che si chiude', info: 'il cerchio del cinema muto si stringe (mirino sul monitor)', durata: 1.5, gruppo: 'lunghi', motore: 'irideChiude' },
+  { id: 'irideApre', nome: 'Iride che si apre', info: 'dal nero il cerchio si allarga (mirino sul monitor)', durata: 1.5, gruppo: 'lunghi', motore: 'irideApre' },
+  { id: 'scansione', nome: 'Scansione', info: 'una riga di luce che sale, come uno scanner', durata: 2, gruppo: 'luci', motore: 'scansione' },
+  { id: 'nebbia', nome: 'Nebbia', info: 'una foschia che scorre piano', durata: 6, gruppo: 'particelle', motore: 'nebbia' },
+  { id: 'braci', nome: 'Braci', info: 'scintille calde che salgono da un fuoco', durata: 5, gruppo: 'particelle', motore: 'braci' },
 ];
 
 export const effettoTempo = (id: string) => EFFETTI_TEMPO.find((e) => e.id === id);
@@ -175,6 +191,7 @@ const SUONO_EFFETTO: Record<string, string> = {
   bagliore: 'riverso', flare: 'zap', tremolio: 'glitch', bruciato: 'riser', zoomSfocato: 'whoosh', onda: 'swish', bolla: 'colpo', vortice: 'whoosh',
   eco: 'riverso', vibra: 'impatto', raggi: 'riser', scintille: 'zap', solarizza: 'glitch', pizzico: 'discesa', gocce: 'swish', quadri: 'colpo',
   specchio: 'swish', rullo: 'nastro', coriandoli: 'zap',
+  ologramma: 'ronzio', prisma: 'glitch', tunnel: 'whoosh', esagoni: 'swish', noSegnale: 'glitch', irideChiude: 'discesa', irideApre: 'riverso', scansione: 'ronzio',
 };
 
 /** le durate proposte nel contenitore (0 = quella giusta per ogni effetto) */
@@ -463,6 +480,20 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
     case 'pioggia': st.pioggia += k * bordi(x, 8); break;
     case 'polvere': st.polvere += k * bordi(x, 6); break;
     case 'coriandoli': st.coriandoli += k * bordi(x, 10); break;
+    // 1.1.3
+    case 'ologramma': st.olo += Math.min(1, k) * bordi(x, 6); break;
+    case 'matita': st.matita += Math.min(1, k) * bordi(x, 6); break;
+    case 'miniatura': st.mini += Math.min(1, k) * bordi(x, 6); break;
+    case 'prisma': st.prisma += k * bordi(x, 5); break;
+    case 'tunnel': st.tunnel += Math.min(1, k) * bordi(x, 5); break;
+    case 'vetro': st.vetro += k * bordi(x, 6); break;
+    case 'esagoni': st.esa += Math.min(1, k) * Math.sin(Math.PI * x); break;
+    case 'noSegnale': st.nosegn += Math.min(1, k) * bordi(x, 4); break;
+    case 'irideChiude': st.iride += k * dolce(x); break;
+    case 'irideApre': st.iride += k * (1 - dolce(x)); break;
+    case 'scansione': st.scan += k * bordi(x, 6); break;
+    case 'nebbia': st.nebbia += k * bordi(x, 6); break;
+    case 'braci': st.braci += k * bordi(x, 6); break;
   }
 }
 

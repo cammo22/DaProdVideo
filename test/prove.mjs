@@ -1170,6 +1170,157 @@ try {
     await pg.close();
   }
 
+  console.log('▶ 1.1.3: motore NVIDIA (finto nelle prove), sottotitoli con Nemotron, voce AI, barra col tempo');
+  {
+    const pa = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+    pa.on('pageerror', (e) => errori.push(e.message));
+    pa.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
+    await pa.goto(srv.url + '/app/');
+    await pa.waitForSelector('.pulsantiera');
+    await pa.click('text=Prova con il montaggio dimostrativo');
+    await pa.waitForFunction(() => window.__dpv.doc.clips.length >= 8, null, { timeout: 90000 });
+    await pa.waitForTimeout(1200);
+
+    // le funzioni pure: WAV, .srt, tempo stimato, frasi, composizione della voce
+    const r = await pa.evaluate(() => {
+      const { WV, NM, LAV, DP, P } = window.__dpvTest;
+      const out = {};
+      // WAV: andata e ritorno
+      const x = new Float32Array(16000); for (let i = 0; i < x.length; i++) x[i] = Math.sin(i / 20) * 0.6;
+      const b = WV.leggiWav(WV.codificaWav(x, 16000));
+      let err = 0; for (let i = 0; i < x.length; i++) err = Math.max(err, Math.abs(x[i] - b.audio[i]));
+      out.wav = { sr: b.sr, n: b.audio.length, err };
+      // un WAV float32 stereo fatto a mano: si legge la media dei canali
+      const st = new ArrayBuffer(44 + 8 * 4), v = new DataView(st);
+      const t = (o, s2) => { for (let i = 0; i < s2.length; i++) v.setUint8(o + i, s2.charCodeAt(i)); };
+      t(0, 'RIFF'); v.setUint32(4, 36 + 32, true); t(8, 'WAVE'); t(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 3, true); v.setUint16(22, 2, true);
+      v.setUint32(24, 24000, true); v.setUint32(28, 24000 * 8, true); v.setUint16(32, 8, true); v.setUint16(34, 32, true); t(36, 'data'); v.setUint32(40, 32, true);
+      for (let i = 0; i < 4; i++) { v.setFloat32(44 + i * 8, 0.5, true); v.setFloat32(48 + i * 8, -0.1, true); }
+      const f = WV.leggiWav(st);
+      out.wavF = { sr: f.sr, n: f.audio.length, v: f.audio[0] };
+      out.ricamp = WV.ricampiona(new Float32Array(100), 8000, 16000).length;
+      // .srt
+      out.srt = NM.pezziDaSrt('1\n00:00:01,500 --> 00:00:03,000\nCiao a tutti\n\n2\n00:00:04,000 --> 00:00:06,250\nsecondo\nrigo\n', 60);
+      out.lingue = [NM.codiceLingua('it'), NM.codiceLingua('auto'), NM.codiceLingua('de')];
+      // il tempo che manca: 10% ogni 5 secondi → altri 40 secondi
+      let ora = 0;
+      const s = new LAV.Stima(() => ora);
+      s.registra(0); ora = 5000; s.registra(0.1); ora = 10000; s.registra(0.2);
+      out.stima = { manca: s.restante(), passati: s.trascorso(), dt: [LAV.durataTesto(45), LAV.durataTesto(130), LAV.durataTesto(3900)] };
+      // le frasi da dire
+      const p = { rate: { num: 25, den: 1 } };
+      const righe = [
+        { id: 'a', da: 0, a: 50, testo: 'Buongiorno a tutti' }, { id: 'b', da: 55, a: 100, testo: 'questo è un test' },
+        { id: 'c', da: 200, a: 250, testo: 'Nuova frase.' }, { id: 'd', da: 255, a: 300, testo: 'Ancora' },
+      ];
+      out.enun = DP.enunciatiDaRighe(righe, p).map((e) => [e.da, e.a, e.testo]);
+      // la composizione: la prima frase è troppo lunga per il suo spazio, la seconda sta
+      const tono = (sr, sec, fr) => { const a = new Float32Array(Math.round(sr * sec)); for (let i = 0; i < a.length; i++) a[i] = Math.sin((2 * Math.PI * fr * i) / sr) * 0.3; return { audio: a, sr }; };
+      const parlati = new Map([['1', tono(24000, 1.5, 220)], ['2', tono(22050, 0.5, 330)]]);
+      const comp = DP.componiVoce([{ id: '1', da: 0, a: 1, testo: 'x' }, { id: '2', da: 1, a: 1.5, testo: 'y' }], parlati);
+      const rms = (a, da, aa) => { let e = 0; for (let i = da; i < aa; i++) e += comp[i] * comp[i]; return Math.sqrt(e / Math.max(1, aa - da)); };
+      let picco = 0; for (let i = 0; i < 40000; i++) picco = Math.max(picco, Math.abs(comp[i]));
+      out.comp = { n: comp.length, prima: rms(0, 40000), buco: rms(44500, 47500), seconda: rms(48500, 70000), picco };
+      return out;
+    });
+    prova('WAV: scritto e riletto uguale (16 bit)', r.wav.sr === 16000 && r.wav.n === 16000 && r.wav.err < 1e-3, JSON.stringify(r.wav));
+    prova('WAV: legge anche float32 stereo (media dei canali)', r.wavF.sr === 24000 && r.wavF.n === 4 && Math.abs(r.wavF.v - 0.2) < 1e-6, JSON.stringify(r.wavF));
+    prova('ricampionare 8→16 kHz raddoppia i campioni', r.ricamp === 200, r.ricamp);
+    prova('il .srt del motore: tempi in secondi, righe unite, e il punto di partenza del pezzo si somma', r.srt.length === 2 && r.srt[0].da === 61.5 && r.srt[0].a === 63 && r.srt[1].testo === 'secondo rigo' && r.srt[1].a === 66.25, JSON.stringify(r.srt));
+    prova('i codici delle lingue per il motore', r.lingue.join() === 'it-IT,auto,de-DE', r.lingue.join());
+    prova('la stima del tempo che manca (10% ogni 5 s → 40 s) e i tempi scritti in modo leggibile', Math.abs(r.stima.manca - 40) < 0.5 && r.stima.passati === 10 && r.stima.dt.join('|') === '45 s|2 min 10 s|1 h 05 min', JSON.stringify(r.stima));
+    prova('le righe vicine senza punto si uniscono in una frase; dopo il punto se ne fa una nuova', JSON.stringify(r.enun) === JSON.stringify([[0, 4, 'Buongiorno a tutti questo è un test'], [8, 10, 'Nuova frase.'], [10.2, 12, 'Ancora']]), JSON.stringify(r.enun));
+    prova('la voce composta: la frase lunga si accelera e sta prima della successiva, la seconda parte al suo secondo', Math.abs(r.comp.n - 70000) < 1500 && r.comp.prima > 0.1 && r.comp.buco < 0.02 && r.comp.seconda > 0.1 && Math.abs(r.comp.picco - 0.8) < 0.05, JSON.stringify(r.comp));
+
+    // i sottotitoli con Nemotron, col motore finto: installa, scarica il modello, ascolta a pezzi
+    const sn = await pa.evaluate(async () => {
+      const { NM, V } = window.__dpvTest;
+      const chiamate = [], prog = [];
+      NM.impostaMotoreNemo({
+        stato: async () => ({ os: 'linux', arch: 'x86_64', cartella: '/x', installato: false, backend: '', consigliato: 'cpu', nvidia: false, modelli: 0 }),
+        installa: async (av) => { chiamate.push('installa'); av(0, 'scarico il motore'); av(1, 'ok'); },
+        modello: async (q, av) => { chiamate.push('modello:' + q); av(0.5, 'scarico il modello'); av(1, 'ok'); },
+        trascrivi: async (pezzi, o, av) => {
+          chiamate.push(`trascrivi:${pezzi.length}:${o.lingua}`);
+          window.__secondi = pezzi.reduce((s, x) => s + x.audio.length, 0) / 16000;
+          av(0.5, 'a metà'); av(1, 'fatto');
+          return [{ da: pezzi[0].da + 0.5, a: pezzi[0].da + 3, testo: 'Buonasera Napoli' }, { da: pezzi[0].da + 4, a: pezzi[0].da + 6, testo: '[Musica]' }, { da: pezzi[0].da + 6.5, a: pezzi[0].da + 8, testo: 'Questo lo ha sentito Nemotron' }];
+        },
+        sintetizza: async () => new Map(),
+      });
+      const doc = structuredClone(window.__dpv.doc);
+      const righe = await V.sottotitoliAI(doc, { lingua: 'auto', traduci: false, modello: 'x', motore: 'nemotron' }, (t, k) => prog.push(k));
+      NM.impostaMotoreNemo(null);
+      // senza motore (nel browser) Nemotron dice che serve l'app
+      let errore = '';
+      try { await V.sottotitoliAI(doc, { lingua: 'it', traduci: false, modello: 'x', motore: 'nemotron' }, () => {}); } catch (e) { errore = e.message; }
+      let cresce = true; for (let i = 1; i < prog.length; i++) if (prog[i] < prog[i - 1] - 1e-9) cresce = false;
+      return { chiamate, righe: righe.map((x) => x.testo), secondi: window.__secondi, fine: window.__dpvTest.P.projectEnd(window.__dpv.doc) / 25, cresce, ultimo: prog[prog.length - 1], errore };
+    });
+    prova('Nemotron: prima installa il motore, poi il modello, poi ascolta (lingua automatica)', sn.chiamate[0] === 'installa' && sn.chiamate[1] === 'modello:asr' && /^trascrivi:\d+:auto$/.test(sn.chiamate[2]), JSON.stringify(sn.chiamate));
+    prova('Nemotron ascolta tutto il montaggio (audio a 16 kHz) e le frasi diventano righe', Math.abs(sn.secondi - sn.fine) < 0.6 && sn.righe.length >= 2 && sn.righe[0] === 'Buonasera Napoli' && !sn.righe.some((t) => /musica/i.test(t)), JSON.stringify(sn));
+    prova('la barra dei sottotitoli non torna mai indietro e arriva a 100%', sn.cresce && sn.ultimo === 1, JSON.stringify({ c: sn.cresce, u: sn.ultimo }));
+    prova('nel browser (senza motore) Nemotron avvisa che serve l\'app', /app/.test(sn.errore), sn.errore);
+
+    // la voce AI dalla pagina Finale, col motore finto
+    await pa.evaluate(() => {
+      const { NM } = window.__dpvTest;
+      window.__voceChiamate = [];
+      NM.impostaMotoreNemo({
+        stato: async () => ({ os: 'linux', arch: 'x86_64', cartella: '/x', installato: true, backend: 'cuda', consigliato: 'cuda', nvidia: true, modelli: 900 * 1048576 }),
+        installa: async () => {},
+        modello: async (q, av) => { window.__voceChiamate.push('modello:' + q); av(1, 'ok'); },
+        trascrivi: async () => [],
+        sintetizza: async (voci, o, av) => {
+          window.__voceChiamate.push(`sintetizza:${voci.length}:${o.lingua}:${o.voce}`);
+          const m = new Map();
+          for (const [i, v] of voci.entries()) {
+            av(i / voci.length, 'frase ' + (i + 1));
+            await new Promise((ok) => setTimeout(ok, 350));
+            const a = new Float32Array(Math.round(22050 * (0.05 * v.testo.length))); for (let k = 0; k < a.length; k++) a[k] = Math.sin((2 * Math.PI * 220 * k) / 22050) * 0.3;
+            m.set(v.id, { audio: a, sr: 22050 });
+          }
+          av(1, 'ok');
+          return m;
+        },
+      });
+      window.__dpv.edit('sottotitoli di prova', (p) => { p.sottotitoli = { righe: [{ id: 'ra', da: 0, a: 50, testo: 'Buonasera Napoli.' }, { id: 'rb', da: 60, a: 140, testo: 'Questa è la voce AI.' }], nelVideo: true, dimensione: 46, fascia: true, alto: false, lingua: 'it' }; });
+    });
+    await pa.click('.pagina-btn[data-p=finale]');
+    await pa.waitForTimeout(400);
+    await pa.click('.fin-voce[data-s=lingue]');
+    await pa.waitForTimeout(300);
+    prova('nella pagina Lingue c\'è la Voce AI, con le cinque voci di NVIDIA e il tasto', (await pa.locator('.fin-pagina[data-s=lingue] .chip', { hasText: 'Sofia' }).count()) === 1 && await pa.isVisible('text=Fai parlare i sottotitoli'));
+    await pa.locator('.fin-pagina[data-s=lingue] .chip', { hasText: 'Sofia' }).click();
+    const prima = await pa.evaluate(() => structuredClone(window.__dpv.doc));
+    await pa.click('text=Fai parlare i sottotitoli');
+    await pa.waitForTimeout(600);
+    const mezzo = await pa.evaluate(() => ({ testo: [...document.querySelectorAll('.fin-pagina[data-s=lingue] .ai-tempo')].map((e) => e.textContent).join('|'), fase: [...document.querySelectorAll('.fin-pagina[data-s=lingue] .ai-fase')].map((e) => e.textContent).join('|') }));
+    prova('mentre lavora si vede la barra con la percentuale e il tempo passato', /%/.test(mezzo.testo) && /passati/.test(mezzo.testo), JSON.stringify(mezzo));
+    await pa.waitForFunction(() => window.__dpv.doc.tracks.some((t) => t.name === 'Voce AI'), null, { timeout: 30000 });
+    await pa.waitForTimeout(300);
+    const dopo = await pa.evaluate(() => {
+      const d = window.__dpv.doc;
+      const tr = d.tracks.find((t) => t.name === 'Voce AI');
+      const c = d.clips.find((x) => x.track === tr.id);
+      const m = d.media.find((x) => x.id === c.media);
+      return {
+        chiamate: window.__voceChiamate, traccia: tr.kind, start: c.start, len: c.len, tipo: m.type, durata: m.duration,
+        mute: d.tracks.filter((t) => t.mute).map((t) => t.name), gain: d.clips.filter((x) => x.gain <= -40).length,
+        fine: document.querySelector('.fin-pagina[data-s=lingue] .ai-tempo').textContent,
+      };
+    });
+    prova('la voce AI: due frasi, lingua italiana, la voce numero 1 (Sofia)', dopo.chiamate.join() === 'modello:tts,sintetizza:2:it:1', dopo.chiamate.join());
+    prova('l\'audio della voce va su una traccia audio nuova "Voce AI", dall\'inizio, lungo quanto il parlato', dopo.traccia === 'audio' && dopo.start === 0 && dopo.tipo === 'audio' && Math.abs(dopo.len / 25 - dopo.durata) < 0.1 && dopo.durata > 4, JSON.stringify(dopo));
+    prova('le voci originali vanno in silenzio (traccia muta o clip a −40 dB)', dopo.mute.length > 0 || dopo.gain > 0, JSON.stringify(dopo));
+    prova('a lavoro finito la barra dice quanto ci ha messo', /finito in/.test(dopo.fine), dopo.fine);
+    await tasto('Control+z');
+    const annullata = await pa.evaluate(() => ({ tr: window.__dpv.doc.tracks.some((t) => t.name === 'Voce AI'), mute: window.__dpv.doc.tracks.filter((t) => t.mute).length }));
+    prova('Ctrl+Z toglie la voce AI e rimette le voci originali', !annullata.tr && annullata.mute === prima.tracks.filter((t) => t.mute).length, JSON.stringify(annullata));
+    await pa.evaluate(() => window.__dpvTest.NM.impostaMotoreNemo(null));
+    await pa.close();
+  }
+
   console.log('▶ LIVE: voce e audio del computer separati');
   {
     const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
@@ -1641,6 +1792,21 @@ try {
         return { tot, rms: Math.sqrt(rms / Math.max(1, n)) };
       });
       prova('il mixaggio dell\'audio rallentato ha suono e la durata giusta', au.rms > 0.005 && Math.abs(au.tot - 3) < 0.05, JSON.stringify(au));
+      // fra un pezzo da 10 s e il successivo l'audio stirato non scatta (il flusso è uno solo per tutto l'export)
+      const cucitura = await pv.evaluate(async (ini) => {
+        const { mixaggio } = window.__dpvTest;
+        const it = mixaggio(window.__dpv.doc, ini, ini + 20);
+        const c1 = (await it.next()).value, c2 = (await it.next()).value;
+        await it.return();
+        const d1 = c1.getChannelData(0), d2 = c2.getChannelData(0);
+        const j = new Float32Array(960);
+        j.set(d1.subarray(d1.length - 480), 0); j.set(d2.subarray(0, 480), 480);
+        let seam = Math.abs(j[480] - j[479]), altro = 0;
+        for (let i = 1; i < 960; i++) if (Math.abs(i - 480) > 2) altro = Math.max(altro, Math.abs(j[i] - j[i - 1]));
+        let rms = 0; for (let i = 0; i < 960; i++) rms += j[i] * j[i];
+        return { seam, altro, rms: Math.sqrt(rms / 960), n1: d1.length, n2: d2.length };
+      }, pal.start / 25 + 1);
+      prova('l\'audio rallentato non scatta al cambio di pezzo dell\'export', cucitura.rms > 0.005 && cucitura.seam < Math.max(0.02, cucitura.altro * 2.5), JSON.stringify(cucitura));
     }
     await pv.close();
   }

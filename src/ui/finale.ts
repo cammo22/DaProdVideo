@@ -8,8 +8,12 @@ import * as M from '../core/montaggio';
 import { nuovoBlocco, posaBlocco } from '../core/blocchi';
 import { LINGUE, SOTTO0, bordoRiga, creaSrt, dividiRiga, leggiSrt, righeDaiDialoghi, sottotitoliDi, unisciRighe } from '../core/sottotitoli';
 import { MODELLI, fermaVoce, sottotitoliAI, type OpzioniVoce } from '../media/voce';
-import { salvaTesto } from '../platform';
-import { importaDialogo } from '../progetti';
+import { LINGUE_MOTORE, LINGUE_VOCE, VOCI_MAGPIE, motoreNemo } from '../media/nemo';
+import { doppia, linguaVoce, posaVoce } from '../media/doppiaggio';
+import { codificaWav } from '../media/wav';
+import { salvaMediaSulDisco, salvaTesto } from '../platform';
+import { importaDialogo, importaFile } from '../progetti';
+import { BarraLavoro } from './lavoro';
 import { durataUmana, f2s, fps, frameToTc } from '../core/timecode';
 import { LOOKS } from '../render/colore';
 import { mediaRT } from '../media/libreria';
@@ -262,7 +266,7 @@ export class Finale {
 
   // ——— i sottotitoli scritti dall'AI (Whisper, sul computer) ———
   private ai: OpzioniVoce = (() => {
-    const base: OpzioniVoce = { lingua: 'it', traduci: false, modello: MODELLI[1].id };
+    const base: OpzioniVoce = { lingua: 'it', traduci: false, modello: MODELLI[1].id, motore: undefined };
     try { return { ...base, ...(JSON.parse(localStorage.getItem('dpv-ai') ?? '{}') as Partial<OpzioniVoce>) }; } catch { return base; }
   })();
   private lavoroAI: AbortController | null = null;
@@ -275,25 +279,60 @@ export class Finale {
       this.aggiornaAI.push(() => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === get())));
       return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
     };
-    const barra = h('div', { class: 'ai-barra' }, h('i'));
-    const fase = h('div', { class: 'ai-fase' });
-    const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.scriviConAI(barra, fase, vai, ferma) } }, '✨ Scrivi i sottotitoli con l\'AI');
+    const lavoro = new BarraLavoro();
+    const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.scriviConAI(lavoro, vai, ferma) } }, '✨ Scrivi i sottotitoli con l\'AI');
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroAI?.abort(); fermaVoce(); } } }, '■ Ferma');
+    const nemotron = () => this.motoreAI() === 'nemotron';
+    const motore = scelta('Ascolta con', [
+      ['nemotron', 'Nemotron 3.5 · NVIDIA', 'Il riconoscimento del parlato di NVIDIA (streaming, tante lingue): va sulla scheda NVIDIA, sul Mac e anche solo sul processore. Solo nell\'app.'],
+      ['whisper', 'Whisper', 'Il riconoscimento di OpenAI: va anche nel browser; dall\'italiano sa tradurre in inglese.'],
+    ], () => this.motoreAI(), (v) => { this.ai.motore = v as 'nemotron' | 'whisper'; });
+    const infoMotore = h('div', { class: 'ai-motore' });
+    const aggiornaInfo = async () => {
+      if (!nemotron()) { infoMotore.textContent = ''; return; }
+      const m = motoreNemo();
+      if (!m) { infoMotore.textContent = ''; return; }
+      const st = await m.stato().catch(() => null);
+      if (!st) { infoMotore.textContent = ''; return; }
+      const dove = st.backend === 'cuda' ? 'scheda NVIDIA (CUDA)' : st.backend === 'metal' ? 'Apple Silicon (Metal)' : st.backend === 'vulkan' ? 'scheda video (Vulkan)' : 'processore';
+      infoMotore.replaceChildren(st.installato
+        ? h('span', null, 'Motore NVIDIA pronto · gira su ', h('b', null, dove), st.modelli > 0 ? ` · modelli sul disco: ${(st.modelli / 1048576).toFixed(0)} MB` : ' · il modello si scarica la prima volta')
+        : h('span', null, 'Motore NVIDIA: si scarica la prima volta (', h('b', null, st.consigliato === 'cuda' ? 'versione per la tua scheda NVIDIA' : st.consigliato === 'metal' ? 'versione per il Mac' : 'versione per il processore'), ') e poi resta sul computer'));
+    };
+    this.aggiornaAI.push(() => void aggiornaInfo());
     const traduci = scelta('Scrivi in', [['no', 'La stessa lingua'], ['si', 'Inglese (traduci)', 'Dall\'italiano: i sottotitoli escono già in inglese']], () => (this.ai.traduci && this.ai.lingua === 'it' ? 'si' : 'no'), (v) => { this.ai.traduci = v === 'si'; });
-    this.aggiornaAI.push(() => { traduci.style.display = this.ai.lingua === 'it' ? '' : 'none'; });
+    const modello = scelta('Modello', MODELLI.map((m) => [m.id, `${m.nome} · ${m.mb} MB`, m.info] as [string, string, string]), () => this.ai.modello, (v) => { this.ai.modello = v; });
+    this.aggiornaAI.push(() => {
+      traduci.style.display = !nemotron() && this.ai.lingua === 'it' ? '' : 'none';
+      modello.style.display = nemotron() ? 'none' : '';
+    });
+    const nota = h('p', { class: 'nota' });
+    this.aggiornaAI.push(() => {
+      nota.textContent = nemotron()
+        ? 'Ascolta la presa diretta del montaggio (non la musica) e scrive le righe coi loro tempi. Il motore e il modello di NVIDIA (Nemotron 3.5) si scaricano una volta sola e poi restano sul computer; l\'audio non esce mai dal computer. Le righe si correggono qui sotto; Ctrl+Z torna a prima.'
+        : 'Ascolta la presa diretta del montaggio (non la musica) e scrive le righe coi loro tempi. Il modello è Whisper (Hugging Face): si scarica una volta sola, poi resta sul computer. L\'audio non esce mai dal computer. Le righe si correggono qui sotto; Ctrl+Z torna a prima.';
+    });
     const out = [
-      scelta('Si parla in', [['it', 'Italiano'], ['en', 'Inglese']], () => this.ai.lingua, (v) => { this.ai.lingua = v as 'it' | 'en'; }),
+      motore,
+      infoMotore,
+      scelta('Si parla in', LINGUE_MOTORE.map(([v, , t]) => [v, t] as [string, string]), () => this.ai.lingua, (v) => { this.ai.lingua = v; }),
       traduci,
-      scelta('Modello', MODELLI.map((m) => [m.id, `${m.nome} · ${m.mb} MB`, m.info] as [string, string, string]), () => this.ai.modello, (v) => { this.ai.modello = v; }),
+      modello,
       h('div', { class: 'isp-pulsanti' }, vai, ferma),
-      barra, fase,
-      h('p', { class: 'nota' }, 'Ascolta la presa diretta del montaggio (non la musica) e scrive le righe coi loro tempi. Il modello è Whisper (Hugging Face): si scarica una volta sola, poi resta sul computer. L\'audio non esce mai dal computer. Le righe si correggono qui sotto; Ctrl+Z torna a prima.'),
+      ...lavoro.elementi,
+      nota,
     ];
     salva();
     return out;
   }
 
-  private async scriviConAI(barra: HTMLElement, fase: HTMLElement, vai: HTMLButtonElement, ferma: HTMLElement) {
+  /** chi ascolta davvero: Nemotron solo se c'è il motore (nell'app), se no Whisper */
+  private motoreAI(): 'nemotron' | 'whisper' {
+    const scelto = this.ai.motore ?? (motoreNemo() ? 'nemotron' : 'whisper');
+    return scelto === 'nemotron' && motoreNemo() ? 'nemotron' : 'whisper';
+  }
+
+  private async scriviConAI(lavoro: BarraLavoro, vai: HTMLButtonElement, ferma: HTMLElement) {
     if (this.lavoroAI) return;
     const p = store.doc;
     if (!p.clips.some((c) => c.kind === 'media' && store.doc.tracks.find((t) => t.id === c.track)?.kind === 'audio')) { avviso('Nel montaggio non c\'è audio da ascoltare', 'info', 2400); return; }
@@ -303,28 +342,111 @@ export class Finale {
     this.lavoroAI = ctrl;
     vai.disabled = true;
     ferma.style.display = '';
-    barra.classList.add('attiva');
-    const stato = (t: string, x: number) => { fase.textContent = t; (barra.firstChild as HTMLElement).style.width = Math.round(x * 100) + '%'; };
-    const o = { ...this.ai };
+    lavoro.avvia('Comincio…');
+    const stato = (t: string, x: number) => lavoro.imposta(t, x);
+    const o: OpzioniVoce = { ...this.ai, motore: this.motoreAI() };
     try {
       const righe = await sottotitoliAI(structuredClone(store.doc), o, stato, ctrl.signal);
-      if (!righe.length) { avviso('Non ho sentito parole nel montaggio', 'info', 2600); stato('Nessuna parola trovata', 1); return; }
-      this.cambiaSott('Sottotitoli con l\'AI', (x) => { x.righe = righe; x.lingua = o.traduci && o.lingua === 'it' ? 'en' : o.lingua; });
-      stato(`Fatto: ${righe.length} righe`, 1);
+      if (!righe.length) { avviso('Non ho sentito parole nel montaggio', 'info', 2600); lavoro.ferma('Nessuna parola trovata'); return; }
+      const traduzione = o.motore === 'whisper' && o.traduci && o.lingua === 'it';
+      this.cambiaSott('Sottotitoli con l\'AI', (x) => { x.righe = righe; x.lingua = traduzione ? 'en' : (o.lingua === 'auto' ? x.lingua : o.lingua); });
+      lavoro.fine(`Fatto: ${righe.length} righe`);
       avviso(`✨ ${righe.length} righe scritte dall'AI: rileggile qui sotto`, 'ok', 3200);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg === 'fermato') stato('Fermato', 0);
-      else if (msg === 'muto') { stato('L\'audio dei dialoghi è muto', 0); avviso('L\'audio dei dialoghi è muto: niente da scrivere', 'info', 2600); }
+      if (msg === 'fermato') lavoro.ferma('Fermato');
+      else if (msg === 'muto') { lavoro.ferma('L\'audio dei dialoghi è muto'); avviso('L\'audio dei dialoghi è muto: niente da scrivere', 'info', 2600); }
       else {
-        stato('Non ci sono riuscito: ' + msg, 0);
-        avviso('L\'AI non è partita: serve internet la prima volta (per scaricare il modello). ' + msg, 'errore', 5000);
+        lavoro.ferma('Non ci sono riuscito: ' + msg);
+        avviso(o.motore === 'nemotron' ? 'L\'AI non è partita: ' + msg : 'L\'AI non è partita: serve internet la prima volta (per scaricare il modello). ' + msg, 'errore', 5000);
       }
     } finally {
       this.lavoroAI = null;
       vai.disabled = false;
       ferma.style.display = 'none';
-      barra.classList.remove('attiva');
+    }
+  }
+
+  // ——— la voce AI: i sottotitoli letti da una voce di NVIDIA (Magpie) ———
+  private voce = (() => {
+    const base = { voce: 0, lingua: '', silenzia: true };
+    try { return { ...base, ...(JSON.parse(localStorage.getItem('dpv-voce') ?? '{}') as Partial<typeof base>) }; } catch { return base; }
+  })();
+  private lavoroVoce: AbortController | null = null;
+
+  private pannelloVoce(): HTMLElement[] {
+    const sinc: (() => void)[] = [];
+    const salva = () => { try { localStorage.setItem('dpv-voce', JSON.stringify(this.voce)); } catch { /* niente */ } sinc.forEach((f) => f()); };
+    const scelta = (nome: string, opz: [string, string, string?][], get: () => string, put: (v: string) => void) => {
+      const bott = opz.map(([v, t, info]) => h('button', { class: 'chip', 'data-v': v, title: info ?? '', on: { click: () => { put(v); salva(); } } }, t));
+      sinc.push(() => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === get())));
+      return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
+    };
+    const lavoro = new BarraLavoro();
+    const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => this.lavoroVoce?.abort() } }, '■ Ferma');
+    const vai = h('button', { class: 'btn primario ai-vai', title: 'Legge i sottotitoli con la voce scelta e mette il risultato su una traccia audio nuova', on: { click: () => void this.faiParlare(lavoro, vai, ferma) } }, '🗣 Fai parlare i sottotitoli');
+    const silenzia = h('input', { type: 'checkbox' }) as HTMLInputElement;
+    silenzia.addEventListener('change', () => { this.voce.silenzia = silenzia.checked; salva(); });
+    sinc.push(() => { silenzia.checked = this.voce.silenzia; });
+    const linguaSott = () => sottotitoliDi(store.doc).lingua;
+    const scelte = scelta('Lingua', [['', 'Quella dei sottotitoli', 'La voce parla nella lingua in cui sono scritti i sottotitoli'], ...LINGUE_MOTORE.filter(([v]) => LINGUE_VOCE.includes(v)).map(([v, , t]) => [v, t] as [string, string])], () => this.voce.lingua, (v) => { this.voce.lingua = v; });
+    const nota = h('p', { class: 'nota' });
+    sinc.push(() => {
+      nota.textContent = motoreNemo()
+        ? `Legge i sottotitoli (${LINGUE.find(([v]) => v === linguaSott())?.[1] ?? linguaSott()}) con una voce sintetica di NVIDIA (Magpie TTS): così cambi la voce di un parlato, o lo fai dire in un'altra lingua se i sottotitoli sono tradotti. Ogni frase va al suo posto (se è più lunga si accelera un po'). Il motore e il modello si scaricano una volta sola. Prima correggi le righe, poi premi il tasto; Ctrl+Z torna a prima.`
+        : 'La voce AI usa il motore di NVIDIA, che gira nell\'app per Windows e Mac (sul processore, o meglio sulla scheda NVIDIA). Nel browser non c\'è.';
+      vai.disabled = !motoreNemo() || !!this.lavoroVoce;
+    });
+    this.aggiornaAI.push(() => sinc.forEach((f) => f()));
+    const out = [
+      scelta('Voce', VOCI_MAGPIE.map((n, i) => [String(i), n] as [string, string]), () => String(this.voce.voce), (v) => { this.voce.voce = Number(v); }),
+      scelte,
+      h('label', { class: 'spunta-riga', title: 'Le voci originali vanno a zero: si sente solo la voce AI' }, silenzia, ' silenzia le voci originali'),
+      h('div', { class: 'isp-pulsanti' }, vai, ferma),
+      ...lavoro.elementi,
+      nota,
+    ];
+    salva();
+    return out;
+  }
+
+  private async faiParlare(lavoro: BarraLavoro, vai: HTMLButtonElement, ferma: HTMLElement) {
+    if (this.lavoroVoce) return;
+    const p = store.doc;
+    if (!sottotitoliDi(p).righe.some((x) => x.testo.trim())) { avviso('Prima servono i sottotitoli: scrivili qui, o fatti aiutare dall\'AI', 'info', 3000); return; }
+    const lingua = linguaVoce(p, this.voce.lingua || undefined);
+    if (!lingua) { avviso('Magpie parla italiano, inglese, spagnolo, francese e tedesco: scegli la lingua', 'info', 3200); return; }
+    const ctrl = new AbortController();
+    this.lavoroVoce = ctrl;
+    vai.disabled = true;
+    ferma.style.display = '';
+    lavoro.avvia('Comincio…');
+    try {
+      const r = await doppia(structuredClone(p), { voce: this.voce.voce, lingua, silenzia: this.voce.silenzia }, (t, k) => lavoro.imposta(t, k), ctrl.signal);
+      lavoro.imposta('Salvo l\'audio…', 0.97);
+      const nome = `Voce AI ${VOCI_MAGPIE[this.voce.voce] ?? ''} ${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '.')}.wav`.replace('  ', ' ');
+      const blob = new Blob([codificaWav(r.audio, r.sr) as BlobPart], { type: 'audio/wav' });
+      const path = await salvaMediaSulDisco(nome, blob);
+      const file = new File([blob], nome, { type: 'audio/wav' });
+      const [m] = await importaFile([{ name: nome, path, file: path ? undefined : file }], { chiediFormato: false });
+      if (!m) throw new Error('non riesco a leggere l\'audio prodotto');
+      const ids = store.edit('Voce AI', (pp) => posaVoce(pp, m.id, r.audio.length / r.sr, this.voce.silenzia));
+      store.select(ids);
+      lavoro.fine(`Fatto: ${r.frasi} frasi, su una traccia nuova "Voce AI"`);
+      avviso(`🗣 Voce AI pronta: ${r.frasi} frasi su una traccia nuova${this.voce.silenzia ? ' (le voci originali sono in silenzio)' : ''}`, 'ok', 3600);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'fermato') lavoro.ferma('Fermato');
+      else if (msg === 'senza-righe') lavoro.ferma('Non ci sono righe da leggere');
+      else if (msg === 'lingua') lavoro.ferma('Questa lingua la voce non la sa');
+      else {
+        lavoro.ferma('Non ci sono riuscito: ' + msg);
+        avviso('La voce AI non è partita: ' + msg, 'errore', 5000);
+      }
+    } finally {
+      this.lavoroVoce = null;
+      vai.disabled = !motoreNemo();
+      ferma.style.display = 'none';
     }
   }
 
@@ -479,14 +601,14 @@ export class Finale {
     const lingua = h('select', { class: 'mini-select largo' }, LINGUE.map(([v, t]) => h('option', { value: v }, t))) as HTMLSelectElement;
     lingua.addEventListener('change', () => this.cambiaSott('Lingua dei sottotitoli', (x) => { x.lingua = lingua.value; }));
     this.campi.push({ aggiorna: () => { lingua.value = sottotitoliDi(store.doc).lingua; } });
-    const presto = (nome: string, info: string) => h('button', { class: 'fin-presto', disabled: true, title: info }, h('span', null, nome), h('i', null, 'PRESTO'));
     const vai = (nome: string, info: string, fn: () => void) => h('button', { class: 'fin-presto pronto', title: info, on: { click: fn } }, h('span', null, nome), h('i', null, 'VAI'));
     return sez('Lingue e AI', 'lingua',
-      h('div', { class: 'fin-scelte' }, h('span', null, 'Lingua'), lingua),
-      vai('✨ Scrivi i sottotitoli con l\'AI', 'Whisper ascolta i dialoghi e scrive le righe coi tempi (italiano o inglese)', () => { this.ai.traduci = false; this.mostra('sottotitoli'); }),
-      vai('🌍 Sottotitoli in inglese da un parlato italiano', 'Whisper ascolta l\'italiano e scrive direttamente in inglese', () => { this.ai.lingua = 'it'; this.ai.traduci = true; this.mostra('sottotitoli'); this.aggiornaAI.forEach((f) => f()); }),
-      presto('🗣 Voce in un\'altra lingua', 'Il doppiaggio automatico, per chi lo vorrà'),
-      h('p', { class: 'nota' }, 'I sottotitoli li scrive Whisper, il riconoscimento del parlato di OpenAI nella versione di Hugging Face: gira sul tuo computer (l\'audio non va da nessuna parte) e il modello si scarica una volta sola. La lingua qui sopra finisce nel nome del file .srt.'));
+      h('div', { class: 'fin-scelte' }, h('span', null, 'Lingua dei sottotitoli'), lingua),
+      vai('✨ Scrivi i sottotitoli con l\'AI', 'Nemotron (NVIDIA, nell\'app) o Whisper ascoltano i dialoghi e scrivono le righe coi tempi', () => { this.ai.traduci = false; this.mostra('sottotitoli'); }),
+      vai('🌍 Sottotitoli in inglese da un parlato italiano', 'Whisper ascolta l\'italiano e scrive direttamente in inglese', () => { this.ai.lingua = 'it'; this.ai.traduci = true; this.ai.motore = 'whisper'; this.mostra('sottotitoli'); this.aggiornaAI.forEach((f) => f()); }),
+      h('div', { class: 'fin-sotto' }, h('b', null, '🗣 Voce AI · cambia voce o lingua')),
+      ...this.pannelloVoce(),
+      h('p', { class: 'nota' }, 'I sottotitoli li scrive Nemotron 3.5 di NVIDIA (nell\'app) o Whisper di OpenAI (anche nel browser): girano sul tuo computer, l\'audio non va da nessuna parte e i modelli si scaricano una volta sola. La lingua qui sopra finisce nel nome del file .srt e dice alla voce AI in che lingua parlare.'));
   }
 
   /** porta tutte le clip audio a un livello comodo (come l'effetto "Livella" clip per clip) */

@@ -649,6 +649,8 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
   const PEZZO = 10;
   const solo = p.tracks.some((t) => t.kind === 'audio' && t.solo);
   const fr = p.rate;
+  const continui = new Map<string, { it: AsyncGenerator<PezzoAudio, void, unknown>; resto: PezzoAudio | null; finito: boolean }>();
+  try {
   for (let a = fromSec; a < toSec - 1e-6; a += PEZZO) {
     const b = Math.min(toSec, a + PEZZO);
     const len = Math.max(1, Math.round((b - a) * SR));
@@ -686,23 +688,48 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
       const from = Math.max(a, cs), to = Math.min(b, ce);
       const srcFrom = c.srcIn + (from - cs) * c.speed;
       const srcTo = c.srcIn + (to - cs) * c.speed;
+      // le clip stirate col tono giusto hanno un flusso solo per tutto l'export: se ripartisse a ogni pezzo da 10 s,
+      // le onde non combacerebbero e ogni taglio farebbe uno scatto
+      const stirata = Math.abs(c.speed - 1) >= 0.005 && !c.nastro;
       lavori.push((async () => {
-        const sink = new AudioBufferSink(r.a!);
         const margine = 0.05 * c.speed;
-        for await (const { buffer, tl: tlRel, rate } of pezziClip(sink.buffers(Math.max(0, srcFrom - margine), srcTo + margine) as FlussoAudio, c)) {
+        let flusso = stirata ? continui.get(c.id) : undefined;
+        if (!flusso) {
+          const sink = new AudioBufferSink(r.a!);
+          const fine = stirata ? c.srcIn + (ce - cs) * c.speed : srcTo;
+          flusso = { it: pezziClip(sink.buffers(Math.max(0, srcFrom - margine), fine + margine) as FlussoAudio, c), resto: null, finito: false };
+          if (stirata) continui.set(c.id, flusso);
+        }
+        for (;;) {
+          let pz: PezzoAudio | null = flusso.resto;
+          flusso.resto = null;
+          if (!pz) {
+            if (flusso.finito) break;
+            const n = await flusso.it.next();
+            if (n.done) { flusso.finito = true; break; }
+            pz = n.value;
+          }
+          const { buffer, tl: tlRel, rate } = pz;
           const durTl = buffer.duration / rate;
           let when = cs + tlRel - a;
           let offset = 0;
           const lo = from - a;
           if (when < lo) { offset = lo - when; when = lo; }
+          // il pezzo comincia dopo questo tratto: resta per il prossimo
+          if (stirata && when >= to - a) { flusso.resto = pz; break; }
           const dur = Math.min(durTl - offset, to - a - when);
-          if (dur <= 0) continue;
-          const s = ctx.createBufferSource();
-          s.buffer = buffer;
-          if (rate !== 1) s.playbackRate.value = rate;
-          s.connect(ingresso);
-          s.start(when, offset * rate, dur * rate);
+          if (dur > 0) {
+            const s = ctx.createBufferSource();
+            s.buffer = buffer;
+            if (rate !== 1) s.playbackRate.value = rate;
+            s.connect(ingresso);
+            s.start(when, offset * rate, dur * rate);
+          }
+          // il pezzo finisce dopo questo tratto: il resto va nel prossimo
+          if (stirata && offset + dur < durTl - 1e-6 && when + dur >= to - a - 1e-6) { flusso.resto = pz; break; }
+          if (!stirata && dur <= 0 && when >= to - a) break;
         }
+        if (!stirata) void flusso.it.return(undefined).catch(() => {});
       })());
     }
     // i suoni degli FX
@@ -719,5 +746,8 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
     }
     await Promise.all(lavori);
     yield await ctx.startRendering();
+  }
+  } finally {
+    for (const f of continui.values()) void f.it.return(undefined).catch(() => {});
   }
 }

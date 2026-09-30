@@ -51,8 +51,10 @@ self.onmessage = async (e: MessageEvent) => {
     if (m.tipo === 'carica') await carica(m.modello!);
     else if (m.tipo === 'trascrivi') {
       if (!asr) throw new Error('modello non caricato');
+      const lingue: Record<string, string> = { it: 'italian', en: 'english', es: 'spanish', fr: 'french', de: 'german', pt: 'portuguese' };
       const out = await asr(m.audio!, {
-        language: m.lingua === 'en' ? 'english' : 'italian',
+        // "auto": Whisper riconosce da solo la lingua
+        ...(m.lingua && m.lingua !== 'auto' ? { language: lingue[m.lingua] ?? 'italian' } : {}),
         task: m.traduci ? 'translate' : 'transcribe',
         chunk_length_s: 30, stride_length_s: 5, return_timestamps: true,
       });
