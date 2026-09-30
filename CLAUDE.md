@@ -81,7 +81,7 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   l'effetto di quarti di giro con `gira()`, `u_curva`); i modelli con un verso sono in `DIREZIONALI` (`transizioni.ts`).
   Titoli: `sotto`, `ingresso/uscita` (in `motoTitolo`), `spaziatura`, `peso`; gli stili a lettere usano `rivela` come avanzamento.
 - **LIVE con più finestre (1.1.2)**: `Regia` in `live.ts` disegna la finestra in onda (o due) in una tela di misura fissa con un
-  Worker come battito e ne registra `captureStream`; `opz.finestre` (di partenza acceso), tasti N / 1-9 / L.
+  Worker come battito e ne registra `captureStream`; `opz.finestre` (**di partenza spento**: `captureStream` di una tela dipende dalla pagina che disegna, e la registrazione diretta resta la strada provata), tasti N / 1-9 / L.
 - **Timeline che cresce**: `kV()` in `src/ui/timeline.ts` (spazio libero × `zoomV`, Ctrl+Shift+rotella); nell'app
   Ctrl +/− fa `setZoom` della webview (nel browser lo zoom resta quello del browser: lo zoom CSS rompe i clic).
 - TRASPARENZA (tasto B, era ELASTICO) = la linea gialla dell'opacità sui video; IN/OUT si vedono solo se ci sono (Alt+X o ✕).

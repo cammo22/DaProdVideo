@@ -1421,6 +1421,7 @@ try {
   await pg.click('.pagina-btn[data-p=live]');
   await pg.waitForTimeout(300);
   await pg.click('.live .fin-interruttore:has-text("Conto alla rovescia")');
+  await pg.click('.live .fin-interruttore:has-text("Più finestre al volo")');
   await pg.keyboard.press('r');
   await pg.waitForTimeout(1800);
   const a = await pg.evaluate(() => { const l = window.__dpvTest.ui().live; return { regia: !!l.regia, fonti: l.regia?.fonti.length, rec: l.registrando }; });

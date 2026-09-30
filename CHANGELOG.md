@@ -39,7 +39,7 @@ per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pa
 - Ogni titolo ha ora un **sottotitolo** (la riga piccola sotto), **Entra / Esce** (dissolve, sale, scende, da sinistra o da destra, zoom, rimbalza) con qualunque stile, **spazio fra le lettere** e **spessore**. Nelle proprietà ora si trovano *tutti* gli stili (prima ne mancavano cinque).
 
 ### LIVE: cambia finestra mentre registri
-- **Più finestre al volo** (acceso di partenza): con ＋ FINESTRA (tasto **N**) aggiungi altre finestre o schermi anche a registrazione in corso, e passi dall'una all'altra con un clic sulla miniatura o coi tasti **1-9** (⇄ sul telecomando). **L** cambia la disposizione: una sola, una grande e una piccola in **angolo**, due **affiancate**.
+- **Più finestre al volo** (da accendere prima di registrare: di partenza è spento, così la registrazione normale resta quella di sempre): con ＋ FINESTRA (tasto **N**) aggiungi altre finestre o schermi anche a registrazione in corso, e passi dall'una all'altra con un clic sulla miniatura o coi tasti **1-9** (⇄ sul telecomando). **L** cambia la disposizione: una sola, una grande e una piccola in **angolo**, due **affiancate**.
 - Il file resta uno solo e la misura non cambia (è quella della prima finestra): la regia disegna quella in onda in una tela fissa, con un battito che non rallenta se l'app è coperta.
 
 ### I VU

@@ -250,7 +250,7 @@ interface Opzioni {
 }
 const OPZ0: Opzioni = {
   mic: true, micId: '', sistema: true, cam: false, camId: '', camAngolo: 'bd', camTonda: true,
-  qualita: 1080, fps: 30, cursore: true, conto: true, timeline: true, presentazione: false, sfondo: 'notte', finestre: true, layout: 'solo',
+  qualita: 1080, fps: 30, cursore: true, conto: true, timeline: true, presentazione: false, sfondo: 'notte', finestre: false, layout: 'solo',
 };
 function leggiOpzioni(): Opzioni {
   try { return { ...OPZ0, ...JSON.parse(localStorage.getItem('dpv-live') || '{}') }; } catch { return { ...OPZ0 }; }
@@ -457,7 +457,7 @@ export class Live {
             chips('camAngolo', ANGOLI.map(([a, s]): [Angolo, string, string] => [a, s, 'La webcam in questo angolo'])),
             chips('camTonda', [[true, 'Bolla', 'Tonda'], [false, 'Riquadro', 'Un riquadro con gli angoli tondi']])),
           sezione('Finestre'),
-          interruttore('finestre', null, 'Più finestre al volo', 'Aggiungi altre finestre o schermi e passa dall\'una all\'altra mentre registri: il video resta uno solo'),
+          interruttore('finestre', null, 'Più finestre al volo (nuovo)', 'Aggiungi altre finestre o schermi e passa dall\'una all\'altra mentre registri: il video resta uno solo. Va acceso prima di registrare; il video passa da una tela intermedia, quindi con una finestra sola e senza cambi meglio lasciarlo spento'),
           chips('layout', [['solo', 'Una sola', 'La finestra scelta a tutto quadro'], ['angolo', 'In angolo', 'La scelta grande e la prossima piccola in un angolo'], ['affiancate', 'Affiancate', 'Due finestre una accanto all\'altra']], () => this.applicaLayout()),
           sezione('Qualità'),
           chips('qualita', QUALITA.map(([q, n]): [number, string] => [q, n])),
@@ -508,7 +508,7 @@ export class Live {
     else if ((k === ' ' || k === 'p') && (this.fase === 'registra' || this.fase === 'pausa')) this.pausa();
     else if (k === 'm' && this.fase === 'registra') this.segna();
     else if (/^[1-9]$/.test(k) && this.regia && this.fase !== 'fermo') this.passaA(Number(k) - 1);
-    else if (k === 'n' && this.regia && this.fase !== 'fermo') void this.aggiungiFinestra();
+    else if (k === 'n' && this.fase !== 'fermo') void this.aggiungiFinestra();
     else if (k === 'l' && this.regia && this.fase !== 'fermo') this.ciclaLayout();
     else if ((k === 'f' || k === 'escape') && this.fase !== 'fermo') this.ferma();
     else preso = false;
@@ -656,7 +656,7 @@ export class Live {
     this.bPausa.disabled = f !== 'registra' && f !== 'pausa';
     this.bFerma.disabled = f === 'fermo';
     this.bSegna.disabled = f !== 'registra';
-    this.bAggiungi.disabled = !this.regia || f === 'fermo';
+    this.bAggiungi.disabled = f === 'fermo';
     this.bProssima.disabled = !this.regia || f === 'fermo' || this.regia.fonti.length < 2;
     this.bPausa.textContent = f === 'pausa' ? '▶ RIPRENDI' : '❚❚ PAUSA';
     this.miniPausa.textContent = f === 'pausa' ? '▶' : '❚❚';
@@ -1093,7 +1093,8 @@ export class Live {
   /** un'altra finestra o schermo: si sceglie col selettore del sistema e va subito in onda */
   async aggiungiFinestra() {
     const r = this.regia;
-    if (!r || this.fase === 'fermo') { avviso('Premi prima REGISTRA: poi puoi aggiungere altre finestre', 'info', 2200); return; }
+    if (!r) { avviso('Accendi "Più finestre al volo" prima di registrare: poi puoi aggiungere altre finestre', 'info', 3200); return; }
+    if (this.fase === 'fermo') { avviso('Premi prima REGISTRA: poi puoi aggiungere altre finestre', 'info', 2200); return; }
     if (this.aggiungendo) return;
     this.aggiungendo = true;
     try {
