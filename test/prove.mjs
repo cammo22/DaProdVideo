@@ -1939,13 +1939,17 @@ try {
       const rate = window.__dpv.doc.rate;
       return {
         partito, nati: window.__dpvTest.statoDecoder().nati - n0,
-        diversi: new Set(posizioni.filter((x) => x !== null)).size, posizioni,
+        diversi: new Set(posizioni.filter((x) => x !== null)).size, posizioni, validi: posizioni.filter((x) => x !== null).length,
         cambi: posizioni.filter((x, i) => i > 0 && x !== null && posizioni[i - 1] !== null && x !== posizioni[i - 1]).length,
         secondi: (headFine - testa) * rate.den / rate.num, durataMs,
       };
     }, da);
+    // quante letture riescono dipende dalla velocità del computer (sul runner di GitHub una lettura dei pixel costa anche
+    // 3 secondi e ne escono solo due o tre): il video deve cambiare a ogni lettura valida (3 cambi se ce ne sono abbastanza),
+    // e con meno di due letture buone la prova non può dire niente
+    const siMuove = (r) => r.validi >= 2 && r.cambi >= Math.min(3, r.validi - 1);
     const a = await suona(250);
-    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove (senza ripartire dal fotogramma chiave)', a.partito && a.cambi >= 3 && a.nati <= 2, JSON.stringify(a));
+    prova('play dal mezzo di una ripresa col GOP lungo: il video si muove (senza ripartire dal fotogramma chiave)', a.partito && siMuove(a) && a.nati <= 2, JSON.stringify(a));
     const pronto = await pg.waitForFunction(() => window.__dpvTest.proxyStato(window.__dpv.doc.media[0].id) === 'pronto', null, { timeout: 120000 }).then(() => true, () => false);
     const px = await pg.evaluate(() => { const r = window.__dpvTest.mediaRT(window.__dpv.doc.media[0].id); return r.proxy ? [r.proxy.w, r.proxy.h] : null; });
     prova('il proxy automatico si fa da solo dietro le quinte', pronto && !!px && px[0] <= 960, JSON.stringify(px));
@@ -1955,7 +1959,7 @@ try {
     // difetto ne faceva una a ogni giro dello schermo: decine in due secondi, e l'immagine ferma)
     // Il proxy ha un GOP di mezzo secondo: si limita la frequenza alle ripartenze necessarie per raggiungere il GOP successivo.
     const limiteFlussi = Math.ceil(b.durataMs / 500) + 2;
-    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && b.cambi >= 3 && b.nati <= limiteFlussi, JSON.stringify({ ...b, limiteFlussi }));
+    prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && siMuove(b) && b.nati <= limiteFlussi, JSON.stringify({ ...b, limiteFlussi }));
     await pg.close();
   }
 
