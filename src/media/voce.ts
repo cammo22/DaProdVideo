@@ -1,11 +1,14 @@
 // I sottotitoli scritti dall'AI: si prende l'audio dei dialoghi del montaggio (la presa diretta, non la musica),
-// lo si porta a 16 kHz, lo si passa a Whisper (src/media/voce.worker.ts) a pezzi di un minuto tagliati nei silenzi,
-// e il testo torna in righe di sottotitolo coi loro tempi. Italiano e inglese, e dall'italiano anche la traduzione
-// in inglese. Tutto sul computer di chi monta: l'audio non va da nessuna parte.
+// lo si porta a 16 kHz, lo si passa a chi ascolta a pezzi di un minuto tagliati nei silenzi, e il testo torna in righe
+// di sottotitolo coi loro tempi. Chi ascolta può essere:
+//  · Nemotron 3.5 di NVIDIA (src/media/nemo.ts, nell'app): multilingua, va su scheda NVIDIA, Mac e anche su CPU;
+//  · Whisper (src/media/voce.worker.ts, anche nel browser), e dall'italiano anche la traduzione in inglese.
+// Tutto sul computer di chi monta: l'audio non va da nessuna parte.
 import type { Project, Sottotitolo } from '../core/tipi';
 import { end, projectEnd, uid } from '../core/progetto';
 import { f2s, fps } from '../core/timecode';
 import { mixaggio } from './audio';
+import { assicuraMotore, motoreNemo } from './nemo';
 
 export interface Modello { id: string; nome: string; info: string; mb: number }
 
@@ -16,11 +19,13 @@ export const MODELLI: Modello[] = [
 ];
 
 export interface OpzioniVoce {
-  /** la lingua in cui si parla */
-  lingua: 'it' | 'en';
-  /** dall'italiano: scrivi direttamente in inglese */
+  /** la lingua in cui si parla ("auto" = la riconosce da solo) */
+  lingua: string;
+  /** dall'italiano: scrivi direttamente in inglese (solo Whisper) */
   traduci: boolean;
   modello: string;
+  /** chi ascolta: Nemotron di NVIDIA (nell'app) o Whisper */
+  motore?: 'nemotron' | 'whisper';
 }
 
 export interface Pezzo { da: number; a: number | null; testo: string }
@@ -28,7 +33,7 @@ export interface Pezzo { da: number; a: number | null; testo: string }
 /** chi trascrive un pezzo d'audio (16 kHz mono): di solito il worker con Whisper; le prove ne mettono uno finto */
 export type Trascrittore = {
   carica: (modello: string, stato: (fase: string, prog: number) => void) => Promise<string>;
-  trascrivi: (audio: Float32Array, lingua: 'it' | 'en', traduci: boolean) => Promise<Pezzo[]>;
+  trascrivi: (audio: Float32Array, lingua: string, traduci: boolean) => Promise<Pezzo[]>;
 };
 
 const SR = 16000;
@@ -190,10 +195,22 @@ export async function sottotitoliAI(p: Project, o: OpzioniVoce, stato: (fase: st
   let picco = 0;
   for (let i = 0; i < audio.length; i += 64) picco = Math.max(picco, Math.abs(audio[i]));
   if (picco < 0.003) throw new Error('muto');
+  const tagli = puntiDiTaglio(audio);
+  if (o.motore === 'nemotron') {
+    // Nemotron 3.5 di NVIDIA, col motore dell'app: prima si prepara (motore e modello, solo la prima volta), poi si ascolta
+    const nem = motoreNemo();
+    if (!nem) throw new Error('Nemotron serve l\'app per Windows o Mac: nel browser usa Whisper');
+    await assicuraMotore(nem, ['asr'], (k, t) => stato(t, 0.1 + k * 0.4), segnale);
+    fermo();
+    const daAscoltare = tagli.slice(0, -1).map((a, k) => ({ da: a, audio: audio.slice(Math.floor(a * SR), Math.floor(tagli[k + 1] * SR)) }));
+    const pezzi = await nem.trascrivi(daAscoltare, { lingua: o.lingua }, (k, t) => stato(t, 0.5 + k * 0.5), segnale);
+    fermo();
+    stato('Fatto', 1);
+    return righeDaPezzi(pezzi, p);
+  }
   stato('Carico il modello…', 0.1);
   const dove = await trascrittore.carica(o.modello, (fase, x) => stato(fase, 0.1 + x * 0.3));
   fermo();
-  const tagli = puntiDiTaglio(audio);
   const pezzi: Pezzo[] = [];
   for (let k = 0; k < tagli.length - 1; k++) {
     fermo();

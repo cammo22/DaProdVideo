@@ -19,6 +19,25 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown> | Ui
   return _invoke<T>(cmd, args as any, opts as any);
 }
 
+/** nell'app un file creato dal programma (una registrazione, la voce AI) va sul disco (Video/DaProd Video), così il
+ *  progetto lo ritrova sempre; nel browser niente (resta in memoria). Ritorna il percorso. */
+export async function salvaMediaSulDisco(nome: string, blob: Blob): Promise<string | undefined> {
+  if (!isTauri) return undefined;
+  try {
+    const path = await invoke<string>('registrazione_percorso', { name: nome });
+    const id = await invoke<number>('export_apri', { path });
+    const PEZZO = 8 << 20;
+    for (let pos = 0; pos < blob.size; pos += PEZZO) {
+      const b = new Uint8Array(await blob.slice(pos, pos + PEZZO).arrayBuffer());
+      await invoke('export_scrivi', b, { headers: { 'x-id': String(id), 'x-pos': String(pos) } });
+    }
+    await invoke('export_chiudi', { id });
+    return path;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface FileScelto { name: string; path?: string; file?: File }
 
 const ESTENSIONI = ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'mts', 'm2ts', 'ts', 'mpg', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'ac3', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'];

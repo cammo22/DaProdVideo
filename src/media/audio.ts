@@ -7,6 +7,7 @@ import { transizioniAttive } from '../core/blocchi';
 import { f2s } from '../core/timecode';
 import { mediaRT } from './libreria';
 import { bufferSuono, suoniFx } from './suoni';
+import { Stiratore } from './stira';
 
 const SUONA = new Set(['media', 'tone', 'beep']);
 
@@ -166,12 +167,49 @@ function uscitaFinale(ctx: BaseAudioContext, p: Project, dest: AudioNode): Audio
   return [g];
 }
 
+type FlussoAudio = AsyncGenerator<{ buffer: AudioBuffer; timestamp: number }, void, unknown>;
+/** un pezzo d'audio già al ritmo della timeline: tl = secondi dall'inizio della clip, rate = velocità di lettura */
+interface PezzoAudio { buffer: AudioBuffer; tl: number; rate: number }
+
+/** i pezzi di una clip messi alla sua velocità: a ×1 dritti, "come il nastro" con la velocità di lettura, altrimenti stirati col tono giusto */
+async function* pezziClip(iter: FlussoAudio, c: Clip): AsyncGenerator<PezzoAudio, void, unknown> {
+  const v = c.speed || 1;
+  try {
+    if (Math.abs(v - 1) < 0.005) {
+      for await (const { buffer, timestamp } of iter) yield { buffer, tl: timestamp - c.srcIn, rate: 1 };
+      return;
+    }
+    if (c.nastro) {
+      for await (const { buffer, timestamp } of iter) yield { buffer, tl: (timestamp - c.srcIn) / v, rate: v };
+      return;
+    }
+    let st: Stiratore | null = null;
+    let t0 = 0, sr = 48000;
+    const fuori = (ch: Float32Array[]): PezzoAudio | null => {
+      if (!ch[0]?.length) return null;
+      const b = new AudioBuffer({ numberOfChannels: ch.length, length: ch[0].length, sampleRate: sr });
+      ch.forEach((d, i) => b.copyToChannel(d as Float32Array<ArrayBuffer>, i));
+      return { buffer: b, tl: t0 + (st!.usciti - ch[0].length) / sr, rate: 1 };
+    };
+    for await (const { buffer, timestamp } of iter) {
+      if (!st) { sr = buffer.sampleRate; t0 = (timestamp - c.srcIn) / v; st = new Stiratore(buffer.numberOfChannels, sr, v); }
+      const ch = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
+      const o = fuori(st.push(ch));
+      if (o) yield o;
+    }
+    if (st) { const o = fuori(st.fine()); if (o) yield o; }
+  } finally {
+    void iter.return(undefined).catch(() => {});
+  }
+}
+
 interface Voce {
   clip: Clip;
   gain: GainNode;
   pan: StereoPannerNode;
   nodes: (AudioBufferSourceNode | OscillatorNode)[];
-  iter?: AsyncGenerator<{ buffer: AudioBuffer; timestamp: number }, void, unknown>;
+  /** i pezzi d'audio già alla velocità della clip */
+  pezzi?: AsyncGenerator<PezzoAudio, void, unknown>;
   until: number;
   finita: boolean;
   pumping: boolean;
@@ -329,7 +367,7 @@ class Banco {
     for (const n of v.nodes) { try { n.stop(); } catch { /* già fermo */ } n.disconnect(); }
     v.gain.disconnect();
     v.pan.disconnect();
-    void v.iter?.return(undefined).catch(() => {});
+    void v.pezzi?.return(undefined).catch(() => {});
   }
 
   private giro() {
@@ -350,12 +388,12 @@ class Banco {
           gain.connect(pan);
           pan.connect(this.master);
           const v: Voce = { clip: fake, gain, pan, nodes: [], until: now, finita: false, pumping: false };
-          v.iter = new AudioBufferSink(r.a).buffers(this.startSec) as Voce['iter'];
+          v.pezzi = pezziClip(new AudioBufferSink(r.a).buffers(this.startSec) as FlussoAudio, fake);
           this.voci.set(id, v);
         }
       }
       const v = this.voci.get(id);
-      if (v) void this.pompa(v, 0, 1e9, 0);
+      if (v) void this.pompa(v, 0, 1e9);
       return;
     }
     const fr = p.rate;
@@ -386,7 +424,7 @@ class Banco {
       const fromTl = Math.max(pos, cs);
       const srcFrom = c.srcIn + (fromTl - cs) * c.speed;
       const srcTo = c.srcIn + (ce - cs) * c.speed;
-      v.iter = new AudioBufferSink(r.a).buffers(Math.max(0, srcFrom - 0.05), srcTo) as Voce['iter'];
+      v.pezzi = pezziClip(new AudioBufferSink(r.a).buffers(Math.max(0, srcFrom - 0.05), srcTo) as FlussoAudio, c);
     }
     // i suoni dentro gli FX (whoosh, colpi, zap…): dritti nel master
     for (const e of suoniFx(p)) {
@@ -406,11 +444,11 @@ class Banco {
       this.voci.set(id, { clip: { id } as Clip, gain, pan, nodes: [s], until: now, finita: true, pumping: false, fine });
     }
     for (const v of this.voci.values()) {
-      if (v.iter && !v.finita) {
+      if (v.pezzi && !v.finita) {
         const c = v.clip;
         const cs = f2s(c.start, fr);
         const ce = f2s(end(c) + codaIncrocio(p, c), fr);
-        void this.pompa(v, cs, ce, c.srcIn);
+        void this.pompa(v, cs, ce);
       }
     }
     // voci finite da tempo: via
@@ -424,18 +462,19 @@ class Banco {
   }
 
   /** decodifica e mette in coda i pezzi di audio fino a poco più avanti di adesso */
-  private async pompa(v: Voce, cs: number, ce: number, srcIn: number) {
+  private async pompa(v: Voce, cs: number, ce: number) {
     if (v.pumping || v.finita || !this.ctx) return;
     v.pumping = true;
     const ctx = this.ctx;
     try {
       while (!v.finita && v.until < ctx.currentTime + 1.0) {
-        const r = await v.iter!.next();
+        const r = await v.pezzi!.next();
         if (v.finita || !this.attivo) break;
         if (r.done) { v.finita = true; break; }
-        const { buffer, timestamp } = r.value;
-        // tempo di timeline dell'inizio del pezzo
-        const tl = cs + (timestamp - srcIn) / (v.clip.speed || 1);
+        const { buffer, tl: tlRel, rate } = r.value;
+        // tempo di timeline dell'inizio del pezzo e quanto dura sulla timeline
+        const tl = cs + tlRel;
+        const durTl = buffer.duration / rate;
         let when = this.t0 + tl - this.startSec;
         let offset = 0;
         const now = ctx.currentTime;
@@ -443,13 +482,14 @@ class Banco {
         const clipEnd = this.t0 + ce - this.startSec;
         if (when < clipStart) { offset += clipStart - when; when = clipStart; }
         if (when < now) { offset += now - when; when = now; }
-        const dur = Math.min(buffer.duration - offset, clipEnd - when);
-        v.until = this.t0 + tl - this.startSec + buffer.duration;
+        const dur = Math.min(durTl - offset, clipEnd - when);
+        v.until = this.t0 + tl - this.startSec + durTl;
         if (dur <= 0.0005) { if (when >= clipEnd) v.finita = true; continue; }
         const s = ctx.createBufferSource();
         s.buffer = buffer;
+        if (rate !== 1) s.playbackRate.value = rate;
         s.connect(v.ingresso ?? v.gain);
-        s.start(when, offset, dur);
+        s.start(when, offset * rate, dur * rate);
         s.onended = () => { const i = v.nodes.indexOf(s); if (i >= 0) v.nodes.splice(i, 1); s.disconnect(); };
         v.nodes.push(s);
       }
@@ -609,6 +649,8 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
   const PEZZO = 10;
   const solo = p.tracks.some((t) => t.kind === 'audio' && t.solo);
   const fr = p.rate;
+  const continui = new Map<string, { it: AsyncGenerator<PezzoAudio, void, unknown>; resto: PezzoAudio | null; finito: boolean }>();
+  try {
   for (let a = fromSec; a < toSec - 1e-6; a += PEZZO) {
     const b = Math.min(toSec, a + PEZZO);
     const len = Math.max(1, Math.round((b - a) * SR));
@@ -646,20 +688,48 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
       const from = Math.max(a, cs), to = Math.min(b, ce);
       const srcFrom = c.srcIn + (from - cs) * c.speed;
       const srcTo = c.srcIn + (to - cs) * c.speed;
+      // le clip stirate col tono giusto hanno un flusso solo per tutto l'export: se ripartisse a ogni pezzo da 10 s,
+      // le onde non combacerebbero e ogni taglio farebbe uno scatto
+      const stirata = Math.abs(c.speed - 1) >= 0.005 && !c.nastro;
       lavori.push((async () => {
-        const sink = new AudioBufferSink(r.a!);
-        for await (const { buffer, timestamp } of sink.buffers(Math.max(0, srcFrom - 0.05), srcTo + 0.05)) {
-          let when = cs + (timestamp - c.srcIn) / c.speed - a;
+        const margine = 0.05 * c.speed;
+        let flusso = stirata ? continui.get(c.id) : undefined;
+        if (!flusso) {
+          const sink = new AudioBufferSink(r.a!);
+          const fine = stirata ? c.srcIn + (ce - cs) * c.speed : srcTo;
+          flusso = { it: pezziClip(sink.buffers(Math.max(0, srcFrom - margine), fine + margine) as FlussoAudio, c), resto: null, finito: false };
+          if (stirata) continui.set(c.id, flusso);
+        }
+        for (;;) {
+          let pz: PezzoAudio | null = flusso.resto;
+          flusso.resto = null;
+          if (!pz) {
+            if (flusso.finito) break;
+            const n = await flusso.it.next();
+            if (n.done) { flusso.finito = true; break; }
+            pz = n.value;
+          }
+          const { buffer, tl: tlRel, rate } = pz;
+          const durTl = buffer.duration / rate;
+          let when = cs + tlRel - a;
           let offset = 0;
           const lo = from - a;
           if (when < lo) { offset = lo - when; when = lo; }
-          const dur = Math.min(buffer.duration - offset, to - a - when);
-          if (dur <= 0) continue;
-          const s = ctx.createBufferSource();
-          s.buffer = buffer;
-          s.connect(ingresso);
-          s.start(when, offset, dur);
+          // il pezzo comincia dopo questo tratto: resta per il prossimo
+          if (stirata && when >= to - a) { flusso.resto = pz; break; }
+          const dur = Math.min(durTl - offset, to - a - when);
+          if (dur > 0) {
+            const s = ctx.createBufferSource();
+            s.buffer = buffer;
+            if (rate !== 1) s.playbackRate.value = rate;
+            s.connect(ingresso);
+            s.start(when, offset * rate, dur * rate);
+          }
+          // il pezzo finisce dopo questo tratto: il resto va nel prossimo
+          if (stirata && offset + dur < durTl - 1e-6 && when + dur >= to - a - 1e-6) { flusso.resto = pz; break; }
+          if (!stirata && dur <= 0 && when >= to - a) break;
         }
+        if (!stirata) void flusso.it.return(undefined).catch(() => {});
       })());
     }
     // i suoni degli FX
@@ -676,5 +746,8 @@ export async function* mixaggio(p0: Project, fromSec: number, toSec: number): As
     }
     await Promise.all(lavori);
     yield await ctx.startRendering();
+  }
+  } finally {
+    for (const f of continui.values()) void f.it.return(undefined).catch(() => {});
   }
 }

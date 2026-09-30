@@ -2,7 +2,9 @@
 // poi si combina sull'uscita con la transizione e la trasparenza. Stesso codice per i monitor e per l'export.
 import type { Project, Transition } from '../core/tipi';
 import type { Strato, Sorgente } from './piano';
+import type { VideoSample } from 'mediabunny';
 import { fotogramma, type Fotogramma } from '../media/fotogrammi';
+import { Interpolatore } from './fluido';
 
 /** chi fornisce i fotogrammi esatti (l'export); senza, si usano quelli dei monitor */
 export type Fornitore = (s: Sorgente) => Fotogramma | null;
@@ -230,6 +232,7 @@ uniform float u_zoom, u_rot, u_blur, u_pixel, u_rgb, u_glitch, u_seme, u_desat, 
 uniform float u_bagliore, u_flare, u_flarePh, u_arco, u_arcoPh, u_espo, u_neon, u_onda, u_bolla, u_vortice, u_caleido, u_calore, u_zblur;
 uniform float u_eco, u_duo, u_poster, u_solar, u_termico, u_visore, u_retino, u_muto, u_gocce, u_specchio, u_quadri, u_rullo, u_pesce;
 uniform float u_raggi, u_bokeh, u_scint, u_anam, u_neve, u_pioggia, u_polvere, u_coriandoli;
+uniform float u_olo, u_prisma, u_matita, u_tunnel, u_nebbia, u_braci, u_vetro, u_nosegn, u_iride, u_mini, u_esa, u_scan;
 uniform vec3 u_flashCol, u_fadeCol, u_tinta;
 uniform vec2 u_centro;   // il centro di zoom e distorsioni (lo sceglie chi posa l'effetto)
 uniform vec2 u_sole;     // il sole del riflesso d'obiettivo (x < -1 = passa da solo)
@@ -313,6 +316,21 @@ vec4 coriStrato(vec2 st, float scala, float vel, float seme) {
   float m = step(abs(p.x), 0.085) * step(abs(p.y), w) * step(0.3, h3);
   return vec4(tinta(h1) * (0.75 + 0.25 * h2) + 0.15, m);
 }
+float rum(vec2 x) {
+  vec2 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// le braci: puntini caldi che salgono e brillano
+float brace(vec2 st, float scala, float vel, float seme) {
+  vec2 g = st * scala;
+  g.y -= u_time * vel;
+  vec2 id = floor(g), f = fract(g);
+  float h1 = hash(id + seme), h2 = hash(id + seme + 5.3), h3 = hash(id + seme + 9.7);
+  vec2 ctr = vec2(0.5 + 0.3 * sin(u_time * (1.0 + h1) * 1.5 + h2 * 6.28), 0.3 + 0.4 * h2);
+  float tw = 0.4 + 0.6 * sin(u_time * (3.0 + 4.0 * h2) + h3 * 6.28);
+  return step(0.5, h3) * max(tw, 0.0) * smoothstep(0.12, 0.0, length(f - ctr));
+}
 void main() {
   float asp = u_res.x / u_res.y;
   // zoom e rotazione attorno al centro, poi lo spostamento (scossa, camera a mano)
@@ -337,6 +355,26 @@ void main() {
   // bolla (positiva) e pizzico (negativa): la stessa lente, un verso o l'altro
   if (u_bolla != 0.0) c *= 1.0 - u_bolla * 0.45 * (1.0 - smoothstep(0.0, 0.55, rr));
   vec2 uv = c / vec2(asp, 1.0) + u_centro + u_off;
+  if (u_tunnel > 0.0) {
+    // il tunnel: l'immagine dentro l'immagine, in una zoomata senza fine (le copie rientrano nella cornice)
+    float sc = mix(1.0, 2.4, min(1.0, u_tunnel));
+    vec2 tq = (uv - u_centro) * pow(sc, fract(u_time * 0.35));
+    float tm = max(abs(tq.x), abs(tq.y));
+    for (int i = 0; i < 8; i++) {
+      if (tm > 0.5) { tq /= sc; tm /= sc; } else if (tm < 0.5 / sc) { tq *= sc; tm *= sc; }
+    }
+    uv = mix(uv, u_centro + tq, min(1.0, u_tunnel));
+  }
+  if (u_prisma > 0.0) {
+    // schegge oblique che spostano ognuna un po' l'immagine
+    vec2 pg = uv * vec2(asp, 1.0) * 6.0;
+    pg = vec2(pg.x + pg.y * 0.5, pg.y);
+    uv += (vec2(hash(floor(pg) + 1.7), hash(floor(pg) + 4.1)) - 0.5) * 0.07 * u_prisma;
+  }
+  if (u_vetro > 0.0) {
+    vec2 cella = floor(uv * u_res / 4.0);
+    uv += (vec2(hash(cella), hash(cella + 9.1)) - 0.5) * 0.02 * u_vetro + vec2(sin(uv.y * 90.0), sin(uv.x * 70.0)) * 0.003 * u_vetro;
+  }
   if (u_quadri > 0.0) { vec2 m = uv * (1.0 + u_quadri); uv = 1.0 - abs(1.0 - mod(m, 2.0)); }
   if (u_specchio > 0.0) uv.x = mix(uv.x, min(uv.x, 1.0 - uv.x), min(1.0, u_specchio));
   float roll = 0.0;
@@ -353,7 +391,17 @@ void main() {
     vec2 cella = vec2(lato / asp, lato);
     uv = (floor(uv / cella) + 0.5) * cella;
   }
-  g_sp = u_rgb * 0.014 + u_glitch * 0.012 + u_vhs * 0.004;
+  if (u_esa > 0.0) {
+    // mosaico di esagoni
+    float nn = mix(160.0, 14.0, min(1.0, u_esa));
+    vec2 pe = uv * vec2(asp, 1.0) * nn;
+    const vec2 szh = vec2(1.0, 1.7320508);
+    vec4 hc = floor(vec4(pe, pe - vec2(1.0, 1.5)) / szh.xyxy) + 0.5;
+    vec4 hh = vec4(pe - hc.xy * szh, pe - (hc.zw + 0.5) * szh);
+    vec2 idc = dot(hh.xy, hh.xy) < dot(hh.zw, hh.zw) ? hc.xy : hc.zw + 0.5;
+    uv = mix(uv, idc * szh / nn / vec2(asp, 1.0), min(1.0, u_esa * 4.0));
+  }
+  g_sp = u_rgb * 0.014 + u_glitch * 0.012 + u_vhs * 0.004 + u_prisma * 0.012 + u_olo * 0.003;
   vec3 col;
   if (u_blur > 0.0 || u_zblur > 0.0) {
     // sfocatura a disco (spirale d'oro) e scia verso il centro nello stesso giro: sfoca e zoom sfocato si sommano
@@ -455,6 +503,39 @@ void main() {
     s *= smoothstep(0.95, 0.35, length((v_uv - 0.5) * vec2(1.2, 1.0)));
     col = mix(col, s, min(1.0, u_muto));
   }
+  if (u_olo > 0.0) {
+    // l'ologramma: azzurro, righe che scorrono, sfarfallio e una banda luminosa
+    float yy = luma(col);
+    float righe = 0.72 + 0.28 * sin(v_uv.y * u_res.y * 0.8 - u_time * 5.0);
+    float trem = 0.88 + 0.12 * hash(vec2(floor(u_time * 20.0), 3.0));
+    vec3 hol = vec3(0.25, 0.85, 1.0) * (yy * 1.25 + 0.06) * righe * trem;
+    hol += vec3(0.4, 0.9, 1.0) * smoothstep(0.03, 0.0, abs(fract(v_uv.y * 0.5 - u_time * 0.2) - 0.5)) * 0.25;
+    col = mix(col, hol, min(1.0, u_olo));
+  }
+  if (u_matita > 0.0) {
+    // lo schizzo: contorni scuri, tratteggio nelle ombre, carta con la grana
+    vec2 px = 1.3 / u_res;
+    float gx = luma(camp(uv + vec2(px.x, 0.0))) - luma(camp(uv - vec2(px.x, 0.0)));
+    float gy = luma(camp(uv + vec2(0.0, px.y))) - luma(camp(uv - vec2(0.0, px.y)));
+    float bordo = clamp(length(vec2(gx, gy)) * 7.0, 0.0, 1.0);
+    float yy = luma(col);
+    float tratti = step(0.5, fract((v_uv.x * asp + v_uv.y) * u_res.y * 0.06 + hash(floor(v_uv * u_res / 6.0)) * 0.3)) * smoothstep(0.55, 0.15, yy) * 0.55;
+    vec3 carta = vec3(0.96, 0.94, 0.88) + (hash(v_uv * u_res) - 0.5) * 0.06;
+    vec3 sk = carta * (1.0 - clamp(bordo + tratti, 0.0, 1.0) * 0.82);
+    col = mix(col, sk * mix(vec3(1.0), col * 1.5, 0.18), min(1.0, u_matita));
+  }
+  if (u_mini > 0.0) {
+    // la miniatura: fuoco solo in una fascia (attorno al centro), fuori sfocato, e colori più pieni
+    float dist = abs(v_uv.y - u_centro.y);
+    float r = smoothstep(0.08, 0.34, dist) * 0.03 * u_mini;
+    vec3 bl = vec3(0.0);
+    for (int i = 0; i < 12; i++) {
+      float a = float(i) * 0.5236;
+      bl += camp(uv + vec2(cos(a), sin(a)) * r * vec2(1.0 / asp, 1.0));
+    }
+    col = mix(col, bl / 12.0, smoothstep(0.0, 0.004, r));
+    col = mix(vec3(luma(col)), col, 1.0 + 0.5 * min(1.0, u_mini));
+  }
   if (u_rullo > 0.0) col *= 1.0 - 0.85 * smoothstep(0.045, 0.0, abs(v_uv.y - (1.0 - roll))) * min(1.0, u_rullo);
   if (u_vhs > 0.0) {
     col += (hash(v_uv * vec2(640.0, 480.0) + u_time) - 0.5) * 0.12 * u_vhs;
@@ -506,8 +587,38 @@ void main() {
       col = mix(col, k.rgb, k.a * min(1.0, u_coriandoli));
     }
   }
+  if (u_nebbia > 0.0) {
+    float nn = 0.0, am = 0.5;
+    vec2 z = st * 2.2 + vec2(u_time * 0.04, 0.0);
+    for (int i = 0; i < 5; i++) { nn += am * rum(z); z *= 2.0; am *= 0.5; }
+    float dens = clamp((nn - 0.28) * 1.7, 0.0, 1.0) * min(1.0, u_nebbia) * (1.0 - v_uv.y * 0.4);
+    col = mix(col, vec3(0.8, 0.84, 0.88), dens * 0.8);
+  }
+  if (u_braci > 0.0) {
+    float br = brace(st, 9.0, 0.5, 0.0) + brace(st + 3.7, 15.0, 0.75, 4.0) + brace(st + 8.1, 24.0, 1.0, 9.0);
+    col += (vec3(1.0, 0.5, 0.1) * br * 1.6 + vec3(1.0, 0.35, 0.05) * pow(1.0 - v_uv.y, 4.0) * 0.3) * min(1.5, u_braci);
+  }
+  if (u_scan > 0.0) {
+    float d = v_uv.y - fract(u_time * 0.5);
+    col += vec3(0.4, 1.0, 0.85) * (exp(-abs(d) * 55.0) * 0.9 + step(d, 0.0) * exp(d * 5.0) * 0.12) * min(1.0, u_scan);
+  }
+  if (u_nosegn > 0.0) {
+    // il segnale che non prende: barre e neve, a scatti
+    float fase = floor(u_time * 15.0);
+    float bb = floor(v_uv.x * 7.0);
+    vec3 barre = vec3(step(0.5, float(bb == 0.0 || bb == 1.0 || bb == 4.0 || bb == 5.0)), step(0.5, float(bb < 4.0)), step(0.5, float(bb == 0.0 || bb == 2.0 || bb == 4.0 || bb == 6.0)));
+    float nv = hash(floor(v_uv * vec2(320.0, 180.0)) + fase);
+    vec3 sig = mix(barre * 0.8, vec3(nv), 0.45);
+    col = mix(col, sig, smoothstep(0.3, 0.7, min(1.0, u_nosegn) * (0.55 + 0.45 * hash(vec2(fase, 1.0)))));
+  }
   col = mix(col, u_flashCol, u_flash);
   col = mix(col, u_fadeCol, u_fade);
+  if (u_iride > 0.0) {
+    // l'iride: fuori dal cerchio è nero
+    float rd = length((v_uv - u_centro) * vec2(asp, 1.0));
+    float ir = (1.0 - min(1.0, u_iride)) * length(vec2(asp, 1.0) * 0.5 + abs(u_centro - 0.5) * vec2(asp, 1.0)) * 1.05;
+    col *= 1.0 - smoothstep(ir - 0.01, ir, rd);
+  }
   if (u_bande > 0.0) {
     float b = u_bande * max(0.0, (1.0 - asp / 2.39) * 0.5);
     if (v_uv.y < b || v_uv.y > 1.0 - b) col = vec3(0.0);
@@ -642,6 +753,20 @@ vec4 tendina(vec2 q, vec4 A, vec4 B) {
 
 // un piano (la faccia di un cubo o una cartolina) visto da un occhio davanti allo schermo
 vec2 ruotaY(vec2 xz, float a) { float c = cos(a), s = sin(a); return vec2(c * xz.x - s * xz.y, s * xz.x + c * xz.y); }
+
+// celle a caso (Voronoi): ritorna il centro del pezzo più vicino (in coordinate della griglia) e il suo numero
+vec4 pezzo(vec2 g) {
+  vec2 id = floor(g), f = fract(g);
+  float best = 9.0;
+  vec4 r = vec4(0.0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 nb = vec2(float(i), float(j));
+    vec2 pt = nb + vec2(caso(dot(id + nb, vec2(3.1, 7.3))), caso(dot(id + nb, vec2(5.7, 2.9))));
+    float d = length(pt - f);
+    if (d < best) { best = d; r = vec4(id + pt, id + nb); }
+  }
+  return r;
+}
 
 vec4 effetto(vec2 q, float p) {
   float e = dolce(p);
@@ -1045,6 +1170,141 @@ vec4 effetto(vec2 q, float p) {
     col += vec3(0.85, 0.95, 1.0) * riga * smoothstep(0.35, 1.0, u);
     return vec4(col, 1.0);
   }
+  if (u_pattern == 741) {
+    // pioggia digitale: colonne di luce verde cadono a velocità diverse e lasciano dietro la nuova
+    float col = floor(q.x * 48.0 * asp);
+    float fronte = clamp(p * 1.55 - caso(col * 1.7) * 0.45, 0.0, 1.0) * 1.15;
+    float dist = fronte - q.y;
+    float dentro = step(q.y, fronte);
+    float cella = step(0.45, caso(col + floor(q.y * 70.0) * 3.1));
+    float scia = dentro * exp(-dist * 7.0) * step(0.001, fronte) * step(fronte, 1.14) * (0.35 + 0.65 * cella);
+    float testa = smoothstep(0.02, 0.0, abs(dist)) * step(0.001, fronte) * step(fronte, 1.14);
+    vec4 r = mix(tA(q), tB(q), dentro);
+    return vec4(r.rgb + vec3(0.15, 1.0, 0.4) * scia * 0.9 + vec3(0.8, 1.0, 0.85) * testa, r.a);
+  }
+  if (u_pattern == 751) {
+    // strappo: la carta si rompe lungo una linea irregolare e sotto c'è la nuova
+    float pos = q.x * 0.82 + (1.0 - q.y) * 0.18 + (rumoreV(vec2(q.y * 11.0, 1.0)) - 0.5) * 0.14 + (rumoreV(vec2(q.y * 47.0, 3.0)) - 0.5) * 0.03;
+    float d = (p * 1.42 - 0.2) - pos;
+    vec4 a = tA(q + vec2(0.012, 0.0) * smoothstep(0.0, -0.12, d) * arco), b = tB(q);
+    vec3 rgb = mix(a.rgb, b.rgb * (1.0 - 0.55 * smoothstep(0.07, 0.0, d)), smoothstep(0.0, 0.004, d));
+    float bordo = smoothstep(-0.03, -0.022, d) * (1.0 - smoothstep(-0.005, 0.0, d));
+    rgb = mix(rgb, vec3(0.96, 0.94, 0.88), bordo * 0.95 * step(0.001, p) * step(p, 0.999));
+    return vec4(rgb, mix(a.a, b.a, smoothstep(0.0, 0.004, d)));
+  }
+  if (u_pattern == 761) {
+    // vetro rotto: crepe, poi i pezzi cadono uno dopo l'altro dal punto dell'urto e scoprono la nuova
+    vec2 sc = vec2(7.0 * asp, 7.0);
+    vec4 v1 = pezzo(q * sc);
+    vec2 ctr1 = v1.xy / sc;
+    float r1 = caso(dot(v1.zw, vec2(12.9, 78.2)));
+    float t1 = clamp((p * 1.6 - 0.25 - length((ctr1 - 0.5) * vec2(asp, 1.0)) * 0.55 - r1 * 0.3) / 0.5, 0.0, 1.0);
+    vec2 spos = vec2((r1 - 0.5) * 0.12, t1 * t1 * 1.4) * step(0.0001, t1);
+    vec2 q2 = q - spos;
+    vec4 v2 = pezzo(q2 * sc);
+    bool stesso = distance(v2.zw, v1.zw) < 0.5;
+    vec4 b = tB(q);
+    vec4 a = tA(q2);
+    vec3 rgb = (stesso && !fuori(q2)) ? a.rgb : b.rgb;
+    // le crepe: dove si toccano due pezzi, prima che cadano
+    vec2 gq = q * sc;
+    vec2 idq = floor(gq), fq = fract(gq);
+    float d1 = 9.0, d2 = 9.0;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+      vec2 nb = vec2(float(i), float(j));
+      vec2 pt = nb + vec2(caso(dot(idq + nb, vec2(3.1, 7.3))), caso(dot(idq + nb, vec2(5.7, 2.9))));
+      float dd = length(pt - fq);
+      if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) d2 = dd;
+    }
+    float crepa = smoothstep(0.05, 0.0, d2 - d1) * smoothstep(0.02, 0.2, p) * (1.0 - t1);
+    rgb = mix(rgb, vec3(0.9, 0.95, 1.0), crepa * 0.55);
+    return vec4(rgb, 1.0);
+  }
+  if (u_pattern == 771) {
+    // sipario: la vecchia si apre come una tenda, con le pieghe, e mostra la nuova
+    float w = 0.5 * (1.0 - e);
+    float piega = 0.5 + 0.5 * sin(q.x * asp * 48.0);
+    if (w > 0.002 && q.x < w) {
+      float u = q.x / w;
+      return tA(vec2(u * 0.5, q.y)) * vec4(vec3(0.62 + 0.38 * piega * (1.0 - 0.4 * e) - 0.2 * u), 1.0);
+    }
+    if (w > 0.002 && q.x > 1.0 - w) {
+      float u = (1.0 - q.x) / w;
+      return tA(vec2(1.0 - u * 0.5, q.y)) * vec4(vec3(0.62 + 0.38 * piega * (1.0 - 0.4 * e) - 0.2 * u), 1.0);
+    }
+    float ombra = w > 0.002 ? smoothstep(0.0, 0.08, min(q.x - w, 1.0 - w - q.x)) : 1.0;
+    return tB(q) * vec4(vec3(0.55 + 0.45 * ombra), 1.0);
+  }
+  if (u_pattern == 781) {
+    // anelli: cerchi concentrici girano uno dopo l'altro, e girando cambiano l'immagine
+    vec2 c = (q - 0.5) * vec2(asp, 1.0);
+    float r = length(c) / length(vec2(asp, 1.0) * 0.5);
+    float anello = floor(r * 7.0);
+    float t = clamp((p * 1.4 - anello / 7.0 * 0.4) / 0.3, 0.0, 1.0);
+    float ang = (mod(anello, 2.0) * 2.0 - 1.0) * t * 0.9 * min(u_forza, 1.6);
+    vec2 rc = vec2(cos(ang) * c.x - sin(ang) * c.y, sin(ang) * c.x + cos(ang) * c.y) / vec2(asp, 1.0) + 0.5;
+    rc = 1.0 - abs(1.0 - mod(rc, 2.0));
+    vec4 m = mix(tA(rc), tB(rc), step(0.5, t));
+    float bordo = smoothstep(0.0, 0.05, fract(r * 7.0)) * smoothstep(1.0, 0.95, fract(r * 7.0));
+    return m * vec4(vec3(mix(1.0, bordo, sin(t * 3.14159) * 0.8)), 1.0);
+  }
+  if (u_pattern == 791) {
+    // segnale perso: l'immagine si strappa a righe, poi barre e neve, e ritorna quella nuova
+    float pk = 1.0 - abs(2.0 * p - 1.0);
+    float riga = floor(q.y * 40.0), fase = floor(p * 25.0);
+    vec2 qq = q + vec2((caso(riga + fase) - 0.5) * 0.22 * pk * min(u_forza, 1.6) * step(0.4, caso(riga * 1.3 + fase)), 0.0);
+    vec4 img = p < 0.5 ? tA(qq) : tB(qq);
+    float b = floor(q.x * 7.0);
+    vec3 barre = vec3(step(0.5, float(b == 0.0 || b == 1.0 || b == 4.0 || b == 5.0)), step(0.5, float(b < 4.0)), step(0.5, float(b == 0.0 || b == 2.0 || b == 4.0 || b == 6.0)));
+    float neve = caso(dot(floor(q * vec2(320.0, 180.0)), vec2(12.9898, 78.233)) + fase);
+    vec3 sig = mix(barre * 0.8, vec3(neve), 0.5);
+    return vec4(mix(img.rgb, sig, smoothstep(0.55, 0.85, pk)), 1.0);
+  }
+  if (u_pattern == 811) {
+    // cola: la vecchia si scioglie e cola verso il basso, a strisce diverse, e scopre la nuova
+    float n = rumoreV(vec2(q.x * asp * 14.0, 0.0)) * 0.5 + caso(floor(q.x * asp * 40.0)) * 0.2;
+    float f = (p * 1.5 - n) * 1.25;
+    vec4 b = tB(q);
+    if (q.y < f) return b;
+    vec4 a = tA(vec2(q.x + sin(q.y * 30.0) * 0.004 * smoothstep(0.2, 0.0, q.y - f), q.y - f * 0.85));
+    return vec4(a.rgb * (0.75 + 0.25 * smoothstep(0.0, 0.1, q.y - f)), a.a);
+  }
+  if (u_pattern == 831) {
+    // lente: una lente d'ingrandimento cresce e attraversa il quadro: dentro c'è la nuova, ingrandita
+    vec2 ctr = vec2(mix(0.2, 0.5, e), 0.5 + sin(p * 6.2832) * 0.08 * (1.0 - e));
+    float rad = 0.1 + e * 1.15;
+    float r = length((q - ctr) * vec2(asp, 1.0));
+    float m = smoothstep(rad, rad - 0.012, r);
+    vec4 dentro = tB(ctr + (q - ctr) / (1.0 + 0.8 * (1.0 - e)));
+    vec4 fuoriL = tA(q);
+    vec4 res = mix(fuoriL, dentro, m);
+    float anello = smoothstep(0.014, 0.0, abs(r - rad)) * step(0.001, p) * step(p, 0.999);
+    return vec4(res.rgb + vec3(0.9, 0.95, 1.0) * anello * 0.7, res.a);
+  }
+  if (u_pattern == 841) {
+    // spettro: i tre colori se ne vanno uno dopo l'altro, prima il rosso e per ultimo il blu
+    vec4 a = tA(q), b = tB(q);
+    float mR = smoothstep(q.x - 0.07, q.x + 0.07, p * 1.5 - 0.1);
+    float mG = smoothstep(q.x - 0.07, q.x + 0.07, p * 1.5 - 0.1 - 0.16);
+    float mB = smoothstep(q.x - 0.07, q.x + 0.07, p * 1.5 - 0.1 - 0.32);
+    return vec4(mix(a.r, b.r, mR), mix(a.g, b.g, mG), mix(a.b, b.b, mB), mix(a.a, b.a, mG));
+  }
+  if (u_pattern == 861) {
+    // cerniera: si apre dall'alto verso il basso e mostra la nuova, coi dentini sui bordi
+    float zp = p * 1.25;
+    float aperto = clamp(zp - q.y, 0.0, 1.0);
+    float w = dolce(aperto) * 0.62;
+    float dx = abs(q.x - 0.5);
+    vec4 a = tA(q), b = tB(q);
+    vec3 rgb = dx < w ? b.rgb * (0.6 + 0.4 * smoothstep(0.0, 0.06, w - dx)) : a.rgb;
+    if (aperto > 0.0 && dx >= w && dx < w + 0.02) {
+      float dente = step(0.5, fract(q.y * 46.0 + (q.x < 0.5 ? 0.0 : 0.5)));
+      rgb = mix(vec3(0.85, 0.85, 0.88), vec3(0.32, 0.32, 0.36), dente);
+    }
+    float cursore = smoothstep(0.02, 0.0, abs(q.y - zp)) * smoothstep(0.045, 0.0, dx) * step(0.001, p) * step(p, 0.999);
+    rgb = mix(rgb, vec3(0.95, 0.85, 0.3), cursore);
+    return vec4(rgb, mix(a.a, b.a, step(dx, w)));
+  }
   if (u_pattern == 801) {
     // portoni 3D: due battenti si aprono come porte e rivelano la nuova
     float w = 1.0 - e;
@@ -1189,6 +1449,9 @@ export class Compositore {
   private used = new Set<string>();
   private blank: WebGLTexture;
   private fornitore: Fornitore | undefined;
+  /** dà il fotogramma che viene dopo quello di fornitore (per il movimento fluido dei rallentatori) */
+  private successivo: Fornitore | undefined;
+  private interp: Interpolatore | null = null;
   /** il buffer con l'ultima uscita (2 = il mix, 4 = con gli effetti a tempo, 3 = col colore finale) */
   private uscita = 2;
   perso = false;
@@ -1283,8 +1546,10 @@ export class Compositore {
    * Disegna gli strati sull'uscita (la tela). W,H = dimensione del progetto; la tela può essere più piccola
    * (anteprima): tutto scala. playing = in riproduzione (i fotogrammi arrivano dal flusso).
    */
-  render(p: Project, strati: Strato[], playing: boolean, frame: number, fornitore?: Fornitore) {
+  render(p: Project, strati: Strato[], playing: boolean, frame: number, fornitore?: Fornitore, successivo?: Fornitore) {
     this.fornitore = fornitore;
+    this.successivo = successivo;
+    this.interp?.inizia();
     const gl = this.gl;
     if (this.perso || gl.isContextLost()) return;
     const cw = this.canvas.width, ch = this.canvas.height;
@@ -1371,6 +1636,7 @@ export class Compositore {
     for (const [k, t] of this.texs) {
       if (!this.used.has(k) && !k.startsWith('img:')) { gl.deleteTexture(t.tex); this.texs.delete(k); }
     }
+    this.interp?.finisce();
   }
 
   private sovr: { firma: string; tela: HTMLCanvasElement | OffscreenCanvas } | null = null;
@@ -1470,6 +1736,26 @@ export class Compositore {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
+  /** il fotogramma di mezzo fra quello preso e il successivo (null se non serve o il successivo non c'è ancora) */
+  private fluido(p: Project, s: Sorgente, i: number, playing: boolean, f: VideoSample, t: Tex): WebGLTexture | null {
+    const c = s.clip;
+    const m = mediaOf(p, c);
+    if (!m || !c.media) return null;
+    const g = this.successivo
+      ? this.successivo(s)
+      : fotogramma(c.id + '~', c.media, f.timestamp + 1.05 / Math.max(1, m.fps || 25), playing, this.canvas.width * Math.min(1, c.tf.scale));
+    if (!g || g instanceof ImageBitmap || g === f) return null;
+    const dt = g.timestamp - f.timestamp;
+    const un = 1 / Math.max(1, m.fps || 25);
+    // dev'essere proprio il fotogramma dopo (mentre la ricerca è in corso può arrivare uno vecchio o uno lontano) e s.t deve stare in mezzo
+    if (dt < un * 0.3 || dt > un * 1.9) return null;
+    const w = (s.t - f.timestamp) / dt;
+    if (w < 0.02 || w > 0.98) return null;
+    const tb = this.upload('v:' + c.id + ':' + i + 'b', g.toCanvasImageSource(), g.displayWidth, g.displayHeight, g);
+    this.interp ??= new Interpolatore(this.gl);
+    return this.interp.mezzo('f:' + c.id + ':' + i, t, tb, f, w, f.displayWidth, f.displayHeight, c.fluido === 2);
+  }
+
   /** disegna una sorgente nel buffer i (0 = A, 1 = B). Ritorna false se non c'è ancora niente da mostrare */
   private layer(p: Project, s: Sorgente, i: number, playing: boolean, frame: number): boolean {
     const gl = this.gl;
@@ -1494,6 +1780,8 @@ export class Compositore {
         const vf = f.toCanvasImageSource();
         const t = this.upload('v:' + c.id + ':' + i, vf, f.displayWidth, f.displayHeight, f);
         tex = t.tex;
+        // rallentatore con il movimento fluido: fra questo fotogramma e il prossimo se ne inventa uno in mezzo
+        if (c.fluido && c.speed < 0.98) tex = this.fluido(p, s, i, playing, f, t) ?? tex;
         orient = f.rotation;
         sw = orient % 180 ? f.displayHeight : f.displayWidth;
         sh = orient % 180 ? f.displayWidth : f.displayHeight;
@@ -1691,6 +1979,7 @@ export class Compositore {
     this.texs.clear();
     for (const f of this.fbo) { gl.deleteFramebuffer(f.fb); gl.deleteTexture(f.tex); }
     this.fbo = [];
+    this.interp?.distruggi();
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }

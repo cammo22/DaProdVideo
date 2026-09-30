@@ -6,6 +6,7 @@ import * as M from './core/montaggio';
 import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEnd, TITLE0, trackOf, uid } from './core/progetto';
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
+import { finestraVelocita } from './ui/velocita';
 import type { Clip, Transition } from './core/tipi';
 import { STILI_CONTO, type StileConto } from './render/grafica';
 import { applicaPresetTitolo, presetTitolo } from './core/generatori';
@@ -427,6 +428,11 @@ let ultimoMontaggio: { a: number; b: number } | null = null;
 
 reg({ id: 'inserisci', nome: 'Inserisci dalla sorgente', gruppo: 'Centralina', tasti: [',', '['], info: 'Montaggio a tre punti: la sorgente entra al cursore e sposta avanti il resto.', fn: () => montaDalPlayer('insert') });
 reg({ id: 'sovrascrivi', nome: 'Sovrascrivi dalla sorgente', gruppo: 'Centralina', tasti: ['.', ']'], info: 'Montaggio a tre punti: la sorgente copre quello che c\'è sotto (l\'unico comando che copre).', fn: () => montaDalPlayer('overwrite') });
+reg({
+  id: 'velocita', nome: 'Velocità della clip…', gruppo: 'Montaggio', tasti: ['Alt+E'],
+  info: 'Velocizza o rallenta la clip selezionata (o quella sotto il cursore): la voce resta naturale e, se rallenti molto, il movimento si ricostruisce fluido.',
+  fn: () => finestraVelocita(selezionateOSottoCursore()),
+});
 reg({ id: 'edit', nome: 'EDIT (nel modo attivo)', gruppo: 'Centralina', tasti: ['E', 'Enter'], fn: () => montaDalPlayer(modi.inserisci ? 'insert' : 'overwrite') });
 reg({
   id: 'rivedi', nome: 'Rivedi l\'ultimo montaggio (preroll)', gruppo: 'Centralina', tasti: ['Shift+R'],

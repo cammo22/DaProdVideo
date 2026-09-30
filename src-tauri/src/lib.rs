@@ -7,6 +7,7 @@
 
 mod aggiorna;
 mod audio_riserva;
+mod motori;
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -393,6 +394,18 @@ pub fn run() {
             aggiorna::aggiornamento_scarica,
             aggiorna::aggiornamento_progresso,
             aggiorna::aggiornamento_apri,
+            motori::motore_stato,
+            motori::motore_scarico,
+            motori::motore_installa,
+            motori::motore_lancia,
+            motori::motore_lavoro,
+            motori::motore_ferma,
+            motori::motore_dimentica,
+            motori::motore_cartella_lavoro,
+            motori::motore_elenca,
+            motori::motore_peso_modelli,
+            motori::motore_pulisci,
+            motori::motore_disinstalla,
         ])
         .build(tauri::generate_context!())
         .expect("errore all'avvio di DaProd Video")

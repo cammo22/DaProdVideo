@@ -76,10 +76,20 @@ export const EFFETTI: Modello[] = [
   { p: 721, nome: 'Doppia esposizione', info: 'le due immagini si sovrappongono come due pose sulla stessa pellicola' },
   { p: 731, nome: 'TV che si spegne', info: 'si schiaccia in una riga, un puntino, e la nuova si apre da lì' },
   { p: 801, nome: 'Portoni 3D', info: 'due battenti si aprono come porte' },
+  { p: 741, nome: 'Pioggia digitale', info: 'colonne di luce verde cadono e lasciano la nuova' },
+  { p: 751, nome: 'Strappo', info: 'la carta si strappa e sotto c\'è la nuova' },
+  { p: 761, nome: 'Vetro rotto', info: 'crepe, poi i pezzi cadono e scoprono la nuova' },
+  { p: 771, nome: 'Sipario', info: 'la vecchia si apre come una tenda a pieghe' },
+  { p: 781, nome: 'Anelli', info: 'cerchi concentrici girano e cambiano l\'immagine' },
+  { p: 791, nome: 'Segnale perso', info: 'righe strappate, barre e neve: torna la nuova' },
+  { p: 811, nome: 'Cola', info: 'la vecchia si scioglie e cola verso il basso' },
+  { p: 831, nome: 'Lente', info: 'una lente d\'ingrandimento cresce e mostra la nuova' },
+  { p: 841, nome: 'Spettro', info: 'i colori se ne vanno uno per volta: rosso, verde, blu' },
+  { p: 861, nome: 'Cerniera', info: 'si apre come una zip dall\'alto e mostra la nuova' },
 ];
 
 /** gli effetti digitali che hanno un verso: si possono girare di quarti di giro (la direzione) */
-export const DIREZIONALI = new Set([311, 401, 411, 431, 481, 531, 591, 601, 621, 631, 681, 801]);
+export const DIREZIONALI = new Set([311, 401, 411, 431, 481, 531, 591, 601, 621, 631, 681, 801, 741, 751, 811, 841, 861]);
 
 export const nomeModello = (tipo: string, p: number) =>
   tipo === 'mix' ? 'Dissolvenza' : tipo === 'dip' ? 'Passaggio a colore'

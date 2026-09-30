@@ -514,3 +514,77 @@ export function mediaDurationFrames(p: Project, mediaId: string): number {
 }
 
 export { mediaOf };
+
+// ——— velocità: la ripresa va più svelta o più piano, la durata sulla timeline cambia di conseguenza ———
+export const VEL_MIN = 0.05;
+export const VEL_MAX = 32;
+
+export interface OpzVelocita {
+  /** sposta le clip che vengono dopo (se no si ferma contro la vicina) */
+  ripple: boolean;
+  /** l'audio cambia anche di tono, come un nastro (niente = si tiene il tono) */
+  nastro?: boolean;
+  /** movimento fluido quando si rallenta (0 niente, 1 sfumato, 2 mosso) */
+  fluido?: number;
+}
+
+/** una clip che ha una velocità: riprese video e audio (le immagini e i generatori no) */
+export const conVelocita = (p: Project, c: Clip) => {
+  if (c.kind !== 'media') return false;
+  const m = mediaOf(p, c);
+  return !!m && m.type !== 'image';
+};
+
+/**
+ * Mette la velocità `nuova` (1 = normale, 2 = doppia, 0.5 = metà) alle clip e alle loro legate. Si usa sempre lo stesso
+ * pezzo di ripresa: a ×2 dura la metà, a ×0.5 il doppio. Linee elastiche e dissolvenze si accorciano o allungano con la clip.
+ * Ritorna quante clip sono cambiate.
+ */
+export function cambiaVelocita(p: Project, ids: Set<string>, nuova: number, o: OpzVelocita): number {
+  const v = Math.max(VEL_MIN, Math.min(VEL_MAX, nuova));
+  const gruppo = p.clips.filter((c) => ids.has(c.id) && conVelocita(p, c));
+  if (!gruppo.length) return 0;
+  const fuori = (c: Clip) => !ids.has(c.id);
+  // le nuove durate; senza ripple ci si ferma contro la vicina
+  const nuoveLen = new Map<string, number>();
+  for (const c of gruppo) {
+    let len = Math.max(1, Math.round((c.len * (c.speed || 1)) / v));
+    if (!o.ripple) {
+      const vicina = p.clips.filter((z) => z.track === c.track && solida(z) && z.id !== c.id && fuori(z) && z.start >= end(c)).sort((a, b) => a.start - b.start)[0];
+      if (vicina) len = Math.min(len, vicina.start - c.start);
+    }
+    nuoveLen.set(c.id, Math.max(1, len));
+  }
+  // ripple: ogni fine diversa sposta quello che viene dopo (dall'ultima alla prima, una volta sola per fine)
+  if (o.ripple) {
+    const fini = new Map<number, number>();
+    for (const c of gruppo) {
+      const d = nuoveLen.get(c.id)! - c.len;
+      fini.set(end(c), Math.max(fini.get(end(c)) ?? -Infinity, d));
+    }
+    const ordine = [...fini.entries()].sort((a, b) => b[0] - a[0]);
+    const spostate = new Set<string>();
+    for (const [f, d] of ordine) {
+      if (!d) continue;
+      for (const z of p.clips) {
+        if (ids.has(z.id) || spostate.has(z.id)) continue;
+        if (solida(z) ? z.start >= f : centro(z) >= f) { z.start = Math.max(0, z.start + d); spostate.add(z.id); }
+      }
+    }
+  }
+  for (const c of gruppo) {
+    const k = nuoveLen.get(c.id)! / c.len;
+    const scala = (keys: Key[]) => keys.map((x) => ({ f: Math.round(x.f * k), v: x.v }));
+    c.opKeys = scala(c.opKeys);
+    c.gainKeys = scala(c.gainKeys);
+    c.fadeIn = c.fadeIn ? Math.max(1, Math.round(c.fadeIn * k)) : 0;
+    c.fadeOut = c.fadeOut ? Math.max(1, Math.round(c.fadeOut * k)) : 0;
+    c.len = nuoveLen.get(c.id)!;
+    if (c.fadeIn + c.fadeOut > c.len) { c.fadeIn = Math.floor(c.len / 2); c.fadeOut = Math.floor(c.len / 2); }
+    if (c.trIn && c.trIn.len > c.len) c.trIn.len = c.len;
+    c.speed = v;
+    if (o.nastro !== undefined) c.nastro = o.nastro || undefined;
+    if (o.fluido !== undefined) c.fluido = o.fluido || undefined;
+  }
+  return gruppo.length;
+}

@@ -4,6 +4,37 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.3] — 2026-09-30 · Velocità delle clip, movimento fluido, voce e sottotitoli con NVIDIA, cursore che si aggancia 🚀
+
+> 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).
+
+### Velocità: velocizza e rallenta le clip
+- **Alt+E** (o **tasto destro → Velocità**) sulla clip scelta, o su quella sotto il cursore: una finestra con la percentuale (da 5% a 3200%), il cursore a scala logaritmica, i tasti pronti (÷10, ¼, ½, ¾, 1×, 1,5×, 2×, 4×, 8×) e la durata di prima e di dopo. Nel menu ci sono anche i rapidi *Rallenta a 25% / 50%*, *Velocizza a 200% / 400%* e *Velocità normale*. Sulla clip in timeline si legge **⏩×0,5**.
+- Si usa sempre lo stesso pezzo di ripresa: a ×2 dura la metà, a ×0,5 il doppio. Audio e video legati vanno insieme; dissolvenze e linee elastiche si accorciano o allungano con la clip. **Sposta le clip dopo** (di partenza acceso) fa scorrere il resto del montaggio; spento, la clip si ferma contro la vicina. Ctrl+Z torna a prima.
+- **L'audio resta naturale**: la voce non diventa da paperino. Si stira col tono giusto (WSOLA, a flusso: va anche in riproduzione) nel monitor e nell'export; oppure scegli **Come un nastro** e cambia anche il tono.
+
+### Movimento fluido nei rallentatori
+- Quando una ripresa va piano lo stesso fotogramma resterebbe fermo per più fotogrammi e il movimento scatta. Ora, nella stessa finestra, il **Movimento** può essere: **Sfumato** (mischia il fotogramma prima e quello dopo) o **Mosso** (stima dove va ogni pezzo dell'immagine — 15×15 mosse provate per blocco, sulla scheda video — e sposta i due fotogrammi verso il punto di mezzo prima di mischiarli; dove la stima non è sicura torna allo sfumato). Sotto ×0,5 si propone da solo il "Mosso". Vale nel monitor e nell'export.
+
+### Il cursore si aggancia ai tagli
+- Passando col cursore (clic o trascina sul righello) vicino a un taglio, a un inizio o fine di clip, a un marcatore, all'attacco o allo stacco, **si aggancia** (12 px), e resta attaccato finché non ti allontani un po'. Prima si agganciava solo tenendo Maiusc. **Alt** lo lascia libero; **N** spegne la calamita.
+
+### LIVE: voce e audio del computer separati
+- Con microfono **e** audio del computer accesi, ora vengono registrati in **due file**: il video col suono del computer, e il microfono a parte (interruttore *Voce e computer separati*, di partenza acceso). In timeline la voce va su un'**altra traccia audio**, nello stesso punto e legata allo schermo, così puoi livellare i volumi con i fader delle tracce. Spento, tutto resta mescolato in una traccia come prima.
+
+### Effetti e transizioni particolari
+- **13 effetti nuovi** (ora 72): Ologramma, Schizzo a matita, Miniatura (tilt-shift), Prisma, Tunnel infinito, Vetro smerigliato, Esagoni, Segnale perso, Iride che si chiude / si apre, Scansione, Nebbia, Braci.
+- **10 transizioni nuove** (ora 56 effetti digitali): Pioggia digitale, Strappo, Vetro rotto, Sipario, Anelli, Segnale perso, Cola, Lente, Spettro, Cerniera.
+
+### Sottotitoli con Nemotron 3.5 di NVIDIA
+- Nel Finale, **Ascolta con → Nemotron 3.5 · NVIDIA** (nell'app): il riconoscimento del parlato streaming di NVIDIA, multilingua (italiano, inglese, spagnolo, francese, tedesco o **lingua automatica**), al posto del vecchio Whisper (che resta, e resta l'unico nel browser). Gira con **NeMo-Speech.cpp**, il motore di NVIDIA: sulla **scheda NVIDIA (CUDA)** se c'è, su Apple Silicon (Metal) e anche **solo sul processore**. La prima volta l'app scarica il motore (da 5 a 100 MB, secondo il computer) e il modello, e poi restano sul computer; l'audio non esce mai.
+
+### Voce AI: cambia voce o lingua
+- Nella pagina **Lingue e AI** si accende quella che era "presto": **🗣 Fai parlare i sottotitoli**. I sottotitoli (scritti dall'AI o da te, anche tradotti) vengono letti da una delle cinque voci di **Magpie TTS** di NVIDIA (John, Sofia, Aria, Jason, Leo) in italiano, inglese, spagnolo, francese o tedesco. Ogni frase va al suo posto (se è più lunga dello spazio che ha si accelera un po', col tono giusto); il risultato è un file audio su una **traccia nuova "Voce AI"** e le voci originali vanno in silenzio (si può togliere). Così cambi la voce di un parlato, o lo fai dire in un'altra lingua dopo aver tradotto i sottotitoli.
+
+### La barra col tempo
+- Ogni funzione lenta (installare il motore, scaricare i modelli, sottotitoli, voce AI) mostra la **barra**, la **percentuale**, il **tempo passato** e **quanto manca** (stimato dalla velocità degli ultimi secondi, così regge le fasi che vanno più piano di altre).
+
 ## [1.1.2] — 2026-09-30 · Big update: tappe di mezzo, tracking, effetti e transizioni a decine, LIVE con più finestre 🎯
 
 > 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).

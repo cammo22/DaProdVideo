@@ -249,6 +249,10 @@ export interface Clip {
   /** ingresso nella sorgente, in secondi */
   srcIn: number;
   speed: number;
+  /** velocità "come il nastro": l'audio cambia anche di tono (di partenza no: la voce resta naturale) */
+  nastro?: boolean;
+  /** movimento fluido quando si rallenta: 0 = niente, 1 = fotogrammi sfumati, 2 = fotogrammi mossi (src/core/velocita.ts) */
+  fluido?: number;
   /** clip video e audio della stessa ripresa condividono il link: si muovono insieme */
   link?: string;
   label: number;

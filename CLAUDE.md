@@ -82,6 +82,31 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   Titoli: `sotto`, `ingresso/uscita` (in `motoTitolo`), `spaziatura`, `peso`; gli stili a lettere usano `rivela` come avanzamento.
 - **LIVE con più finestre (1.1.2)**: `Regia` in `live.ts` disegna la finestra in onda (o due) in una tela di misura fissa con un
   Worker come battito e ne registra `captureStream`; `opz.finestre` (**di partenza spento**: `captureStream` di una tela dipende dalla pagina che disegna, e la registrazione diretta resta la strada provata), tasti N / 1-9 / L.
+- **Velocità delle clip (1.1.3)**: `c.speed` (già usata da `srcTimeAt`, `handles`, `splitClip`) ora ha la sua UI: **Alt+E** e il menu
+  tasto destro → `src/ui/velocita.ts` (finestra, `impostaVelocita`), `cambiaVelocita` in `src/core/montaggio.ts` (stessa fetta di ripresa:
+  cambia `len`; senza ripple si ferma contro la vicina; scala linee elastiche e dissolvenze). `c.nastro` = l'audio cambia anche tono;
+  di partenza **si tiene il tono**: `pezziClip` in `src/media/audio.ts` (playback e `mixaggio`) stira con `Stiratore` (WSOLA a flusso,
+  `src/media/stira.ts`, pura: si prova da Node). `c.fluido` (0 niente, 1 sfumato, 2 mosso) = movimento fluido nei rallentatori:
+  `Compositore.fluido()` prende il fotogramma successivo (`fotogramma(c.id+'~',…)` nel monitor, `Lettori.dopo` nell'export: `render(…, successivo)`)
+  e `src/render/fluido.ts` mescola o sposta i due fotogrammi (stima del movimento a blocchi 15×15 su una griglia di ≤240 celle, fatta solo
+  quando cambia la coppia; le mip di A e B servono solo lì e poi si rimette LINEAR, se no il fotogramma ridisegnato userebbe mip vecchie).
+  Il fotogramma dopo deve essere *proprio* il successivo (dt fra 0,3 e 1,9 fotogrammi), se no non si interpola.
+- **Cursore che si aggancia** (`agganciaCursore` in `src/ui/timeline.ts`): sul righello si aggancia sempre (calamita `N`), Alt lo lascia libero.
+- **Motore NVIDIA** (`src-tauri/src/motori.rs` + `src/media/nemo.ts`): NeMo-Speech.cpp v0.1.0 (Apache-2.0), programma a parte che l'app
+  scarica dalla release di NVIDIA (`nemo-speech-0.1.0-{windows,macos,linux}-{x86_64,aarch64}-{cpu,cuda,vulkan,metal}`, `.sha256` a fianco) in
+  `app_local_data_dir/motori/`: **CUDA se `nvidia-smi` risponde, Metal su Apple Silicon, se no CPU**. Il lato Rust fa solo I/O a polling (come
+  `aggiorna.rs`): `motore_stato/installa/scarico/lancia/lavoro/ferma/elenca/peso_modelli`; i modelli li scarica lui (`pull`, cartella
+  `NEMO_SPEECH_MODEL_DIR` nostra). Il JS (`MotoreNemo`) scrive i WAV a 16 kHz (`wav.ts`), lancia `transcribe <cartella> --format srt
+  --output-dir …` (carica il modello una volta sola) e legge i `.srt` (`pezziDaSrt`); per la voce lancia `synthesize -i testo -o wav --language
+  it-IT --speaker N` una frase per volta. Nel browser non c'è (`motoreNemo()` = null): restano Whisper e il resto. **Nelle prove il motore è
+  finto** (`impostaMotoreNemo`): dal container non si raggiungono né i modelli né Hugging Face, quindi il vero `nemo-speech` non è mai stato
+  provato con un modello; i comandi sono presi da `nemo-speech help` e dalla documentazione del pacchetto.
+- **Sottotitoli con Nemotron** (`sottotitoliAI` in `src/media/voce.ts`, `o.motore = 'nemotron' | 'whisper'`) e **voce AI** (`src/media/doppiaggio.ts`:
+  `enunciatiDaRighe` unisce le righe attaccate, `componiVoce` mette ogni frase al suo posto accelerandola fino a ×1,6 se non ci sta,
+  `posaVoce` fa la traccia "Voce AI" e silenzia le voci originali). Il pulsante è nel Finale → Lingue e AI (`pannelloVoce`).
+- **La barra col tempo** (`src/ui/lavoro.ts`: `Stima` dalla velocità degli ultimi 25 s, `BarraLavoro`): la usano sottotitoli AI, voce AI e installazione.
+- **LIVE, voce e computer separati** (`opz.separato`, di partenza acceso): il video registra lo schermo con l'audio del computer, il microfono
+  ha un suo registratore audio (`nastro` su `micSep`), cucito con `cuci` (ora anche solo audio) e messo su un'altra traccia audio, legato.
 - **Timeline che cresce**: `kV()` in `src/ui/timeline.ts` (spazio libero × `zoomV`, Ctrl+Shift+rotella); nell'app
   Ctrl +/− fa `setZoom` della webview (nel browser lo zoom resta quello del browser: lo zoom CSS rompe i clic).
 - TRASPARENZA (tasto B, era ELASTICO) = la linea gialla dell'opacità sui video; IN/OUT si vedono solo se ci sono (Alt+X o ✕).
