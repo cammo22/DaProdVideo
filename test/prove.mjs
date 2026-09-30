@@ -1169,6 +1169,300 @@ try {
     await pg.close();
   }
 
+  console.log('▶ 1.1.2: effetti che si sommano davvero, tappe di mezzo, stira e ritaglia, tracking, effetti/transizioni/titoli nuovi');
+  {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+    page.on('pageerror', (e) => errori.push(e.message));
+    await page.goto(srv.url + '/app/');
+    await page.waitForSelector('.pulsantiera');
+    await page.waitForTimeout(1000);
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('dpv:demo')));
+    await page.waitForFunction(() => window.__dpv.doc.clips.length >= 8, null, { timeout: 90000 });
+    await page.waitForTimeout(1500);
+    {
+  console.log('▶ Effetti che si sommano');
+  const r = await page.evaluate(async () => {
+    const { PV, B } = window.__dpvTest;
+    const cv = document.createElement('canvas'); cv.width = 240; cv.height = 135;
+    const leggi = () => { const d = cv.getContext('2d').getImageData(0, 0, 240, 135).data; return Array.from(d); };
+    const scena = (ids) => (a, b) => {
+      const s = PV.scenaEffetto(ids[0], 1)(a, b);
+      const v1 = s.p.tracks.find((t) => t.name === 'V1').id;
+      for (const id of ids.slice(1)) B.posaBlocco(s.p, B.nuovoBlocco('effetto', id), 0, s.a - s.da, v1);
+      return s;
+    };
+    const foto = async (ids) => { await PV.fotoScena(scena(ids), 0.5, cv); return leggi(); };
+    const diff = (x, y) => { let s = 0; for (let i = 0; i < x.length; i += 4) s += Math.abs(x[i] - y[i]) + Math.abs(x[i + 1] - y[i + 1]) + Math.abs(x[i + 2] - y[i + 2]); return s / (x.length / 4) / 3; };
+    const nulla = await foto(['lampoNero']); // quasi niente (il lampo nero è al picco a metà: lo si evita)
+    const solo1 = await foto(['sfoca']), solo2 = await foto(['zoomSfocato']), tutti = await foto(['sfoca', 'zoomSfocato']);
+    const s1 = await foto(['sfoca']), s3 = await foto(['sfoca', 'glitch']), g = await foto(['glitch']);
+    const s4 = await foto(['sfoca', 'rgb']), rgb = await foto(['rgb']);
+    return { d1: diff(tutti, solo1), d2: diff(tutti, solo2), d3: diff(s3, s1), d4: diff(s3, g), d5: diff(s4, s1), d6: diff(s4, rgb), n: diff(nulla, solo1) };
+  });
+  prova('sfoca + zoom sfocato: si vedono tutti e due (prima ne restava uno)', r.d1 > 0.4 && r.d2 > 0.4, JSON.stringify(r));
+  prova('sfoca + glitch: la sfocatura c\'è anche coi colori sdoppiati', r.d3 > 0.4 && r.d4 > 0.4, JSON.stringify(r));
+  prova('sfoca + colori sdoppiati: tutti e due', r.d5 > 0.4 && r.d6 > 0.4, JSON.stringify(r));
+    }
+    {
+  console.log('▶ Effetti, transizioni e titoli nuovi');
+  const r = await page.evaluate(async () => {
+    const { PV, B } = window.__dpvTest;
+    const cv = document.createElement('canvas'); cv.width = 240; cv.height = 135;
+    const luce = () => { const d = cv.getContext('2d').getImageData(0, 0, 240, 135).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4) / 3; };
+    const fx = {};
+    for (const e of B.EFFETTI_TEMPO) { const ok = await PV.fotoScena(PV.scenaEffetto(e.id, 1), 0.5, cv); fx[e.id] = ok ? luce() : -1; }
+    const tr = {};
+    for (const id of ['dve:601', 'dve:611', 'dve:621', 'dve:631', 'dve:641', 'dve:651', 'dve:661', 'dve:671', 'dve:681', 'dve:691', 'dve:701', 'dve:711', 'dve:721', 'dve:731', 'dve:801', 'wipe:42', 'wipe:61', 'wipe:62', 'wipe:103', 'wipe:122', 'wipe:123', 'wipe:202']) { const ok = await PV.fotoScena(PV.scenaTransizione(id, 1), 0.35, cv); tr[id] = ok ? luce() : -1; }
+    return { fx, tr, nfx: B.EFFETTI_TEMPO.length };
+  });
+  prova('tutti gli effetti a tempo si disegnano', Object.values(r.fx).every((v) => v >= 0), JSON.stringify(Object.entries(r.fx).filter(([, v]) => v < 0)));
+  prova('ci sono più di 55 effetti a tempo (i nuovi sono dentro)', r.nfx >= 55, r.nfx);
+  prova('tutte le transizioni nuove si disegnano', Object.values(r.tr).every((v) => v >= 0), JSON.stringify(r.tr));
+  const t = await page.evaluate(async () => {
+    const { G, P } = window.__dpvTest;
+    const stili = ['cascata', 'assembla', 'onda', 'evidenzia', 'karaoke', 'estruso', 'ombraLunga', 'contorno', 'notiziario'];
+    const out = {};
+    for (const st of stili) {
+      const spec = { ...P.TITLE0, style: st, text: 'Ciao mondo\nsecondo rigo', sotto: 'sotto', boxColor: '#ff3df2cc', size: 100 };
+      const tt = G.telaTitolo(G.specAlTempo(spec, 1.2), 1920, 1080);
+      const c = document.createElement('canvas'); c.width = 192; c.height = 108;
+      c.getContext('2d').drawImage(tt.tela, 0, 0, 192, 108);
+      const d = c.getContext('2d').getImageData(0, 0, 192, 108).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++;
+      out[st] = n;
+    }
+    // ingresso e uscita
+    const spec = { ...P.TITLE0, ingresso: 'sale', uscita: 'zoom' };
+    const a = G.motoTitolo(spec, 1920, 1080, 1920, 1080, 0.1, 5), b = G.motoTitolo(spec, 1920, 1080, 1920, 1080, 2.5, 5);
+    return { out, a, b };
+  });
+  prova('i titoli nuovi disegnano qualcosa', Object.values(t.out).every((n) => n > 300), JSON.stringify(t.out));
+  prova('ingresso: parte più in basso e trasparente; a metà è fermo e pieno', t.a.dy > 0 && t.a.alfa < 0.6 && Math.abs(t.b.dy) < 1e-6 && (t.b.alfa ?? 1) > 0.99, JSON.stringify(t));
+    }
+    {
+  console.log('▶ Tappe di mezzo, stira e ritaglia sull\'immagine');
+  const d = await page.evaluate(() => window.__dpv.doc);
+  const v1 = d.tracks.find((t) => t.name === 'V1').id;
+  const clip = d.clips.find((c) => c.track === v1 && c.kind === 'media');
+  await page.evaluate((id) => { window.__dpv.select([id]); }, clip.id);
+  await page.evaluate((c) => window.__motore.vaiA(c.start + 8), clip);
+  await page.waitForTimeout(800);
+  const r1 = await page.evaluate((id) => {
+    const { P } = window.__dpvTest;
+    window.__dpv.edit('prova moto', (p) => { const c = p.clips.find((x) => x.id === id); c.tf = { ...P.TF0, x: -300 }; c.tfFine = { ...P.TF0, x: 300 }; c.via = [{ t: 0.5, tf: { ...P.TF0, x: 0, y: -200 } }]; });
+    const c = window.__dpv.doc.clips.find((x) => x.id === id);
+    const mid = P.tfAl(c, Math.round((c.len - 1) * 0.5));
+    const a = P.tfAl(c, 0), z = P.tfAl(c, c.len - 1);
+    let mono = true, prev = -1e9;
+    for (let i = 0; i < c.len; i += 2) { const t = P.tfAl(c, i); if (t.x < prev - 1e-6) mono = false; prev = t.x; }
+    return { mid: [mid.x, mid.y], a: a.x, z: z.x, mono, tappe: P.tappeTf(c).length };
+  }, clip.id);
+  prova('la clip passa dalla tappa di mezzo (e parte e arriva dove deve)', Math.abs(r1.mid[0]) < 4 && Math.abs(r1.mid[1] + 200) < 2 && r1.a === -300 && r1.z === 300 && r1.tappe === 3, JSON.stringify(r1));
+  prova('il percorso non torna indietro né sfora', r1.mono);
+  await page.evaluate(() => { const c = window.__dpv.doc.clips.find((x) => x.tfFine); window.__motore.vaiA(c.start + Math.round((c.len - 1) * 0.25)); });
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: path.join(OUT, 'percorso.png') });
+  // fra due tappe: si trascina l'immagine e nasce una tappa
+  const rr = await page.evaluate(() => {
+    const c = window.__dpv.doc.clips.find((x) => x.tfFine);
+    const { P } = window.__dpvTest;
+    const r = document.querySelector('.schermo-sopra').getBoundingClientRect();
+    const p = window.__dpv.doc;
+    const tf = P.tfAl(c, Math.floor(window.__dpv.head) - c.start);
+    return { x: r.left + ((p.w / 2 + tf.x) / p.w) * r.width, y: r.top + ((p.h / 2 + tf.y) / p.h) * r.height, n: (c.via ?? []).length };
+  });
+  await page.mouse.move(rr.x, rr.y);
+  await page.mouse.down();
+  await page.mouse.move(rr.x + 30, rr.y + 20, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const dopo = await page.evaluate(() => window.__dpv.doc.clips.find((x) => x.tfFine).via.length);
+  prova('fermo fra due tappe, trascinare fa nascere una tappa nuova', dopo === rr.n + 1, `${rr.n} → ${dopo}`);
+  // stira da un lato
+  await page.evaluate((id) => window.__dpv.edit('azzera', (p) => { const c = p.clips.find((x) => x.id === id); delete c.tfFine; delete c.via; c.tf = { ...window.__dpvTest.P.TF0 }; }), clip.id);
+  await page.evaluate((c) => window.__motore.vaiA(c.start + 8), clip);
+  await page.waitForTimeout(800);
+  const q = await page.evaluate((id) => {
+    const p = window.__dpv.doc, r = document.querySelector('.schermo-sopra').getBoundingClientRect();
+    const c = p.clips.find((x) => x.id === id);
+    const m = p.media.find((x) => x.id === c.media);
+    const k = Math.min(p.w / m.width, p.h / m.height);
+    const w = m.width * k, h = m.height * k;
+    const px = (X, Y) => ({ x: r.left + (X / p.w) * r.width, y: r.top + (Y / p.h) * r.height });
+    return { destra: px(p.w / 2 + w / 2, p.h / 2), w, h, rw: r.width / p.w };
+  }, clip.id);
+  await page.mouse.move(q.destra.x, q.destra.y);
+  await page.mouse.down();
+  await page.mouse.move(q.destra.x - q.w * 0.3 * q.rw, q.destra.y, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const st = await page.evaluate((id) => { const c = window.__dpv.doc.clips.find((x) => x.id === id); return { sx: c.tf.sx, scale: c.tf.scale, x: c.tf.x }; }, clip.id);
+  prova('un lato tirato stira da una parte sola (larghezza minore, altezza uguale, l\'altro lato fermo)', st.sx < 0.8 && Math.abs(st.scale - 1) < 0.02 && st.x < 0, JSON.stringify(st));
+  // ritaglia
+  await page.evaluate((id) => window.__dpv.edit('azzera', (p) => { p.clips.find((x) => x.id === id).tf = { ...window.__dpvTest.P.TF0 }; }), clip.id);
+  await page.waitForTimeout(400);
+  await page.click('.pos-btn[title^="Ritaglia"]');
+  await page.mouse.move(q.destra.x, q.destra.y);
+  await page.mouse.down();
+  await page.mouse.move(q.destra.x - q.w * 0.2 * q.rw, q.destra.y, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const cr = await page.evaluate((id) => { const c = window.__dpv.doc.clips.find((x) => x.id === id); return { r: c.tf.cropR, sx: c.tf.sx, x: c.tf.x }; }, clip.id);
+  prova('con Ritaglia il lato ritaglia e l\'immagine non si muove', cr.r > 0.15 && (cr.sx ?? 1) === 1 && cr.x === 0, JSON.stringify(cr));
+  await page.click('.pos-btn[title^="Ritaglia"]');
+  await page.evaluate((id) => window.__dpv.edit('azzera', (p) => { p.clips.find((x) => x.id === id).tf = { ...window.__dpvTest.P.TF0 }; }), clip.id);
+  // Ctrl+clic sceglie la clip che sta sotto: il titolo sta sopra la ripresa, al centro
+  await page.evaluate(() => { const d = window.__dpv.doc; const t = d.clips.find((x) => x.kind === 'title'); window.__dpv.select([t.id]); window.__motore.vaiA(t.start + 30); });
+  await page.waitForTimeout(900);
+  const cc = await page.evaluate(() => { const d = window.__dpv.doc, r = document.querySelector('.schermo-sopra').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, sel: [...window.__dpv.sel][0], kind: d.clips.find((x) => x.id === [...window.__dpv.sel][0]).kind }; });
+  await page.keyboard.down('Control');
+  await page.mouse.click(cc.x, cc.y);
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(300);
+  const dopoC = await page.evaluate(() => { const d = window.__dpv.doc; const c = d.clips.find((x) => x.id === [...window.__dpv.sel][0]); return { kind: c.kind, track: d.tracks.find((t) => t.id === c.track).name }; });
+  prova('Ctrl+clic sull\'immagine sceglie la clip che sta sotto', cc.kind === 'title' && dopoC.kind === 'media' && dopoC.track === 'V1', JSON.stringify({ cc, dopoC }));
+    }
+    {
+  console.log('▶ Tracking di un oggetto');
+  const info = await page.evaluate(() => {
+    const d = window.__dpv.doc;
+    const m = d.media.find((x) => x.name.startsWith('Pallina'));
+    const c = d.clips.find((x) => x.media === m.id && d.tracks.find((t) => t.id === x.track).kind === 'video');
+    return { mid: m.id, c, w: m.width, h: m.height, dur: m.duration };
+  });
+  const risultato = await page.evaluate(async ({ mid, c, w, h }) => {
+    const { TK } = window.__dpvTest;
+    const W = 960, H = 540;
+    const pos = (t) => { const ph = (t * 1.1) % 1; return [(120 + ((t % 6) / 6) * (W - 240)) / W, (H - 90 - Math.abs(Math.sin(ph * Math.PI)) * 330) / H]; };
+    const t0 = c.srcIn + 0.6;
+    const [x0, y0] = pos(t0);
+    let prog = 0;
+    const tr = await TK.seguiOggetto(mid, { da: t0, x: x0, y: y0, lato: 0.09, inizio: c.srcIn, fine: c.srcIn + (c.len / 25), avanza: (k) => { prog = k; } });
+    if (!tr) return { errore: 'niente' };
+    const errs = [];
+    for (const t of [c.srcIn + 0.2, c.srcIn + 1.0, c.srcIn + 1.5, c.srcIn + 2.2]) {
+      let a = 0, b = tr.punti.length - 1;
+      const q = tr.punti.reduce((best, p) => (Math.abs(p.t - t) < Math.abs(best.t - t) ? p : best), tr.punti[0]);
+      // il disegno della pallina può essere in ritardo di un fotogramma sul suo tempo: si tiene il migliore fra -1, 0, +1
+      errs.push(Math.min(...[-0.04, 0, 0.04].map((sh) => { const [ex, ey] = pos(q.t + sh); return Math.hypot(q.x - ex, q.y - ey); })));
+    }
+    return { n: tr.punti.length, errs, prog, fiducia: tr.fiducia, da: tr.da, t0 };
+  }, info);
+  console.log('   ', JSON.stringify(risultato));
+  prova('il tracking trova la pallina in tutta la ripresa (errore < 2% del quadro)', !risultato.errore && risultato.n > 20 && risultato.errs.every((e) => e < 0.04), JSON.stringify(risultato));
+  // un titolo segue l'oggetto
+  const seg = await page.evaluate(async ({ mid, c }) => {
+    const { TK, TR, P } = window.__dpvTest;
+    const W = 960, H = 540;
+    const pos = (t) => { const ph = (t * 1.1) % 1; return [(120 + ((t % 6) / 6) * (W - 240)) / W, (H - 90 - Math.abs(Math.sin(ph * Math.PI)) * 330) / H]; };
+    const [x0, y0] = pos(c.srcIn + 0.6);
+    const tr = await TK.seguiOggetto(mid, { da: c.srcIn + 0.6, x: x0, y: y0, lato: 0.09, inizio: c.srcIn, fine: c.srcIn + c.len / 25 });
+    window.__dpv.edit('traccia', (p) => { p.clips.find((z) => z.id === c.id).traccia = tr; });
+    const p = window.__dpv.doc;
+    const cc = p.clips.find((z) => z.id === c.id);
+    const tit = P.newClip('title', cc.track, cc.start, cc.len, { gen: { title: { ...P.TITLE0 } }, segue: cc.id });
+    const o1 = TR.spostaTraccia({ ...p, clips: [...p.clips, tit] }, tit, cc.start + 15), o2 = TR.spostaTraccia({ ...p, clips: [...p.clips, tit] }, tit, cc.start + 60);
+    // stabilizza: la ripresa si sposta al contrario
+    cc.stabilizza = true;
+    const s1 = TR.spostaTraccia(p, cc, cc.start + 15), s2 = TR.spostaTraccia(p, cc, cc.start + 60);
+    delete cc.stabilizza;
+    return { o1, o2, s1, s2 };
+  }, info);
+  prova('un titolo che segue si muove insieme all\'oggetto', Math.hypot(seg.o1[0] === undefined ? seg.o1.dx - seg.o2.dx : seg.o1.dx - seg.o2.dx, seg.o1.dy - seg.o2.dy) > 40, JSON.stringify(seg));
+  prova('stabilizza sposta la ripresa al contrario dell\'oggetto', Math.sign(seg.s2.dx - seg.s1.dx) === -Math.sign(seg.o2.dx - seg.o1.dx) && Math.abs(seg.s2.dx - seg.s1.dx) > 20, JSON.stringify(seg));
+
+  // il tracking dal monitor: mirino sull'oggetto, Avvia, e la clip ha i suoi punti
+  {
+    await page.evaluate((id) => window.__dpv.edit('via il tracking', (p) => { delete p.clips.find((x) => x.id === id).traccia; }), info.c.id);
+    await page.evaluate(({ c }) => { window.__dpv.select([c.id]); window.__motore.vaiA(c.start + 20); }, { c: info.c });
+    await page.waitForTimeout(900);
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('dpv:mira')));
+    await page.waitForTimeout(300);
+    const pt = await page.evaluate(({ c }) => {
+      const p = window.__dpv.doc, r = document.querySelector('.schermo-sopra').getBoundingClientRect();
+      const t = (window.__dpv.head - c.start) / 25 - 0.04;
+      const W = 960, H = 540, ph = (t * 1.1) % 1;
+      const u = (120 + ((t % 6) / 6) * (W - 240)) / W, v = (H - 90 - Math.abs(Math.sin(ph * Math.PI)) * 330) / H;
+      const m = p.media.find((x) => x.id === c.media), k = Math.min(p.w / m.width, p.h / m.height);
+      const X = p.w / 2 + (u - 0.5) * m.width * k, Y = p.h / 2 + (v - 0.5) * m.height * k;
+      return { x: r.left + (X / p.w) * r.width, y: r.top + (Y / p.h) * r.height, barra: document.querySelector('.pos-barra').classList.contains('in-mira') };
+    }, { c: info.c });
+    prova('Segui: la barretta passa al mirino', pt.barra);
+    await page.mouse.click(pt.x, pt.y);
+    await page.waitForTimeout(200);
+    await page.click('.pos-mira .pos-btn:has-text("Avvia")');
+    await page.waitForFunction((id) => !!window.__dpv.doc.clips.find((x) => x.id === id).traccia, info.c.id, { timeout: 120000 });
+    const n = await page.evaluate((id) => window.__dpv.doc.clips.find((x) => x.id === id).traccia.punti.length, info.c.id);
+    prova('Segui dal monitor: la clip ha i suoi punti tracciati', n > 20, n);
+    await page.evaluate(() => window.__motore.vaiA(window.__dpv.head + 30));
+    await page.waitForTimeout(900);
+    await page.screenshot({ path: path.join(OUT, 'traccia.png') });
+  }
+    }
+    await page.close();
+  }
+
+  console.log('▶ LIVE con più finestre');
+  const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+  pg.on('pageerror', (e) => errori.push(e.message));
+  await pg.goto(srv.url + '/app/');
+  await pg.waitForSelector('.pulsantiera');
+  await pg.evaluate(() => {
+    let n = 0;
+    const tela = (w, hh, colore) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = hh;
+      c.style.cssText = 'position:fixed;left:0;top:0;width:32px;height:18px;z-index:9999;pointer-events:none';
+      document.body.append(c);
+      const x = c.getContext('2d'); let k = 0;
+      setInterval(() => { k++; x.fillStyle = colore; x.fillRect(0, 0, w, hh); x.fillStyle = '#fff'; x.fillRect(40 + (k * 5) % 500, 200, 120, 120); }, 33);
+      return c.captureStream(30);
+    };
+    window.__dpvTest.LV.impostaSorgenteLive(async () => (n++ === 0 ? tela(1280, 720, '#dd2020') : tela(1024, 768, '#2020dd')), async () => { const ctx = new AudioContext(); const o = ctx.createOscillator(); const d = ctx.createMediaStreamDestination(); o.connect(d); o.start(); return d.stream; });
+  });
+  await pg.click('.pagina-btn[data-p=live]');
+  await pg.waitForTimeout(300);
+  await pg.click('.live .fin-interruttore:has-text("Conto alla rovescia")');
+  await pg.click('.live .fin-interruttore:has-text("Più finestre al volo")');
+  await pg.keyboard.press('r');
+  await pg.waitForTimeout(1800);
+  const a = await pg.evaluate(() => { const l = window.__dpvTest.ui().live; return { regia: !!l.regia, fonti: l.regia?.fonti.length, rec: l.registrando }; });
+  prova('con "Più finestre" la registrazione passa dalla regia', a.regia && a.fonti === 1 && a.rec, JSON.stringify(a));
+  await pg.evaluate(() => window.__dpvTest.ui().live.aggiungiFinestra());
+  await pg.waitForTimeout(1600);
+  const b = await pg.evaluate(() => { const l = window.__dpvTest.ui().live; return { fonti: l.regia?.fonti.length, attiva: l.regia?.attiva, miniature: document.querySelectorAll('.live-fonte').length, inOnda: [...document.querySelectorAll('.live-fonte')].findIndex((e) => e.classList.contains('in-onda')) }; });
+  prova('un\'altra finestra si aggiunge mentre registri e va in onda', b.fonti === 2 && b.attiva === 1 && b.miniature === 2 && b.inOnda === 1, JSON.stringify(b));
+  await pg.screenshot({ path: path.join(OUT, 'live-finestre.png') });
+  await pg.keyboard.press('1');
+  await pg.waitForTimeout(400);
+  const c = await pg.evaluate(() => window.__dpvTest.ui().live.regia.attiva);
+  prova('il tasto 1 rimette in onda la prima finestra', c === 0, c);
+  await pg.keyboard.press('2');
+  await pg.waitForTimeout(1600);
+
+  await pg.keyboard.press('f');
+  await pg.evaluate(() => window.__dpvTest.ui().live.ultima);
+  const r = await pg.evaluate(() => {
+    const d = window.__dpv.doc;
+    const m = d.media.find((x) => x.name.startsWith('Registrazione') && !x.name.includes('webcam'));
+    const cl = d.clips.find((x) => x.media === m?.id && d.tracks.find((t) => t.id === x.track).kind === 'video');
+    return { ok: !!cl, w: m?.width, h: m?.height, start: cl?.start, len: cl?.len };
+  });
+  prova('un file solo, con la misura della prima finestra', r.ok && r.w === 1280 && r.h === 720, JSON.stringify(r));
+  await pg.click('.pagina-btn[data-p=montaggio]');
+  const col = async (f) => {
+    await pg.evaluate((ff) => window.__motore.vaiA(ff), f);
+    let c = [0, 0, 0];
+    for (let i = 0; i < 10 && c[0] + c[1] + c[2] < 30; i++) {
+      await pg.waitForTimeout(600);
+      c = await pg.evaluate(() => { const px = new Uint8Array(32 * 18 * 4); window.__motore.rec.leggiPiccolo(32, 18, px); const i = (14 * 32 + 8) * 4; return [px[i], px[i + 1], px[i + 2]]; });
+    }
+    return c;
+  };
+  const campioni = [];
+  for (let q = 15; q < r.len - 5; q += 20) campioni.push(await col(r.start + q));
+  const rossi = campioni.filter((c) => c[0] > 150 && c[2] < 100).length, blu = campioni.filter((c) => c[2] > 150 && c[0] < 100).length;
+  prova('all\'inizio si vede la prima finestra (rossa), poi quella messa in onda (blu), e si passa dall\'una all\'altra', (campioni.find((c) => c[0] + c[1] + c[2] > 30) ?? [0, 0, 0])[0] > 150 && rossi >= 1 && blu >= 2, JSON.stringify({ campioni, r }));
+  await pg.close();
+
   console.log('▶ Riproduzione');
   await page.evaluate(() => { window.__dpv.select([]); window.__motore.setMonitor('recorder'); window.__motore.vaiA(0); });
   await tasto('Space');

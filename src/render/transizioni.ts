@@ -19,6 +19,13 @@ export const TENDINE: Modello[] = [
   { p: 121, nome: '121 · Cuore', info: 'per i matrimoni, come si faceva una volta' },
   { p: 201, nome: '201 · Orologio', info: 'la lancetta che gira' },
   { p: 7, nome: '7 · Veneziana', info: 'a strisce' },
+  { p: 42, nome: '42 · Diagonale opposta', info: 'di traverso, dall\'altra parte' },
+  { p: 61, nome: '61 · Freccia', info: 'una punta di freccia che avanza' },
+  { p: 62, nome: '62 · Freccia rovesciata', info: 'la punta arriva dai lati' },
+  { p: 103, nome: '103 · Croce', info: 'si apre lungo gli assi e poi negli angoli' },
+  { p: 122, nome: '122 · Onda', info: 'il bordo della tendina ondeggia' },
+  { p: 123, nome: '123 · Zigzag', info: 'il bordo è una sega' },
+  { p: 202, nome: '202 · Ventaglio', info: 'tre lancette che girano insieme' },
 ];
 
 /** effetti digitali: la seconda immagine si muove, si piega, si scompone */
@@ -54,7 +61,25 @@ export const EFFETTI: Modello[] = [
   { p: 571, nome: 'Colori sdoppiati', info: 'entra di lato col rosso e il blu che scappano' },
   { p: 581, nome: 'Bolle', info: 'tanti cerchi si aprono e si uniscono' },
   { p: 591, nome: 'Rimbalzo', info: 'la nuova cade dall\'alto e rimbalza' },
+  { p: 601, nome: 'Pagina', info: 'la pagina si solleva e si rovescia: sotto c\'è la nuova' },
+  { p: 611, nome: 'Frantumi', info: 'le piastrelle si girano e si rimpiccioliscono una dopo l\'altra' },
+  { p: 621, nome: 'Spinta veloce', info: 'la nuova spinge via la vecchia, con la scia del movimento' },
+  { p: 631, nome: 'Fette', info: 'strisce che scorrono una a destra e una a sinistra' },
+  { p: 641, nome: 'Alveare', info: 'esagoni che si chiudono su se stessi' },
+  { p: 651, nome: 'Onda d\'urto', info: 'un anello si allarga dal centro e piega l\'immagine' },
+  { p: 661, nome: 'Nuvole', info: 'un fumo denso scioglie la vecchia nella nuova' },
+  { p: 671, nome: 'Fuoco', info: 'la vecchia brucia e i bordi diventano brace' },
+  { p: 681, nome: 'Rullino', info: 'la pellicola scorre coi fori ai lati' },
+  { p: 691, nome: 'Diaframma', info: 'le lamelle si chiudono e si riaprono sulla nuova' },
+  { p: 701, nome: 'Punti', info: 'tanti cerchi crescono e si uniscono, come un retino' },
+  { p: 711, nome: 'Spirale', info: 'il braccio di una spirale spazza via la vecchia' },
+  { p: 721, nome: 'Doppia esposizione', info: 'le due immagini si sovrappongono come due pose sulla stessa pellicola' },
+  { p: 731, nome: 'TV che si spegne', info: 'si schiaccia in una riga, un puntino, e la nuova si apre da lì' },
+  { p: 801, nome: 'Portoni 3D', info: 'due battenti si aprono come porte' },
 ];
+
+/** gli effetti digitali che hanno un verso: si possono girare di quarti di giro (la direzione) */
+export const DIREZIONALI = new Set([311, 401, 411, 431, 481, 531, 591, 601, 621, 631, 681, 801]);
 
 export const nomeModello = (tipo: string, p: number) =>
   tipo === 'mix' ? 'Dissolvenza' : tipo === 'dip' ? 'Passaggio a colore'

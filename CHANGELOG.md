@@ -4,6 +4,47 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.2] — 2026-09-30 · Big update: tappe di mezzo, tracking, effetti e transizioni a decine, LIVE con più finestre 🎯
+
+> 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).
+
+### Sistemato: gli effetti che si sommano ora si vedono tutti
+- Prima, con più effetti sullo stesso punto, alcuni sparivano: **sfoca + zoom sfocato** mostravano solo la sfocatura, e con i **colori sdoppiati** (o il glitch, o il VHS) la sfocatura restava solo sul verde. Adesso sfocatura, scia, colori sdoppiati, neon, bagliore ed eco lavorano nello stesso passaggio e si sommano davvero.
+
+### Posizioni intermedie (tappe) per spostare clip ed effetti
+- Il **↝ Movimento** non ha più solo partenza e arrivo: aggiungi tutte le **tappe** che vuoi con **＋** (o fermati fra due tappe e muovi: ne nasce una lì, come i fotogrammi chiave dei programmi grandi). La clip, o il mirino di un effetto, ci passa dentro con una curva morbida, senza scatti e senza sforare.
+- Sul monitor vedi il **percorso** tratteggiato con le palline numerate: trascina una pallina per spostare la tappa, **－** la toglie, i pallini numerati nella barretta ci vanno.
+- Vale per tutte le clip (video, immagini, titoli, colori) e per gli effetti col centro (bolla, vortice, zoom, riflesso…, e ora anche pizzico, gocce, occhio di pesce e raggi).
+
+### Clicca qualsiasi cosa e ridimensionala come vuoi
+- Ora ci sono **8 maniglie**: gli angoli ingrandiscono tenendo ferma la parte opposta, i **lati stirano** da una parte sola (larghezza e altezza separate). **Maiusc** sugli angoli stira, **Ctrl** allarga dal centro, **Alt** toglie gli agganci. Si aggancia ai bordi e al centro del quadro.
+- **✂ Ritaglia**: acceso, i lati e gli angoli ritagliano l'immagine invece di stirarla.
+- **Ctrl+clic** sull'immagine sceglie la clip che sta *sotto* quella scelta (di nuovo, la successiva). Nelle proprietà c'è anche **Larghezza (stira)**.
+
+### Tracking di un oggetto 🎯
+- Scegli una ripresa, metti il cursore dove l'oggetto si vede bene, premi **🎯** sul monitor e trascina il **mirino** sopra l'oggetto: **▶ Avvia** lo segue fotogramma per fotogramma, avanti e indietro (correlazione normalizzata, regge ai cambi di luce; la tesserina si adatta se l'oggetto cambia). Il percorso azzurro resta sul monitor.
+- Poi **titoli, immagini, colori e il centro degli effetti** possono *seguirlo*: nelle proprietà, "Segui un oggetto → Segue". Restano dove sono e da lì in poi lo inseguono; trascinandoli sul monitor cambi lo scarto dall'oggetto.
+- **Stabilizza**: la ripresa si tiene ferma sull'oggetto (si sposta al contrario di quanto si muove lui).
+
+### 23 effetti nuovi (ora 59)
+- **Rapidi**: Eco visivo, Vibrazione. **Luci**: Raggi di luce, Bokeh, Scintille, Lente anamorfica. **Colore** (gruppo nuovo): Duotone, Posterizza, Solarizza, Termocamera, Visore notturno, Retino pop, Film muto. **Distorsioni**: Pizzico, Gocce, Occhio di pesce, Specchio, Quattro schermi, Rullo TV. **Particelle** (gruppo nuovo): Neve, Pioggia, Polvere sospesa, Coriandoli.
+- Ogni blocco ha **Si ripete** (da 1 a 12 volte nella durata: tre lampi, cinque scosse…), e l'elenco dei colori scelti si è allargato (duotone, bokeh, scintille).
+
+### Transizioni più ricche
+- **22 nuove**: Pagina, Frantumi, Spinta veloce, Fette, Alveare, Onda d'urto, Nuvole, Fuoco, Rullino, Diaframma, Punti, Spirale, Doppia esposizione, TV che si spegne, Portoni 3D; e tendine SMPTE nuove: Diagonale opposta, Freccia, Freccia rovesciata, Croce, Onda, Zigzag, Ventaglio.
+- Nelle proprietà di ogni transizione: **Intensità** (scia, onda, sfocatura più o meno forti), **Direzione** (l'effetto gira di 90°, 180°, 270°: il cubo che gira in verticale, la pagina che si volta dal basso…), **Come corre** (dolce, parte piano, arriva piano). Le voci che non servono a quel modello spariscono.
+
+### Titoli migliori
+- **9 stili nuovi**: Cascata (lettere che cadono e rimbalzano), Si compone (le lettere arrivano da lontano), Onda, Evidenziatore, Karaoke, 3D con spessore, Ombra lunga, Solo contorno, Notiziario a due targhe. E preset nuovi: Cinema con sottotitolo, Dedica, Capitolo.
+- Ogni titolo ha ora un **sottotitolo** (la riga piccola sotto), **Entra / Esce** (dissolve, sale, scende, da sinistra o da destra, zoom, rimbalza) con qualunque stile, **spazio fra le lettere** e **spessore**. Nelle proprietà ora si trovano *tutti* gli stili (prima ne mancavano cinque).
+
+### LIVE: cambia finestra mentre registri
+- **Più finestre al volo** (da accendere prima di registrare: di partenza è spento, così la registrazione normale resta quella di sempre): con ＋ FINESTRA (tasto **N**) aggiungi altre finestre o schermi anche a registrazione in corso, e passi dall'una all'altra con un clic sulla miniatura o coi tasti **1-9** (⇄ sul telecomando). **L** cambia la disposizione: una sola, una grande e una piccola in **angolo**, due **affiancate**.
+- Il file resta uno solo e la misura non cambia (è quella della prima finestra): la regia disegna quella in onda in una tela fissa, con un battito che non rallenta se l'app è coperta.
+
+### I VU
+- Il pannello a destra ha solo le **barre** (sinistro e destro, col picco che resta un attimo): occupano un terzo di prima.
+
 ## [1.1.1] — 2026-09-27 · Il play parte subito anche sulle registrazioni lunghe ▶
 
 > 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).

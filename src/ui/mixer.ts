@@ -1,23 +1,22 @@
-// Gli strumenti del banco: i due VU a lancetta (con la loro inerzia vera), il mixer delle tracce audio
+// Gli strumenti del banco: i livelli di uscita a barra, il mixer delle tracce audio
 // e dei livelli video (trasparenza al volo).
 import { store } from '../core/store';
 import { motore } from '../motore';
 import { banco } from '../media/audio';
 import { h, clamp } from './dom';
 
-/** coppia di VU analogici: 0 VU = −18 dBFS (taratura EBU), lancetta con molla e smorzamento */
+/** i due livelli dell'uscita (sinistro e destro) a barra: solo le barre a LED, con l'indicatore di picco che resta un attimo */
 export class VuMetri {
   el: HTMLCanvasElement;
-  private pos = [0, 0];
-  private vel = [0, 0];
-  private picco = [0, 0];
   private barra = [0, 0];
+  private tenuto = [0, 0];
   private tPicco = [0, 0];
   private ultimo = performance.now();
   private dpr = 1;
+  private disegnato = false;
 
   constructor() {
-    this.el = h('canvas', { class: 'vu' });
+    this.el = h('canvas', { class: 'vu', title: 'Livello di uscita, sinistro e destro (picco)' });
     new ResizeObserver(() => this.adatta()).observe(this.el);
     motore.ogniGiro(() => this.giro());
   }
@@ -27,7 +26,6 @@ export class VuMetri {
     const r = this.el.getBoundingClientRect();
     this.el.width = Math.round(r.width * this.dpr);
     this.el.height = Math.round(r.height * this.dpr);
-    // la tela si è svuotata: al prossimo giro si ridisegna anche da fermi
     this.disegnato = false;
   }
 
@@ -36,29 +34,19 @@ export class VuMetri {
     const dt = Math.min(0.05, (now - this.ultimo) / 1000);
     this.ultimo = now;
     const m = banco.misure();
-    const rms = [m.l, m.r], pk = [m.lPeak, m.rPeak];
+    const pk = [m.lPeak, m.rPeak];
     let fermo = true;
     for (let i = 0; i < 2; i++) {
-      const db = 20 * Math.log10(Math.max(1e-6, rms[i] * Math.SQRT2)); // rms di un seno = picco/√2
-      const vu = db + 18;
-      // scala del VU: da −20 a +3, non lineare come quelli veri (posizione ~ tensione)
-      const target = clamp((Math.pow(10, vu / 20) - 0.1) / (Math.pow(10, 3 / 20) - 0.1), -0.02, 1.08);
-      // molla-smorzatore: 300 ms di salita con un filo di rimbalzo
-      const k = 180, c = 20;
-      const a = k * (target - this.pos[i]) - c * this.vel[i];
-      this.vel[i] += a * dt;
-      this.pos[i] += this.vel[i] * dt;
-      if (Math.abs(this.vel[i]) > 0.001 || this.pos[i] > 0.01) fermo = false;
-      const pdb = 20 * Math.log10(Math.max(1e-6, pk[i]));
-      if (pdb > -3) { this.picco[i] = 1; this.tPicco[i] = now; }
-      else if (now - this.tPicco[i] > 900) this.picco[i] = 0;
-      const b = clamp((pdb + 60) / 60, 0, 1);
-      this.barra[i] = b > this.barra[i] ? b : Math.max(b, this.barra[i] - dt * 0.8);
+      const b = clamp((20 * Math.log10(Math.max(1e-6, pk[i])) + 60) / 60, 0, 1);
+      // sale subito, scende piano
+      this.barra[i] = b > this.barra[i] ? b : Math.max(b, this.barra[i] - dt * 0.9);
+      if (b >= this.tenuto[i]) { this.tenuto[i] = b; this.tPicco[i] = now; }
+      else if (now - this.tPicco[i] > 900) this.tenuto[i] = Math.max(b, this.tenuto[i] - dt * 0.6);
+      if (this.barra[i] > 0.005 || this.tenuto[i] > 0.005) fermo = false;
     }
     if (fermo && !motore.playing && this.disegnato) return;
     this.disegna();
   }
-  private disegnato = false;
 
   private disegna() {
     this.disegnato = true;
@@ -67,78 +55,27 @@ export class VuMetri {
     if (!W || !H) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    const gap = 8 * this.dpr;
-    const w = (W - gap) / 2;
-    for (let i = 0; i < 2; i++) this.strumento(ctx, i * (w + gap), 0, w, H, i);
-  }
-
-  private strumento(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, hh: number, i: number) {
-    const d = this.dpr;
-    const bh = 7 * d;
-    const fh = hh - bh - 3 * d;
-    // cornice e quadrante crema retroilluminato
-    ctx.fillStyle = '#0c0b10';
-    ctx.beginPath(); ctx.roundRect(x, y, w, fh, 5 * d); ctx.fill();
-    const g = ctx.createRadialGradient(x + w / 2, y + fh * 0.9, fh * 0.1, x + w / 2, y + fh * 0.7, w * 0.8);
-    g.addColorStop(0, '#fff6d6'); g.addColorStop(0.6, '#f3dfa4'); g.addColorStop(1, '#b89a52');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.roundRect(x + 3 * d, y + 3 * d, w - 6 * d, fh - 6 * d, 3 * d); ctx.fill();
-    const cx = x + w / 2, cy = y + fh * 1.02, R = Math.min(w * 0.62, fh * 0.9);
-    const a0 = -Math.PI / 2 - 0.78, a1 = -Math.PI / 2 + 0.78;
-    const ang = (k: number) => a0 + (a1 - a0) * k;
-    const kv = (vu: number) => (Math.pow(10, vu / 20) - 0.1) / (Math.pow(10, 3 / 20) - 0.1);
-    // zona rossa
-    ctx.strokeStyle = '#c8202a';
-    ctx.lineWidth = 4 * d;
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.86, ang(kv(0)), ang(1)); ctx.stroke();
-    ctx.strokeStyle = '#1b1a1f';
-    ctx.lineWidth = 1.2 * d;
-    ctx.beginPath(); ctx.arc(cx, cy, R * 0.86, ang(0), ang(kv(0))); ctx.stroke();
-    ctx.font = `700 ${Math.max(7, 8 * d)}px Rajdhani, sans-serif`;
-    ctx.textAlign = 'center';
+    const d = this.dpr, lab = 12 * d, gap = 3 * d;
+    const bh = (H - gap) / 2;
+    const N = 40;
+    ctx.font = `700 ${Math.max(7, 8.5 * d)}px Rajdhani, sans-serif`;
     ctx.textBaseline = 'middle';
-    for (const vu of [-20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3]) {
-      const a = ang(kv(vu));
-      ctx.strokeStyle = vu > 0 ? '#c8202a' : '#1b1a1f';
-      ctx.lineWidth = (vu === 0 ? 2 : 1.2) * d;
-      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * R * 0.86, cy + Math.sin(a) * R * 0.86); ctx.lineTo(cx + Math.cos(a) * R * 0.95, cy + Math.sin(a) * R * 0.95); ctx.stroke();
-      if ([-20, -10, -5, -3, 0, 3].includes(vu)) {
-        ctx.fillStyle = vu > 0 ? '#c8202a' : '#1b1a1f';
-        ctx.fillText(String(Math.abs(vu)), cx + Math.cos(a) * R * 1.05, cy + Math.sin(a) * R * 1.05);
+    for (let i = 0; i < 2; i++) {
+      const y = i * (bh + gap);
+      ctx.fillStyle = '#8a8698';
+      ctx.textAlign = 'left';
+      ctx.fillText(i === 0 ? 'S' : 'D', 1 * d, y + bh / 2);
+      const x0 = lab, w = W - lab;
+      ctx.fillStyle = '#0c0b10';
+      ctx.fillRect(x0, y, w, bh);
+      const sw = (w - 2 * d) / N;
+      for (let s = 0; s < N; s++) {
+        const k = s / N, db = -60 + k * 60;
+        const on = k < this.barra[i];
+        const tenuto = Math.abs(k - this.tenuto[i]) < 1 / N + 0.001 && this.tenuto[i] > 0.02;
+        ctx.fillStyle = db > -6 ? (on || tenuto ? '#ff3a4a' : '#3a1418') : db > -18 ? (on || tenuto ? '#ffd54a' : '#3a3214') : (on || tenuto ? '#5dffb4' : '#143a28');
+        ctx.fillRect(x0 + d + s * sw, y + d, sw - d, bh - 2 * d);
       }
-    }
-    ctx.fillStyle = '#1b1a1f';
-    ctx.font = `900 ${Math.max(8, 10 * d)}px Orbitron, sans-serif`;
-    ctx.fillText('VU', cx, y + fh * 0.62);
-    ctx.font = `700 ${Math.max(6, 7 * d)}px Rajdhani, sans-serif`;
-    ctx.fillText(i === 0 ? 'SINISTRO' : 'DESTRO', cx, y + fh * 0.76);
-    // lancetta
-    const a = ang(clamp(this.pos[i], -0.03, 1.1));
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 1.6 * d;
-    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * R * 0.25, cy + Math.sin(a) * R * 0.25); ctx.lineTo(cx + Math.cos(a) * R * 0.98, cy + Math.sin(a) * R * 0.98); ctx.stroke();
-    // led di picco
-    ctx.fillStyle = this.picco[i] ? '#ff2a3a' : '#4a1418';
-    ctx.shadowColor = '#ff2a3a';
-    ctx.shadowBlur = this.picco[i] ? 10 * d : 0;
-    ctx.beginPath(); ctx.arc(x + w - 11 * d, y + 11 * d, 3.5 * d, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    // vetro
-    const v = ctx.createLinearGradient(0, y, 0, y + fh);
-    v.addColorStop(0, 'rgba(255,255,255,.28)'); v.addColorStop(0.35, 'rgba(255,255,255,0)');
-    ctx.fillStyle = v;
-    ctx.beginPath(); ctx.roundRect(x + 3 * d, y + 3 * d, w - 6 * d, fh - 6 * d, 3 * d); ctx.fill();
-    // barra di picco digitale sotto (il moderno)
-    const by = y + fh + 3 * d;
-    ctx.fillStyle = '#0c0b10';
-    ctx.fillRect(x, by, w, bh);
-    const n = 30;
-    for (let s = 0; s < n; s++) {
-      const k = s / n;
-      const on = k < this.barra[i];
-      const db = -60 + k * 60;
-      ctx.fillStyle = db > -6 ? (on ? '#ff3a4a' : '#3a1418') : db > -18 ? (on ? '#ffd54a' : '#3a3214') : (on ? '#5dffb4' : '#143a28');
-      ctx.fillRect(x + 1 + (s * (w - 2)) / n, by + 1, (w - 2) / n - 1, bh - 2);
     }
   }
 }

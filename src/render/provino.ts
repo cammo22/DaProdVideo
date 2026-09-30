@@ -286,3 +286,12 @@ export function suonaProvino(dest: HTMLCanvasElement, fai: Costruttore): () => v
   attivo = ferma;
   return ferma;
 }
+
+/** un fotogramma della scena (frazione 0..1 della sua durata) disegnato in una tela: serve alle prove e alle foto */
+export async function fotoScena(fai: Costruttore, frazione: number, dest: HTMLCanvasElement): Promise<boolean> {
+  const x = await fotogrammiAlCursore();
+  const s = fai(x.a, x.b);
+  const n = s.a - s.da;
+  const f = s.da + Math.min(n - 1, Math.floor(n * frazione));
+  return disegna(dest, s, f, x.a, x.b);
+}
