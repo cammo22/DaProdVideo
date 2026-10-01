@@ -2,8 +2,17 @@
 // per ogni tipo di elemento (immagine, titolo, animazione… e blocchi FX), anche dopo aver riaperto il programma.
 import path from 'node:path';
 
-export async function provePannello({ page, prova, OUT }) {
+export async function provePannello({ page: paginaDi, prova, OUT }) {
   console.log('▶ Proprietà: sezioni chiuse e riordinabili');
+  // una pagina pulita: le prove di prima hanno aperto delle sezioni e riempito il progetto
+  const contesto = await paginaDi.context().browser().newContext({ viewport: { width: 1600, height: 950 } });
+  const page = await contesto.newPage();
+  const errori = [];
+  page.on('pageerror', (e) => errori.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
+  await page.goto(paginaDi.url());
+  await page.waitForSelector('.pulsantiera');
+  await page.waitForTimeout(1200);
   await page.evaluate(() => { try { localStorage.removeItem('dpv-isp-ordine'); } catch { /* niente */ } });
   const ids = await page.evaluate(async () => {
     const { importaFile, P, B } = window.__dpvTest;
@@ -109,4 +118,6 @@ export async function provePannello({ page, prova, OUT }) {
   const ripristinato = await ordineDi();
   const rim2 = await page.evaluate(() => JSON.parse(localStorage.getItem('dpv-isp-ordine') ?? '{}'));
   prova('"↺ Ordine di partenza" rimette le sezioni come all\'inizio per quel tipo (e si toglie dal salvataggio)', haBottone === 1 && ripristinato[0] !== 'durata' && !rim2['clip:immagine'], JSON.stringify([haBottone, ripristinato, rim2]));
+  prova('nessun errore nella pagina del pannello', errori.length === 0, errori.slice(0, 3).join(' | '));
+  await contesto.close();
 }

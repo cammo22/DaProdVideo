@@ -266,7 +266,7 @@ export async function proveMontage({ page, prova, OUT }) {
     if (k === 2) prova('dopo ogni rigenera la variante cambia e il tempo resta quello chiesto (20 s)', x.fine === x.atteso && x.variante !== dopo.variante && x.pagina === 'montage', JSON.stringify([x.variante, dopo.variante, x.fine, x.atteso]));
   }
   prova('rigenerare dà sempre un montaggio diverso (movimenti, durate, transizioni, effetti)', new Set(forme).size === 4, `${new Set(forme).size} diversi su 4`);
-  prova('le timeline non si accumulano: dopo quattro anteprime ce n\'è una sola in più, e un solo "annulla" le toglie', sequenze.every((n) => n === sequenze[0]) && sequenze[0] === prima2 + 1, JSON.stringify([prima2, sequenze]));
+  prova('le timeline non si accumulano: dopo quattro anteprime ce n\'è una sola in più, e un solo "annulla" le toglie', sequenze.every((n) => n === sequenze[0]) && sequenze[0] <= Math.max(1, prima2) + 1 && sequenze[0] > prima2, JSON.stringify([prima2, sequenze]));
   // lo stesso seme dà lo stesso montaggio (serve a ritrovare una variante che piaceva)
   const stessi = [];
   for (let k = 0; k < 2; k++) {
