@@ -96,6 +96,16 @@ button svg { pointer-events: none; }
 #app[data-pagina='live'] .pulsantiera, #app[data-pagina='live'] .monitor, #app[data-pagina='live'] .finale { display: none !important; }
 #app .live { grid-area: live; display: none; }
 #app[data-pagina='live'] .live { display: flex; }
+/* la pagina DaProdMontage: tre colonne (file, stile, scelte), la timeline resta sotto per vedere il risultato */
+#app[data-pagina='montage'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr) 7px var(--tlfin) 22px;
+  grid-template-areas: 'testa' 'montage' 'div' 'tl' 'stato';
+}
+#app[data-pagina='montage'] .contenitore, #app[data-pagina='montage'] .lato, #app[data-pagina='montage'] .bordo-bin, #app[data-pagina='montage'] .bordo-lato,
+#app[data-pagina='montage'] .pulsantiera, #app[data-pagina='montage'] .monitor, #app[data-pagina='montage'] .finale, #app[data-pagina='montage'] .live { display: none !important; }
+#app .montage { grid-area: montage; display: none; }
+#app[data-pagina='montage'] .montage { display: flex; }
 .testata { grid-area: testa; }
 .contenitore { grid-area: bin; }
 .bordo-bin { grid-area: bbin; }
@@ -693,6 +703,12 @@ button svg { pointer-events: none; }
 .barra-tel button { flex: 1; background: none; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--testo2); font-size: 11px; }
 .stretto .contenitore, .stretto .lato, .stretto .finale { grid-area: auto; position: fixed; left: 0; right: 0; bottom: 56px; height: 62vh; z-index: 50; transform: translateY(110%); transition: transform 0.22s; border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6); }
 .stretto[data-foglio='bin'] .contenitore, .stretto[data-foglio='lato'] .lato, .stretto[data-foglio='finale'] .finale { transform: none; visibility: visible; }
+/* DaProdMontage sul telefono: a tutto schermo fra la testata e la barra in basso, le tre colonne una sotto l'altra */
+#app.stretto[data-pagina='montage'] .montage { grid-area: auto; position: fixed; left: 0; right: 0; top: 44px; bottom: 56px; z-index: 55; background: var(--fondo); overflow: auto; }
+.stretto .mt-dentro { grid-template-columns: 1fr; overflow: visible; flex: none; }
+.stretto .mt-col { overflow: visible; }
+.stretto .mt-file { grid-template-columns: repeat(4, 1fr); }
+.stretto .montage .fin-testa span:not(.mt-m) { display: none; }
 .stretto .timeline { grid-template-columns: 104px 1fr; }
 .stretto .tl-angolo { width: 104px; }
 .stretto .tt-nome { padding: 3px 5px; font-size: 10.5px; }
@@ -979,3 +995,40 @@ body.pip-live { margin: 0; background: #111016; overflow: hidden; }
 .sf-extra input[type='color'] { margin-left: auto; }
 .sf-lavoro { display: flex; flex-direction: column; gap: 3px; margin: 4px 2px 6px; }
 .nota.ok { color: var(--verde); }
+
+/* ——— DaProdMontage ——— */
+.montage { flex-direction: column; min-height: 0; border-left: 0; overflow: hidden; }
+.mt-m { color: var(--oro); }
+.mt-dentro { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 0.9fr) minmax(320px, 1.5fr) minmax(300px, 1fr); gap: 10px; padding: 10px; }
+.mt-col { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: var(--pannello, #1b1a21); box-shadow: inset 0 0 0 1px #000; }
+.mt-col h3 { display: flex; align-items: center; gap: 8px; margin: 0; font: 800 14px var(--ui); color: var(--testo); }
+.mt-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--oro); color: #1a1206; font: 900 12px var(--ui); }
+.mt-barra { display: flex; flex-wrap: wrap; gap: 6px; }
+.mt-conta { color: var(--testo3); font: 700 11.5px var(--ui); }
+.mt-file { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; align-content: start; }
+.mt-thumb { position: relative; padding: 0; border: 2px solid #000; border-radius: 6px; overflow: hidden; background: #000; opacity: 0.45; cursor: pointer; line-height: 0; }
+.mt-thumb canvas { width: 100%; height: auto; display: block; }
+.mt-thumb.scelta { opacity: 1; border-color: var(--oro); }
+.mt-tipo { position: absolute; left: 3px; bottom: 3px; font: 800 9px var(--ui); background: rgba(0, 0, 0, 0.7); color: #fff; padding: 1px 4px; border-radius: 3px; line-height: 1.3; }
+.mt-spunta { position: absolute; right: 3px; top: 3px; width: 16px; height: 16px; display: none; place-items: center; border-radius: 50%; background: var(--oro); color: #1a1206; font: 900 11px var(--ui); line-height: 1; }
+.mt-thumb.scelta .mt-spunta { display: grid; }
+.mt-vuoto { grid-column: 1 / -1; text-align: center; color: var(--testo3); padding: 24px 8px; border: 2px dashed #000; border-radius: 8px; }
+.mt-vuoto b { color: var(--testo2); font: 800 14px var(--ui); }
+.mt-feste { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-content: start; }
+.mt-festa { display: flex; flex-direction: column; gap: 3px; padding: 5px; text-align: left; border: 2px solid #000; border-radius: 8px; background: #23212b; color: var(--testo2); cursor: pointer; }
+.mt-festa:hover { background: #2b2934; }
+.mt-festa.scelta { border-color: var(--oro); box-shadow: 0 0 14px rgba(255, 190, 70, 0.3); }
+.mt-festa b { font: 800 12.5px var(--ui); color: var(--testo); }
+.mt-festa small { font: 600 10.5px var(--ui); color: var(--testo3); line-height: 1.25; }
+.mt-festa-img { position: relative; line-height: 0; border-radius: 5px; overflow: hidden; }
+.mt-festa-img canvas { width: 100%; height: auto; display: block; }
+.mt-emoji { position: absolute; right: 4px; bottom: 2px; font-size: 18px; line-height: 1; }
+.mt-testi { display: flex; flex-direction: column; gap: 6px; }
+.mt-campo { display: flex; flex-direction: column; gap: 2px; font: 700 11px var(--ui); color: var(--testo3); }
+.mt-mmss { display: inline-flex; align-items: center; gap: 4px; }
+.mt-mmss .num { width: 52px; }
+.mt-riepilogo { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 6px; background: #14131a; box-shadow: inset 0 0 0 1px #000; font: 600 12px var(--ui); color: var(--testo2); }
+.mt-riepilogo b { color: var(--testo); font-size: 13px; }
+.mt-crea { padding: 12px 14px; font-size: 14px; letter-spacing: 1px; }
+.mt-lavoro { min-height: 0; }
+@media (max-width: 900px) { .mt-dentro { grid-template-columns: 1fr; overflow: auto; } .mt-col { overflow: visible; } }

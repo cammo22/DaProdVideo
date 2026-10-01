@@ -9,6 +9,7 @@ import { Timeline } from './timeline';
 import { PannelloMonitor } from './monitor';
 import { Finale } from './finale';
 import { Live } from './live';
+import { Montage } from './montage';
 import { Contenitore } from './contenitore';
 import { Pulsantiera } from './pulsantiera';
 import { Ispettore } from './ispettore';
@@ -32,6 +33,7 @@ export function avvia(radice: HTMLElement) {
   const monitor = new PannelloMonitor();
   const finale = new Finale();
   const live = new Live();
+  const montage = new Montage();
   const bin = new Contenitore();
   const puls = new Pulsantiera(tl);
   const isp = new Ispettore();
@@ -64,13 +66,14 @@ export function avvia(radice: HTMLElement) {
   });
   document.addEventListener('dpv:ispettore', () => { pagina('montaggio'); mostraLato('clip'); apriFoglio('lato'); });
 
-  // ——— le tre pagine: Montaggio, Finale e LIVE ———
-  type Pagina = 'montaggio' | 'finale' | 'live';
+  // ——— le quattro pagine: Montaggio, Finale, LIVE e DaProdMontage ———
+  type Pagina = 'montaggio' | 'finale' | 'live' | 'montage';
   const pagina = (pg: Pagina) => {
     if (radice.dataset.pagina === pg) return;
     if (radice.dataset.pagina === 'live' && live.registrando) avviso('La registrazione continua: torna su LIVE per fermarla', 'info', 2600);
     radice.dataset.pagina = pg;
     live.mostrata(pg === 'live');
+    montage.mostrata(pg === 'montage');
     // i VU vanno dove si guarda: nelle proprietà durante il montaggio, nel Finale alla fine
     if (pg === 'finale') finale.el.insertBefore(vuCornice, finale.el.children[1] ?? null);
     else pannelloLato.insertBefore(vuCornice, pannelloLato.firstChild);
@@ -123,9 +126,10 @@ export function avvia(radice: HTMLElement) {
       voce('genAnimazione'),
     ]],
     ['Vista', () => [
-      { nome: 'Pagina Montaggio', spunta: radice.dataset.pagina !== 'finale', tasto: 'F9', fn: () => pagina('montaggio') },
+      { nome: 'Pagina Montaggio', spunta: radice.dataset.pagina === 'montaggio', tasto: 'F9', fn: () => pagina('montaggio') },
       { nome: 'Pagina Finale (colore, audio, esporta)', spunta: radice.dataset.pagina === 'finale', tasto: 'F9', fn: () => pagina('finale') },
       { nome: 'Pagina LIVE (registra lo schermo)', spunta: radice.dataset.pagina === 'live', tasto: 'F10', fn: () => pagina('live') },
+      { nome: 'Pagina DaProdMontage (il montaggio automatico)', spunta: radice.dataset.pagina === 'montage', tasto: 'F8', fn: () => pagina('montage') },
       { sep: true },
       { nome: 'Contenitore', spunta: !radice.classList.contains('senza-bin'), fn: () => { radice.classList.toggle('senza-bin'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
       { nome: 'Proprietà', spunta: !radice.classList.contains('senza-lato'), fn: () => { radice.classList.toggle('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } },
@@ -195,7 +199,8 @@ export function avvia(radice: HTMLElement) {
     h('div', { class: 'pagine' },
       tastoPagina('montaggio', 'MONTAGGIO', 'montaggio', 'Il banco di montaggio (F9)'),
       tastoPagina('finale', 'FINALE', 'finale', 'Colore e audio su tutto il montaggio, poi esporta (F9)'),
-      tastoPagina('live', 'LIVE', 'live', 'Registra lo schermo e mettilo nel montaggio (F10)')),
+      tastoPagina('live', 'LIVE', 'live', 'Registra lo schermo e mettilo nel montaggio (F10)'),
+      tastoPagina('montage', 'MONTAGE', 'automatico', 'DaProdMontage: butta dentro le foto e il programma monta da solo (F8)')),
     h('div', { class: 'testata-destra' },
       nomeProgetto, formato,
       h('span', { class: 'badge edizione' + (isTauri ? '' : ' prova') }, isTauri ? edizione : 'VERSIONE PROVA · WEB'),
@@ -225,6 +230,7 @@ export function avvia(radice: HTMLElement) {
     h('button', { on: { click: () => apriFoglio('bin') } }, icona('apri', 18), h('span', null, 'Contenitore')),
     h('button', { on: { click: () => apriFoglio('lato') } }, icona('ingranaggio', 18), h('span', null, 'Proprietà')),
     h('button', { on: { click: () => { pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'); } } }, icona('finale', 18), h('span', null, 'Finale')),
+    h('button', { on: { click: () => pagina(radice.dataset.pagina === 'montage' ? 'montaggio' : 'montage') } }, icona('automatico', 18), h('span', null, 'Monta')),
     h('button', { on: { click: () => finestraEsporta() } }, icona('esporta', 18), h('span', null, 'Esporta')));
 
   // ——— i bordi fra i pannelli si trascinano (doppio clic: chiude o riapre il pannello accanto) ———
@@ -234,7 +240,7 @@ export function avvia(radice: HTMLElement) {
   // col pannello chiuso resta una linguetta sul bordo destro per riaprirlo
   const linguetta = h('button', { class: 'linguetta-lato', title: 'Riapri il pannello delle proprietà', on: { click: () => { radice.classList.remove('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } } }, '‹ Proprietà');
   radice.dataset.pagina = 'montaggio';
-  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, live.el, puls.el, divisore, tl.el, statoBar, barraTel, linguetta);
+  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, live.el, montage.el, puls.el, divisore, tl.el, statoBar, barraTel, linguetta);
 
   const VARI = ['--alto', '--bin', '--lato', '--fin', '--tlfin'];
   const salvaBanco = () => {
@@ -307,6 +313,7 @@ export function avvia(radice: HTMLElement) {
     '\\': () => tl.adattaTutto(), v: () => vistaStretta(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
     f11: () => void schermoIntero(), f9: () => pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'),
     f10: () => pagina(radice.dataset.pagina === 'live' ? 'montaggio' : 'live'),
+    f8: () => pagina(radice.dataset.pagina === 'montage' ? 'montaggio' : 'montage'),
     // la grandezza dell'interfaccia nell'app, un gradino alla volta (Ctrl 0 torna al 100%); nel browser fa il browser
     ...(isTauri ? {
       'ctrl++': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
@@ -369,5 +376,5 @@ export function avvia(radice: HTMLElement) {
   if (isTauri) void import('@tauri-apps/api/event').then(({ listen }) => listen<string>('apri-file', (e) => { void invoke<string | null>('file_di_avvio'); void apriFile({ path: e.payload }); })).catch(() => {});
   setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 60);
   void esegui;
-  return { tl, monitor, finale, live, bin };
+  return { tl, monitor, finale, live, montage, bin };
 }

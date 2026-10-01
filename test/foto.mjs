@@ -143,6 +143,22 @@ async function scatta(nome, viewport, extra = {}) {
     await p.locator('.monitor .schermo').screenshot({ path: path.join(OUT, nome + '-live-montaggio.png') });
     await p.screenshot({ path: path.join(OUT, nome + '-live-timeline.png') });
     await p.waitForTimeout(300);
+    // DaProdMontage: la pagina con le foto scelte (si importano quindici foto finte e si apre con F8)
+    await p.evaluate(async () => {
+      const { importaFile } = window.__dpvTest;
+      for (let i = 0; i < 12; i++) {
+        const c = new OffscreenCanvas(800, 600); const x = c.getContext('2d');
+        const g = x.createLinearGradient(0, 0, 800, 600); g.addColorStop(0, `hsl(${i * 30},70%,55%)`); g.addColorStop(1, `hsl(${i * 30 + 70},60%,25%)`);
+        x.fillStyle = g; x.fillRect(0, 0, 800, 600); x.fillStyle = 'rgba(255,255,255,.8)';
+        for (let k = 0; k < 5; k++) { x.beginPath(); x.arc((i * 97 + k * 151) % 800, (i * 53 + k * 89) % 600, 40 + k * 12, 0, 7); x.fill(); }
+        const b = await c.convertToBlob({ type: 'image/png' });
+        await importaFile([{ name: `Foto ${i + 1}.png`, file: new File([b], `Foto ${i + 1}.png`, { type: 'image/png' }) }], { chiediFormato: false });
+      }
+    });
+    await p.click('.pagina-btn[data-p=montage]');
+    await p.waitForTimeout(1500);
+    await p.screenshot({ path: path.join(OUT, nome + '-montage.png') });
+    await p.click('.pagina-btn[data-p=montaggio]');
     // le novità della versione
     await p.click('.voce-menu:has-text("Aiuto")');
     await p.click('.tendina .voce:has-text("Novità della")');

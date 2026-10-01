@@ -4,6 +4,33 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.4] — 2026-10-01 · Togliere lo sfondo, animazioni personalizzate e DaProdMontage ✨
+
+> 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).
+
+### Togliere lo sfondo (Proprietà → Sfondo, e il tasto SFONDO sul monitor)
+- **Green screen col colore che vuoi**: fino a **3 colori** da togliere insieme, il **contagocce** (clic sull'immagine del monitor), **«Trovalo da solo»** (guarda i bordi e prende il colore del fondale), via il **riflesso verde** sul soggetto, **bordo** (restringi/allarga), **sfumatura** e **pulizia** dei puntini. Sopra il monitor puoi guardare la **maschera** o gli **scacchi** per controllare il lavoro.
+- **Con l'AI, senza fondale**: tre modi. **Soggetto** (qualunque cosa in primo piano, capelli compresi: BEN2 o BiRefNet), **Persona** (MODNet, velocissimo anche senza scheda video) e **Oggetti**: *clicchi* sull'oggetto (verde; **Alt+clic** su quello che non vuoi, rosso) e il modello (SAM 2.1, o SlimSAM sui computer lenti) lo ritaglia, poi lo **segue da un fotogramma all'altro**.
+- La maschera si calcola a 4, 8 o 12 al secondo (Veloce, Buona, Alta) e fra una e l'altra si **mescola**, così il bordo non tremola; il risultato resta salvato sul computer, e **nel video esportato è identico** a quello che vedi nel monitor.
+- I modelli sono tutti open source (MIT/Apache-2.0) e si scaricano **una volta sola**, al primo uso. Se uno non si trova, ne prova un altro.
+
+### Animazioni personalizzate (Generatori → Animazioni, e nel contenitore)
+- **49 animazioni** in sei gruppi: sottopancia, testi che si muovono, numeri e grafici, social e chiusure, fondi e luci, cerimonie e feste. Niente AI e niente file da scaricare: ognuna è un disegno calcolato **per ogni fotogramma**, quindi nel monitor e nell'export è uguale.
+- Si **personalizzano dal pannello**: testi, colori, caratteri (Montserrat, Oswald, Archivo Black, Bebas Neue, Space Mono, Great Vibes, Caveat, Playfair Display, Cormorant, tutti con licenza libera e dentro l'app), durata, e la posizione si sposta sul monitor come per ogni clip. Il testo si **adatta da solo** alla riga.
+- Il catalogo si ispira a quello di [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0), ridisegnato per il nostro motore.
+
+### DaProdMontage: la quarta pagina (tasto **F8**) 🎞
+- **Butti dentro foto e video alla rinfusa** (anche **solo foto**), scegli **cosa festeggi**, quanto deve durare, e il programma **monta da solo**: ordina, decide quanto sta ogni foto, le muove (zoom e panoramiche piano), mette le transizioni, i titoli, quello che cade sopra (cuori, petali, coriandoli…) e gli effetti sui tagli.
+- **28 stili pronti**, in sette categorie: Cerimonie (matrimonio romantico, proposta, battesimo, prima comunione, cresima, laurea, anniversario), Famiglia (nascita, baby shower, Natale, ricordi di famiglia, in ricordo di…), Feste (compleanno, 18 anni, addio al celibato/nubilato, Capodanno, recita), Viaggi e natura, Sport e serate, Social e lavoro (reel verticale, prodotto, festa in azienda) e Ricordi, più il matrimonio da film e la presentazione classica. Ognuno sa quanto tenere le foto, come muoverle, le sue transizioni, i colori e il titolo da mettere.
+- **Il tempo è esatto**: le durate si ripartiscono in modo che la somma sia il tempo chiesto, al fotogramma. Se le foto sono troppe per quel tempo tiene le migliori (le **sfocate, buie o doppie** da raffica vengono lasciate fuori e te lo dice); se sono poche per riempirlo, le **ripete** invece di lasciare buchi.
+- **Ordine**: per data di scatto (dall'**EXIF** delle foto, se no dal file), a caso (lo stesso mazzo dà sempre lo stesso risultato) o come le hai messe. Per i video prende il **pezzo più bello**.
+- **A tempo di musica**: aggiungi un brano e il programma ne cerca i **battiti** e ci appoggia i tagli. Senza musica il montaggio resta muto (consiglia lo stile di brano).
+- Il risultato è una **timeline normale** (una scheda nuova): ritocchi tutto come sempre, e premi **Esporta**. Le scelte si ricordano.
+
+### Per chi ha curiosità
+- Dentro: `src/core/montage.ts` (il piano), `montagePreset.ts` (gli stili), `src/media/exif.ts`, `qualita.ts`, `ritmo.ts`, `src/ui/montage.ts` (la pagina); `src/core/animazioni.ts` e `src/render/anim/*`; `src/core/sfondo.ts`, `src/media/ritaglio.ts` e il suo worker.
+- Prove nuove in `test/prove-nuove.mjs`, `prove-animazioni.mjs` e `prove-montage.mjs`. **Nota onesta**: dal luogo dove si provano non si raggiungono Hugging Face e la rete dei modelli, quindi i modelli veri non sono stati provati con un'immagine vera: le prove usano un ritaglio finto e una libreria finta che rispetta lo stesso protocollo.
+
 ## [1.1.3] — 2026-09-30 · Velocità delle clip, movimento fluido, voce e sottotitoli con NVIDIA, cursore che si aggancia 🚀
 
 > 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).
