@@ -11,6 +11,7 @@ import { projectEnd } from '../core/progetto';
 import { f2s, fps } from '../core/timecode';
 import { mixaggio } from '../media/audio';
 import { mediaRT } from '../media/libreria';
+import { caricaFontAnimazioni } from '../render/font';
 import { Compositore } from '../render/compositore';
 import { pianoVideo, type Sorgente } from '../render/piano';
 import { dialogoSalva, invoke, isTauri, nomeDaPercorso, scarica } from '../platform';
@@ -156,6 +157,8 @@ export class Lettori {
 
 export async function esporta(p0: Project, o: Opzioni, avanza: (a: Avanzamento) => void, annullato: () => boolean): Promise<string | null> {
   const p: Project = structuredClone(p0);
+  // i caratteri delle animazioni devono esserci prima di disegnare i fotogrammi
+  await caricaFontAnimazioni();
   const r = fps(p.rate);
   const a = o.soloInOut && p.inF !== null ? p.inF : 0;
   const b = o.soloInOut && p.outF !== null ? p.outF : projectEnd(p);

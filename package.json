@@ -17,8 +17,17 @@
     "foto": "node test/foto.mjs"
   },
   "dependencies": {
+    "@fontsource/archivo-black": "^5.3.0",
+    "@fontsource/bebas-neue": "^5.3.0",
+    "@fontsource/caveat": "^5.3.0",
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "@fontsource/great-vibes": "^5.3.0",
+    "@fontsource/montserrat": "^5.3.0",
     "@fontsource/orbitron": "^5.3.0",
+    "@fontsource/oswald": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
     "@fontsource/rajdhani": "^5.3.0",
+    "@fontsource/space-mono": "^5.3.0",
     "@mediabunny/aac-encoder": "^1.59.1",
     "@mediabunny/ac3": "^1.59.1",
     "@tauri-apps/api": "^2.11.1",

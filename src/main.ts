@@ -4,11 +4,32 @@ import '@fontsource/orbitron/latin-900.css';
 import '@fontsource/rajdhani/latin-500.css';
 import '@fontsource/rajdhani/latin-600.css';
 import '@fontsource/rajdhani/latin-700.css';
+// i caratteri delle animazioni (sottopancia, titoli da cerimonia…): solo il latino, ognuno si scarica quando serve
+import '@fontsource/montserrat/latin-400.css';
+import '@fontsource/montserrat/latin-500.css';
+import '@fontsource/montserrat/latin-700.css';
+import '@fontsource/montserrat/latin-900.css';
+import '@fontsource/oswald/latin-400.css';
+import '@fontsource/oswald/latin-500.css';
+import '@fontsource/oswald/latin-700.css';
+import '@fontsource/archivo-black/latin-400.css';
+import '@fontsource/bebas-neue/latin-400.css';
+import '@fontsource/space-mono/latin-400.css';
+import '@fontsource/space-mono/latin-700.css';
+import '@fontsource/playfair-display/latin-400.css';
+import '@fontsource/playfair-display/latin-700.css';
+import '@fontsource/playfair-display/latin-400-italic.css';
+import '@fontsource/cormorant-garamond/latin-400.css';
+import '@fontsource/cormorant-garamond/latin-500.css';
+import '@fontsource/cormorant-garamond/latin-500-italic.css';
+import '@fontsource/great-vibes/latin-400.css';
+import '@fontsource/caveat/latin-700.css';
 import './stile/editor.css';
 import { avvia } from './ui/app';
 import { h } from './ui/dom';
 import { isTauri } from './platform';
 import { preparaRiserva } from './media/riserva';
+import { caricaFontAnimazioni } from './render/font';
 
 const radice = document.getElementById('app')!;
 let banco: ReturnType<typeof avvia> | null = null;
@@ -35,6 +56,8 @@ if (problema) {
   // nell'app, prima di aprire qualunque file, si accende (se serve) la decodifica audio di riserva in Rust
   await preparaRiserva().catch(() => []);
   banco = avvia(radice);
+  // i caratteri delle animazioni arrivano in silenzio: quando ci sono, il monitor ridisegna
+  void caricaFontAnimazioni().then(() => import('./motore').then((m) => m.motore.ridisegna()));
   setTimeout(() => { avvio.classList.add('via'); setTimeout(() => avvio.remove(), 500); }, isTauri ? 500 : 900);
 }
 
@@ -77,4 +100,7 @@ import * as MK from './media/maschere';
 import * as RT from './media/ritaglio';
 import * as CP from './media/campiona';
 import * as USF from './ui/sfondo';
-(window as unknown as Record<string, unknown>).__dpvTest = { M, TC, P, esporta, creaEdl, motore, guadagnoClip, pianoVideo, Z, statoDecoder, ripresaDiProva, importaFile, apriFile, PK, proxyStato: (id: string) => mediaRT(id)?.proxyStato, mediaRT, B, S, SU, V, AG, LV, SQ, SOT, FE, G, mixaggio, PV, TR, TK, ST, Compositore, NM, DP, WV, LAV, SF, MK, RT, CP, USF, ui: () => banco };
+import * as AN from './core/animazioni';
+import * as RA from './render/animazioni';
+import { caricaFontAnimazioni as fontAnim } from './render/font';
+(window as unknown as Record<string, unknown>).__dpvTest = { M, TC, P, esporta, creaEdl, motore, guadagnoClip, pianoVideo, Z, statoDecoder, ripresaDiProva, importaFile, apriFile, PK, proxyStato: (id: string) => mediaRT(id)?.proxyStato, mediaRT, B, S, SU, V, AG, LV, SQ, SOT, FE, G, mixaggio, PV, TR, TK, ST, Compositore, NM, DP, WV, LAV, SF, MK, RT, CP, USF, AN, RA, fontAnim, ui: () => banco };

@@ -21,7 +21,10 @@ import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto, type Effetto } fr
 import { anteprimaChiara } from '../render/anteprime';
 import { PRESET_TITOLI, presetTitolo } from '../core/generatori';
 import { STILI_CONTO, disegnaCountdown, specAlTempo, telaTitolo } from '../render/grafica';
-import { scenaConto, scenaEffetto, scenaRitocco, scenaSala, scenaTitolo, scenaTransizione, suonaProvino, type Costruttore } from '../render/provino';
+import { ANIMAZIONI, GRUPPI_ANIM, animazioniDi, nuovaAnim } from '../core/animazioni';
+import { disegnaAnimazione } from '../render/animazioni';
+import { caricaFontAnimazioni } from '../render/font';
+import { scenaAnimazione, scenaConto, scenaEffetto, scenaRitocco, scenaSala, scenaTitolo, scenaTransizione, suonaProvino, type Costruttore } from '../render/provino';
 
 // ——— l'albero ———
 interface Ramo { id: string; nome: string; icona: string; figli?: [string, string][] }
@@ -36,6 +39,7 @@ const TIPI: Ramo[] = [
 const LIBRERIA: Ramo[] = [
   { id: 'transizioni', nome: 'Transizioni', icona: 'transizione', figli: [['tr:dissolvenze', 'Dissolvenze'], ['tr:movimento', 'Movimento'], ['tr:3d', '3D e forme'], ['tr:luce', 'Luce'], ['tr:stile', 'Stile'], ['tr:tendine', 'Tendine SMPTE']] },
   { id: 'titoli', nome: 'Titoli', icona: 'titolo', figli: [['tit:titoli', 'Titoli'], ['tit:tv', 'TV e social'], ['tit:conto', 'Countdown'], ['tit:sala', 'Macchine della sala']] },
+  { id: 'animazioni', nome: 'Animazioni', icona: 'effetti', figli: GRUPPI_ANIM.map((g): [string, string] => ['an:' + g.id, g.nome]) },
   { id: 'effetti', nome: 'Effetti', icona: 'effetti', figli: [['fx:rapidi', 'Rapidi'], ['fx:lunghi', 'Lunghi'], ['fx:luci', 'Luci'], ['fx:distorsioni', 'Distorsioni'], ['fx:colore', 'Colore'], ['fx:particelle', 'Particelle'], ['fx:clip', 'Stile della clip'], ['fx:audio', 'Audio']] },
 ];
 
@@ -301,6 +305,7 @@ export class Contenitore {
     if (n === 'transizioni' || n.startsWith('tr:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaTransizioni(); } return; }
     if (n === 'titoli' || n.startsWith('tit:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaTitoli(); } return; }
     if (n === 'effetti' || n.startsWith('fx:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaEffetti(); } return; }
+    if (n === 'animazioni' || n.startsWith('an:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaAnimazioni(); } return; }
     this.disegnaMedia(forza);
   }
 
@@ -600,6 +605,25 @@ export class Contenitore {
     ])));
   }
 
+  /** le animazioni del catalogo (sottopancia, testi che si muovono, grafici, fondi, cerimonie): clic = al cursore, trascina = dove vuoi */
+  private paginaAnimazioni() {
+    this.percorsoLibreria('animazioni');
+    const carta = (a: typeof ANIMAZIONI[number]) => {
+      const cv = h('canvas', { class: 'gen-anteprima', width: 192, height: 108 }) as HTMLCanvasElement;
+      const disegna = () => anteprimaAnimazione(cv, a.id);
+      disegna();
+      void caricaFontAnimazioni().then(disegna);
+      return this.cartaLibreria({
+        cls: 'gen gen-voce', nome: a.nome, titolo: `${a.nome} · ${a.info}\nClic: al cursore (su una traccia libera) · trascina: dove vuoi`,
+        anteprima: cv, provino: scenaAnimazione(a.id), dato: 'g:anim:' + a.id, etichetta: '✨ ' + a.nome, attr: { 'data-anim': a.id },
+        clic: () => { inserisciGeneratore('anim', undefined, undefined, { anim: a.id }); avviso(`${a.nome} al cursore`, 'ok', 1000); },
+      });
+    };
+    this.corpo.replaceChildren(h('div', { class: 'gen-lista' },
+      h('p', { class: 'nota' }, 'Clicca una animazione per metterla al cursore, poi cambia testi, colori e durata dalle proprietà. I fondi e le luci riempiono il quadro: mettili su una traccia sotto.'),
+      ...this.sezioni('animazioni', GRUPPI_ANIM.map((g): [string, string, HTMLElement[]] => ['an:' + g.id, g.nome, this.filtra(animazioniDi(g.id)).map(carta)]))));
+  }
+
   private paginaEffetti() {
     this.percorsoLibreria('effetti');
     if (this.nodo !== 'fx:clip' && this.nodo !== 'fx:audio') this.barra.append(this.impostazioniBlocchi());
@@ -646,6 +670,20 @@ export class Contenitore {
 }
 
 export { fps };
+
+/** l'anteprima ferma di un'animazione: disegnata davvero a metà della sua entrata, su un fondo scuro */
+function anteprimaAnimazione(cv: HTMLCanvasElement, id: string) {
+  const x = cv.getContext('2d')!;
+  const g = x.createLinearGradient(0, 0, 192, 108);
+  g.addColorStop(0, '#1d2a4a'); g.addColorStop(1, '#2a1333');
+  x.fillStyle = g; x.fillRect(0, 0, 192, 108);
+  const a = ANIMAZIONI.find((z) => z.id === id)!;
+  try {
+    const t = Math.min(a.durata * 0.45, 2.6);
+    const tela = disegnaAnimazione(nuovaAnim(id), 768, 432, t, a.durata);
+    x.drawImage(tela as CanvasImageSource, 0, 0, 192, 108);
+  } catch { /* resta il fondo */ }
+}
 
 /** l'anteprima ferma di un titolo: disegnato davvero (come nel monitor), su un fondo scuro, a metà della sua entrata */
 function anteprimaTitolo(id: string): HTMLCanvasElement {

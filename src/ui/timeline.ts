@@ -2104,7 +2104,7 @@ export class Timeline {
       avviso(store.doc.tracks.length > n0 ? `${m.name}: lì era occupato, l'ho messa su una traccia nuova` : `${m.name} nella timeline`, 'ok', 1600);
     } else if (dato.startsWith('g:')) {
       const g = leggiGeneratore(dato);
-      inserisciGeneratore(g.kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined, { titolo: g.titolo, conto: g.conto });
+      inserisciGeneratore(g.kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined, { titolo: g.titolo, conto: g.conto, anim: g.anim });
     } else if (dato.startsWith('x:') || dato.startsWith('t:')) {
       const { tipo, id } = this.specBlocco(dato);
       const g = this.anteprimaBlocco(x, y, dato);

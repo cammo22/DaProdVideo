@@ -251,7 +251,15 @@ export interface TitleSpec {
   peso?: number;
 }
 
+/** un'animazione del catalogo (src/core/animazioni.ts): quale e i valori dei suoi campi (testi, colori, numeri) */
+export interface AnimSpec {
+  id: string;
+  v: Record<string, string | number | boolean>;
+}
+
 export interface GenSpec {
+  /** un'animazione pronta: sottopancia, testo che si muove, grafico, fondo, effetto da cerimonia… (la clip è un titolo) */
+  anim?: AnimSpec;
   color?: string;
   /** colore pieno sfumato: il secondo colore (in basso a destra) */
   color2?: string;

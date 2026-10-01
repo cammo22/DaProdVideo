@@ -3,7 +3,8 @@
 // tutto, esporta). Ogni bordo fra i pannelli si trascina: il banco lo sistemi come vuoi, e se lo ricorda.
 import { store } from '../core/store';
 import { motore } from '../motore';
-import { azioni, esegui, modi } from '../azioni';
+import { azioni, esegui, inserisciGeneratore, modi } from '../azioni';
+import { animazioniDi, GRUPPI_ANIM } from '../core/animazioni';
 import { Timeline } from './timeline';
 import { PannelloMonitor } from './monitor';
 import { Finale } from './finale';
@@ -116,7 +117,11 @@ export function avvia(radice: HTMLElement) {
       voce('modoInserisci', { spunta: modi.inserisci, nome: 'Modo inserisci' }), voce('ripple', { spunta: modi.ripple }), voce('snap', { spunta: modi.snap }), voce('elastico', { spunta: modi.elastico }),
       { sep: true }, voce('tracciaV'), voce('tracciaA'),
     ]],
-    ['Generatori', () => [voce('genBarre'), voce('genCountdown'), voce('genNero'), voce('genColore'), voce('genTitolo')]],
+    ['Generatori', () => [
+      voce('genBarre'), voce('genCountdown'), voce('genNero'), voce('genColore'), voce('genTitolo'), { sep: true },
+      { nome: 'Animazioni', sotto: GRUPPI_ANIM.map((g) => ({ nome: g.nome, sotto: animazioniDi(g.id).map((a) => ({ nome: a.nome, fn: () => { inserisciGeneratore('anim', undefined, undefined, { anim: a.id }); avviso(`${a.nome} al cursore`, 'ok', 1200); } })) })) },
+      voce('genAnimazione'),
+    ]],
     ['Vista', () => [
       { nome: 'Pagina Montaggio', spunta: radice.dataset.pagina !== 'finale', tasto: 'F9', fn: () => pagina('montaggio') },
       { nome: 'Pagina Finale (colore, audio, esporta)', spunta: radice.dataset.pagina === 'finale', tasto: 'F9', fn: () => pagina('finale') },

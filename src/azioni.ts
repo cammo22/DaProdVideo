@@ -11,6 +11,7 @@ import type { Clip, Transition } from './core/tipi';
 import { STILI_CONTO, type StileConto } from './render/grafica';
 import { applicaPresetTitolo, presetTitolo } from './core/generatori';
 import { suonoTitolo } from './core/suoni';
+import { ANIMAZIONI, animazione, nuovaAnim } from './core/animazioni';
 import { durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioniSul } from './core/blocchi';
 
 export interface Azione {
@@ -528,7 +529,7 @@ reg({
 });
 
 // ——— generatori (le macchine della sala) ———
-export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero', f = head(), trackId?: string, opz: { conto?: { stile: StileConto; secondi: number }; titolo?: string } = {}) {
+export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'title' | 'nero' | 'anim', f = head(), trackId?: string, opz: { conto?: { stile: StileConto; secondi: number }; titolo?: string; anim?: string } = {}) {
   const conto = opz.conto ?? { stile: 'pellicola' as StileConto, secondi: 5 };
   const p = store.doc;
   const rr = r();
@@ -549,6 +550,21 @@ export function inserisciGeneratore(kind: 'bars' | 'color' | 'countdown' | 'titl
       const len = Math.round(rr * conto.secondi);
       const nome = STILI_CONTO.find((x) => x.id === conto.stile)?.nome ?? 'Countdown';
       const c = newClip('countdown', tv(len), f, len, { name: `Countdown ${nome} ${conto.secondi}…1`, gen: { conto: conto.stile }, sfx: { suono: 'bip', audio: true, volume: -8 } }); pp.clips.push(c); out.push(c.id);
+    } else if (kind === 'anim') {
+      // un'animazione del catalogo: un titolo con dentro il disegno animato; i fondi (che riempiono il quadro) vanno sulla traccia più in basso
+      const an = animazione(opz.anim ?? 'lt-barra') ?? ANIMAZIONI[0];
+      const len = Math.max(1, Math.round(rr * an.durata));
+      const pref = trackId ?? (an.fondo ? v1 : pp.tracks.find((t) => t.kind === 'video' && !t.lock)?.id ?? null);
+      const n0 = pp.tracks.length;
+      const tid = tv(len, pref);
+      // una traccia nuova nasce in cima: ma un fondo va sotto tutte le altre
+      if (an.fondo && !trackId && pp.tracks.length > n0) {
+        const [nt] = pp.tracks.splice(pp.tracks.findIndex((t) => t.id === tid), 1);
+        const ultimo = pp.tracks.reduce((m, t, k) => (t.kind === 'video' ? k : m), -1);
+        pp.tracks.splice(ultimo + 1, 0, nt);
+      }
+      const c = newClip('title', tid, f, len, { name: an.nome, gen: { anim: nuovaAnim(an.id) } });
+      pp.clips.push(c); out.push(c.id);
     } else if (kind === 'title') {
       const len = Math.round(rr * 5 * (opz.titolo ? presetTitolo(opz.titolo)?.volte ?? 1 : 1));
       // i titoli stanno sopra: si parte dalla traccia video più alta
@@ -571,5 +587,6 @@ reg({ id: 'genNero', nome: 'Nero', gruppo: 'Generatori', fn: () => inserisciGene
 reg({ id: 'genColore', nome: 'Colore pieno', gruppo: 'Generatori', fn: () => inserisciGeneratore('color') });
 reg({ id: 'genCountdown', nome: 'Countdown da pellicola', gruppo: 'Generatori', tasti: ['Ctrl+Alt+C'], fn: () => inserisciGeneratore('countdown') });
 reg({ id: 'genTitolo', nome: 'Titolo', gruppo: 'Generatori', tasti: ['T', 'Ctrl+T'], fn: () => inserisciGeneratore('title') });
+reg({ id: 'genAnimazione', nome: 'Animazione (sottopancia, testo che si muove…)', gruppo: 'Generatori', tasti: ['Ctrl+Alt+A'], fn: () => inserisciGeneratore('anim') });
 
 export { head as cursore };

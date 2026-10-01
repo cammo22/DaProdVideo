@@ -16,6 +16,7 @@ import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, haCentro, 
 import { SUONI } from '../core/suoni';
 import { ascoltaSuono } from '../media/audio';
 import { bolla, MOVIMENTI, movimentoPronto, presentazione, SFONDI } from '../core/cornici';
+import { ANIMAZIONI as CATALOGO_ANIM, GRUPPI_ANIM, animazione, nuovaAnim, valoriDi, type CampoAnim } from '../core/animazioni';
 import { CHIAVI, coloriChiave, QUALITA_RITAGLIO, SPILL0 } from '../core/sfondo';
 import { modelliPer, modelloRitaglio, maschereAggiornate } from '../media/ritaglio';
 import { azzeraPunti, elaboraClip, fermaClip, impostaModo, lavoroDi, modiPossibili, modoSfondo, NOMI_MODO, provaOggetto, scegliColore, scegliOggetto, statoMaschere, togliColoreExtra, togliPunto, trovaColore } from './sfondo';
@@ -38,7 +39,7 @@ export class Ispettore {
   private corpo: HTMLElement;
   private campi: Campo[] = [];
   private firma = '';
-  private aperti = new Set<string>(['fxv', 'fxa', 'immagine', 'titolo', 'audio', 'generatore', 'trin', 'durata', 'sfondo']);
+  private aperti = new Set<string>(['fxv', 'fxa', 'immagine', 'titolo', 'audio', 'generatore', 'trin', 'durata', 'sfondo', 'animazione']);
 
   constructor() {
     this.corpo = h('div', { class: 'isp-corpo' });
@@ -59,7 +60,7 @@ export class Ispettore {
   private costruisci() {
     const cs = this.sel();
     // si ricostruisce se cambia la scelta o se cambiano i blocchi FX (le transizioni della clip scelta)
-    const firma = cs.map((c) => c.id + c.kind + (c.fxb ? c.fxb.id : '') + ':' + c.fx.key + (c.fx.keyColori?.length ?? 0) + (c.ritaglio ? c.ritaglio.modo + (c.ritaglio.punti?.length ?? 0) + (maschereAggiornate(c) ? 'ok' : 'no') : ''))
+    const firma = cs.map((c) => c.id + c.kind + (c.fxb ? c.fxb.id : '') + ':' + c.fx.key + (c.fx.keyColori?.length ?? 0) + (c.gen?.anim?.id ?? '') + (c.ritaglio ? c.ritaglio.modo + (c.ritaglio.punti?.length ?? 0) + (maschereAggiornate(c) ? 'ok' : 'no') : ''))
       .join(',') + '|' + store.doc.clips.filter((c) => c.kind === 'fx').map((c) => c.id + c.start + ':' + c.len + (c.fxb?.id ?? '')).join(',');
     if (firma === this.firma && this.campi.length) { for (const c of this.campi) c.aggiorna(); return; }
     this.firma = firma;
@@ -87,7 +88,7 @@ export class Ispettore {
     const m = mediaOf(p, primo);
     const out: HTMLElement[] = [];
     // ——— il riassunto: cos'è, dove sta, da dove viene
-    const tipo = primo.kind === 'title' ? 'Titolo' : primo.kind === 'media' ? (m?.type === 'image' ? 'Immagine' : isVideoClip(primo) ? 'Video' : 'Audio') : 'Generatore';
+    const tipo = primo.kind === 'title' ? (primo.gen?.anim ? 'Animazione' : 'Titolo') : primo.kind === 'media' ? (m?.type === 'image' ? 'Immagine' : isVideoClip(primo) ? 'Video' : 'Audio') : 'Generatore';
     const legate = primo.link ? p.clips.filter((c) => c.link === primo.link).length - 1 : 0;
     out.push(h('div', { class: 'isp-testa' },
       h('input', {
@@ -179,7 +180,9 @@ export class Ispettore {
       }
       out.push(this.gruppo('generatore', 'Generatore', righe));
     }
-    const titoli = cs.filter((c) => c.kind === 'title');
+    const animati = cs.filter((c) => c.kind === 'title' && c.gen?.anim);
+    const titoli = cs.filter((c) => c.kind === 'title' && !c.gen?.anim);
+    if (animati.length) out.push(this.animatrice(animati));
     if (titoli.length) out.push(this.titolatrice(titoli));
     // il suono dentro titoli, countdown e colori: niente clip audio a parte, sta tutto su una riga
     const sonore = cs.filter((c) => c.kind === 'title' || c.kind === 'countdown' || c.kind === 'color');
@@ -207,6 +210,53 @@ export class Ispettore {
       ], true));
     }
     this.corpo.replaceChildren(...out);
+  }
+
+  /** le animazioni del catalogo: quale, e tutti i campi che ha (testi, colori, numeri), con i loro valori */
+  private animatrice(an: Clip[]): HTMLElement {
+    const a0 = an[0].gen!.anim!;
+    const def = animazione(a0.id);
+    const righe: (HTMLElement | null)[] = [];
+    righe.push(this.scelta('Animazione', GRUPPI_ANIM.flatMap((g) => CATALOGO_ANIM.filter((a) => a.gruppo === g.id).map((a) => [a.id, `${g.nome} · ${a.nome}`] as [string, string])),
+      (c) => c.gen?.anim?.id ?? '', (c, v) => {
+        if (!c.gen?.anim || c.gen.anim.id === v) return;
+        // si cambia animazione tenendo i testi (nome, ruolo, titolo…) e dove sta e quanto è grande: i colori e il carattere sono quelli pensati per la nuova
+        const vecchi = valoriDi(c.gen.anim);
+        const nuova = nuovaAnim(v);
+        const nuovoDef = animazione(v);
+        for (const k of nuovoDef?.campi ?? []) {
+          if ((k.tipo === 'testo' || k.tipo === 'lungo' || k.id === 'pos' || k.id === 'dim') && k.id in vecchi && typeof vecchi[k.id] === typeof k.def) nuova.v[k.id] = vecchi[k.id];
+        }
+        c.gen.anim = nuova;
+        c.name = animazione(v)?.nome ?? c.name;
+      }, an));
+    if (def) righe.push(h('p', { class: 'nota' }, def.info + '.' + (def.fondo ? ' Riempie tutto il quadro: mettila su una traccia sotto le altre.' : '')));
+    const v0 = () => valoriDi(store.doc.clips.find((c) => c.id === an[0].id)?.gen?.anim ?? a0);
+    const metti = (id: string, valore: string | number | boolean) => store.edit('Animazione: ' + id, (pp) => { for (const x of an) { const z = pp.clips.find((c) => c.id === x.id); if (z?.gen?.anim) z.gen.anim.v[id] = valore; } });
+    const valoreDi = (c: Clip, k: CampoAnim) => (c.gen?.anim?.v[k.id] ?? k.def);
+    for (const k of def?.campi ?? []) {
+      if (k.tipo === 'testo' || k.tipo === 'lungo') {
+        const campo = (k.tipo === 'lungo' ? h('textarea', { class: 'campo-testo', rows: 4 }) : h('input', { class: 'campo-testo', type: 'text' })) as HTMLInputElement | HTMLTextAreaElement;
+        campo.value = String(v0()[k.id] ?? '');
+        let timer = 0;
+        campo.addEventListener('input', () => { clearTimeout(timer); timer = window.setTimeout(() => metti(k.id, campo.value), 250); });
+        this.campi.push({ el: campo, aggiorna: () => { if (document.activeElement !== campo) campo.value = String(v0()[k.id] ?? ''); } });
+        righe.push(h('label', { class: 'etichetta' }, k.nome), campo);
+      } else if (k.tipo === 'numero') {
+        const min = k.min ?? 0, max = k.max ?? 100, step = k.step ?? 1;
+        if (max - min > 1000) {
+          const n = h('input', { type: 'number', class: 'num largo', min, max, step }) as HTMLInputElement;
+          n.value = String(v0()[k.id] ?? k.def);
+          n.addEventListener('change', () => metti(k.id, Math.max(min, Math.min(max, Number(n.value) || 0))));
+          this.campi.push({ el: n, aggiorna: () => { if (document.activeElement !== n) n.value = String(v0()[k.id] ?? k.def); } });
+          righe.push(h('div', { class: 'isp-riga' }, h('label', null, k.nome), n));
+        } else righe.push(this.cursore(k.nome, min, max, step, (c) => Number(valoreDi(c, k)), (c, v) => { if (c.gen?.anim) c.gen.anim.v[k.id] = v; }, '', an));
+      } else if (k.tipo === 'colore') righe.push(this.colore(k.nome, (c) => String(valoreDi(c, k)), (c, v) => { if (c.gen?.anim) c.gen.anim.v[k.id] = v; }, an));
+      else if (k.tipo === 'scelta') righe.push(this.scelta(k.nome, k.scelte ?? [], (c) => String(valoreDi(c, k)), (c, v) => { if (c.gen?.anim) c.gen.anim.v[k.id] = v; }, an));
+      else righe.push(this.spunta(k.nome, (c) => !!valoreDi(c, k), (c, v) => { if (c.gen?.anim) c.gen.anim.v[k.id] = v; }, an));
+    }
+    righe.push(h('p', { class: 'nota' }, 'Entra all\'inizio e nell\'ultimo mezzo secondo esce: allunga o accorcia la clip dalla timeline e l\'animazione si adatta. Sull\'immagine del monitor si sposta e si ingrandisce come ogni clip.'));
+    return this.gruppo('animazione', 'Animazione', righe);
   }
 
   /** "Togli lo sfondo": il colore (green screen), la luce, o l'AI che lo toglie da sola (persona, soggetto, oggetti coi clic) */
