@@ -1312,7 +1312,7 @@ try {
         chiamate: window.__voceChiamate, traccia: tr.kind, start: c.start, len: c.len, tipo: m.type, durata: m.duration, nClip: cs.length, starts: cs.map((x) => x.start),
         collegate: righe.every((x) => cs.some((k) => k.id === x.voce)), nomi: cs.map((k) => k.name),
         mute: d.tracks.filter((t) => t.mute).map((t) => t.name), gain: d.clips.filter((x) => x.gain <= -40).length,
-        fine: document.querySelector('.fin-pagina[data-s=lingue] .ai-tempo').textContent,
+        fine: [...document.querySelectorAll('.fin-pagina[data-s=lingue] .ai-tempo')].pop().textContent,
       };
     });
     prova('la voce AI: due frasi, lingua italiana, la voce numero 1 (Sofia)', dopo.chiamate.join() === 'modello:tts,sintetizza:2:it:1', dopo.chiamate.join());
