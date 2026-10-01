@@ -8,6 +8,7 @@ import { ALTEZZA, MASTER0, newProject } from './core/progetto';
 import { migraBlocchi } from './core/blocchi';
 import { apri as apriMedia, chiudi as chiudiMedia, importa, mediaRT } from './media/libreria';
 import { dimenticaMedia } from './media/fotogrammi';
+import { converti, esamina, normalizzaAttivo } from './media/normalizza';
 import { dialogoApri, ESTENSIONI_DI, invoke, isTauri, nomeDaPercorso, salvaTesto, scegliFileBrowser, scegliMedia, type FileScelto, type TipoMedia } from './platform';
 import { leggiPacchetto, pianoPacchetto, scriviPacchetto, type Sorgente } from './pacchetto';
 import { avviso, conferma, dialogo, h } from './ui/dom';
@@ -54,14 +55,28 @@ export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[
   let i = 0;
   for (const f of lista) {
     barra.testo(`Importo ${++i}/${lista.length}: ${f.name}`);
-    const r = await importa(f);
+    // frame rate o bitrate variabili: il file si rifà a velocità costante (se no in montaggio audio e video slittano)
+    let sel: FileScelto & { maniglia?: Maniglia } = f;
+    if (normalizzaAttivo() && !/\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name)) {
+      try {
+        const v = await esamina(f);
+        if (v) {
+          const nome = f.name;
+          barra.testo(`Converto ${nome}: ${v.motivo}…`);
+          const conv = await converti(f, v, (k) => barra.testo(`Converto ${nome} (${v.motivo}): ${Math.round(k * 100)}%`));
+          sel = conv;
+          avviso(`🔧 ${nome}: ${v.motivo} (l'originale non è stato toccato)`, 'info', 3600);
+        }
+      } catch { sel = f; /* se la conversione non riesce si importa il file com'è */ }
+    }
+    const r = await importa(sel);
     if ('errore' in r) { errori.push(`${r.nome}: ${r.errore}`); continue; }
     if (opzioni.cartella) r.item.cartella = opzioni.cartella;
     nuovi.push(r.item);
-    if (f.maniglia) void idb('maniglie', 'put', r.item.id, f.maniglia);
+    if (f.maniglia && sel === f) void idb('maniglie', 'put', r.item.id, f.maniglia);
     // nel browser, senza "maniglia" (Firefox, Safari, file trascinati, istantanee) i file piccoli si tengono
     // dentro il browser: così il progetto li ritrova alla prossima apertura senza ricollegarli
-    else if (!isTauri && f.file && f.file.size <= FILE_LOCALE_MAX) void idb('file', 'put', r.item.id, f.file);
+    else if (!isTauri && sel.file && sel.file.size <= FILE_LOCALE_MAX) void idb('file', 'put', r.item.id, sel.file);
   }
   barra.chiudi();
   if (nuovi.length) {
@@ -126,6 +141,67 @@ export async function importaDaDrop(dt: DataTransfer, cartella?: string) {
   return importaFile(lista, { cartella });
 }
 
+// ——— i progetti recenti (la pagina iniziale) ———
+export interface Recente { chiave: string; nome: string; path?: string; data: number; clip: number; durata: number; formato: string; miniatura?: string }
+const RECENTI_MAX = 12;
+
+export function recenti(): Recente[] {
+  try { const l = JSON.parse(localStorage.getItem('dpv-recenti') ?? '[]') as Recente[]; return Array.isArray(l) ? l : []; } catch { return []; }
+}
+function scriviRecenti(l: Recente[]) { try { localStorage.setItem('dpv-recenti', JSON.stringify(l.slice(0, RECENTI_MAX))); } catch { /* spazio pieno: pazienza */ } }
+
+export function dimenticaRecente(chiave: string) {
+  scriviRecenti(recenti().filter((x) => x.chiave !== chiave));
+  void idb('kv', 'delete', 'rec:' + chiave).catch(() => {});
+}
+
+/** una miniatura piccola dal primo video o dalla prima immagine del montaggio */
+function miniaturaDi(p: Project): string | undefined {
+  try {
+    const clip = p.clips.filter((c) => c.kind === 'media' && c.media).sort((a, b) => a.start - b.start).find((c) => { const rt = mediaRT(c.media!); return !!rt?.poster; });
+    const src = clip ? (mediaRT(clip.media!)?.poster as (CanvasImageSource & { width: number; height: number }) | undefined) : undefined;
+    if (!src || !src.width) return undefined;
+    const cv = document.createElement('canvas');
+    cv.width = 192; cv.height = 108;
+    const x = cv.getContext('2d')!;
+    x.fillStyle = '#111'; x.fillRect(0, 0, 192, 108);
+    const k = Math.min(192 / src.width, 108 / src.height);
+    x.drawImage(src, (192 - src.width * k) / 2, (108 - src.height * k) / 2, src.width * k, src.height * k);
+    return cv.toDataURL('image/jpeg', 0.7);
+  } catch { return undefined; }
+}
+
+/** ricorda un progetto salvato o aperto: in cima all'elenco. Nel browser tiene anche una copia (per riaprirlo dalla pagina iniziale). */
+export function registraRecente(p: Project, path?: string, testo?: string) {
+  const chiave = path ?? 'b:' + (p.name || 'montaggio');
+  const r = fps0(p);
+  const voce: Recente = {
+    chiave, nome: p.name || 'Montaggio senza nome', path, data: Date.now(), clip: p.clips.filter((c) => c.kind !== 'fx').length,
+    durata: Math.max(0, ...p.clips.map((c) => c.start + c.len)) / r, formato: `${p.w}×${p.h} · ${Math.round(r * 100) / 100} fps`, miniatura: miniaturaDi(p),
+  };
+  scriviRecenti([voce, ...recenti().filter((x) => x.chiave !== chiave)]);
+  if (!isTauri && testo) void idb('kv', 'put', 'rec:' + chiave, testo).catch(() => {});
+}
+const fps0 = (p: Project) => p.rate.num / p.rate.den;
+
+/** apre un progetto della lista: dal percorso (app) o dalla copia tenuta nel browser */
+export async function apriRecente(r: Recente): Promise<boolean> {
+  if (store.dirty && store.doc.clips.length && !(await conferma('Apri progetto', 'Il montaggio attuale ha modifiche non salvate. Aprire un altro progetto?', 'Apri', 'Annulla'))) return false;
+  if (r.path && isTauri) {
+    try { await invoke<string>('progetto_leggi', { path: r.path }); } catch { avviso('Questo progetto non c\'è più dove l\'avevi salvato', 'errore', 4000); dimenticaRecente(r.chiave); return false; }
+    await apriFile({ path: r.path });
+    return true;
+  }
+  const testo = await idb<string>('kv', 'get', 'rec:' + r.chiave);
+  let p: Project | null = null;
+  try { p = testo ? valida(JSON.parse(testo)) : null; } catch { p = null; }
+  if (!p) { avviso('Di questo progetto non ho più la copia: aprilo dal file (Apri progetto…)', 'info', 4500); return false; }
+  percorsoProgetto = null;
+  await carica(p);
+  avviso(`📂 ${p.name}`, 'ok');
+  return true;
+}
+
 // ——— salvataggio ———
 function serializza(): string {
   const p = store.doc;
@@ -140,6 +216,7 @@ export async function salva(come = false) {
   if (!r) return;
   if (isTauri) percorsoProgetto = r;
   store.dirty = false;
+  registraRecente(store.doc, isTauri ? r : undefined, isTauri ? undefined : serializza());
   avviso(`💾 Salvato: ${nomeDaPercorso(r)}`, 'ok');
   store.emit('status');
 }
@@ -194,6 +271,7 @@ export async function apriFile(s: Sorgente) {
   if (!p) { avviso('Questo file non è un progetto DaProd Video', 'errore'); return; }
   percorsoProgetto = s.path ?? null;
   await carica(p);
+  registraRecente(p, s.path, s.path ? undefined : JSON.stringify(p));
   avviso(`📂 ${p.name}`, 'ok');
 }
 

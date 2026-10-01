@@ -96,12 +96,17 @@ export class Contenitore {
   private scorre: { m: MediaItem; cv: HTMLCanvasElement; t: number; linea: HTMLElement } | null = null;
   private carteEffetti: { el: HTMLElement; e: Effetto }[] = [];
 
+  /** i file scelti nel contenitore (Ctrl+clic ne aggiunge, Maiusc+clic prende un tratto) */
+  private scelti = new Set<string>();
+  private ultimoScelto: string | null = null;
+
   constructor() {
     const cerca = h('input', { class: 'bin-cerca', type: 'search', placeholder: 'Cerca…' }) as HTMLInputElement;
     cerca.addEventListener('input', () => { this.filtro = cerca.value.toLowerCase(); this.firma = ''; this.disegnaDestra(); });
     this.albero = h('nav', { class: 'bin-albero' });
     this.barra = h('div', { class: 'bin-barra' });
     this.corpo = h('div', { class: 'bin-pagina' });
+    this.corpo.addEventListener('click', (e) => { if (e.target === this.corpo || (e.target as HTMLElement).classList.contains('bin-griglia')) { this.scelti.clear(); this.ultimoScelto = null; this.mostraScelti(); } });
     const grand = h('button', {
       class: 'btn-icona piccolo', title: 'Schede piccole, medie o grandi',
       on: { click: () => { const i = GRANDEZZE.findIndex((g) => g.id === this.grandezza); this.grandezza = GRANDEZZE[(i + 1) % GRANDEZZE.length].id; scrivi('dpv-bin-grandezza', this.grandezza); this.applicaGrandezza(); } },
@@ -132,7 +137,7 @@ export class Contenitore {
         const v = this.voceSotto(x, y);
         if (!v || !dato.startsWith('m:')) return;
         const n = v.dataset.c!;
-        this.sposta(dato.slice(2), n.startsWith('dir:') ? n.slice(4) : undefined);
+        for (const id of dato.slice(2).split('|')) this.sposta(id, n.startsWith('dir:') ? n.slice(4) : undefined);
       },
       esci: () => this.albero.querySelectorAll('.sopra').forEach((e) => e.classList.remove('sopra')),
     });
@@ -464,13 +469,20 @@ export class Contenitore {
     }
     const apri = () => { motore.caricaPlayer(m.id); motore.setMonitor('player'); };
     const el = h('div', {
-      class: 'carta' + (ok ? '' : ' offline'), 'data-id': m.id, title: `${m.name}\n${m.container} · ${m.vcodec || ''} ${m.acodec || ''}\nDoppio clic: apri nel monitor · trascina: nella timeline o in una cartella · +: al cursore`,
+      class: 'carta' + (ok ? '' : ' offline') + (usi ? ' in-timeline' : '') + (this.scelti.has(m.id) ? ' scelta' : ''), 'data-id': m.id, title: `${m.name}\n${m.container} · ${m.vcodec || ''} ${m.acodec || ''}\nDoppio clic: apri nel monitor · trascina: nella timeline o in una cartella · +: al cursore`,
       on: {
         dblclick: apri,
-        click: () => { if (matchMedia('(pointer: coarse)').matches) apri(); },
+        click: (e: MouseEvent) => { if (matchMedia('(pointer: coarse)').matches) apri(); else this.cliccaCarta(m.id, e); },
         contextmenu: (e: MouseEvent) => {
           e.preventDefault();
+          if (!this.scelti.has(m.id)) { this.scelti = new Set([m.id]); this.ultimoScelto = m.id; this.mostraScelti(); }
           menuContesto(e.clientX, e.clientY, [
+            ...(this.scelti.size > 1 ? [
+              { nome: `Metti i ${this.scelti.size} file scelti in coda al cursore`, fn: () => { motore.setMonitor('recorder'); for (const id of this.sceltiInOrdine()) { const mm = store.doc.media.find((z) => z.id === id); if (mm) mettiAlCursore(mm); } } },
+              { nome: 'Sposta i file scelti in una cartella', sotto: this.menuCartelleMolti() },
+              { nome: 'Togli i file scelti dal contenitore', fn: () => { for (const id of this.sceltiInOrdine()) togliMedia(id); this.scelti.clear(); } },
+              { sep: true },
+            ] as VoceMenu[] : []),
             { nome: 'Apri nel monitor (attacco e stacco)', fn: apri },
             { nome: 'Metti al cursore', fn: () => mettiAlCursore(m) },
             { nome: 'Metti in coda al montaggio', fn: () => { motore.setMonitor('recorder'); store.setHead(projectEnd(store.doc)); mettiAlCursore(m); } },
@@ -489,8 +501,54 @@ export class Contenitore {
       h('div', { class: 'carta-info' }, ok
         ? (m.type === 'audio' ? `${m.acodec.toUpperCase()} · ${m.sampleRate / 1000} kHz` : `${m.width}×${m.height}${m.fps ? ' · ' + Math.round(m.fps * 100) / 100 + ' fps' : ''}${m.hasAudio && m.type === 'video' ? ' · audio' : ''}`)
         : (rt?.stato === 'caricamento' ? 'apro…' : 'OFFLINE · da ricollegare')));
-    trascinabile(el, () => 'm:' + m.id, () => (m.type === 'audio' ? '🎵 ' : m.type === 'image' ? '🖼 ' : '🎞 ') + m.name);
+    // trascinando un file scelto si portano dietro tutti i file scelti; trascinandone uno non scelto, resta solo quello
+    trascinabile(el, () => this.datoTrascina(m.id), () => (this.scelti.size > 1 && this.scelti.has(m.id) ? `🎞 ${this.scelti.size} file` : (m.type === 'audio' ? '🎵 ' : m.type === 'image' ? '🖼 ' : '🎞 ') + m.name));
     return el;
+  }
+
+  /** i file scelti, nell'ordine in cui si vedono */
+  private sceltiInOrdine(): string[] {
+    const visti = [...this.corpo.querySelectorAll<HTMLElement>('.carta[data-id]')].map((e) => e.dataset.id!);
+    const dentro = visti.filter((id) => this.scelti.has(id));
+    const fuori = [...this.scelti].filter((id) => !visti.includes(id) && store.doc.media.some((m) => m.id === id));
+    return [...dentro, ...fuori];
+  }
+
+  private datoTrascina(id: string): string {
+    if (!this.scelti.has(id)) { this.scelti = new Set([id]); this.ultimoScelto = id; this.mostraScelti(); }
+    return 'm:' + this.sceltiInOrdine().join('|');
+  }
+
+  private cliccaCarta(id: string, e: MouseEvent) {
+    const visti = [...this.corpo.querySelectorAll<HTMLElement>('.carta[data-id]')].map((x) => x.dataset.id!);
+    if (e.shiftKey && this.ultimoScelto && visti.includes(this.ultimoScelto)) {
+      const a = visti.indexOf(this.ultimoScelto), b = visti.indexOf(id);
+      const tratto = visti.slice(Math.min(a, b), Math.max(a, b) + 1);
+      this.scelti = e.ctrlKey || e.metaKey ? new Set([...this.scelti, ...tratto]) : new Set(tratto);
+    } else if (e.ctrlKey || e.metaKey) {
+      if (this.scelti.has(id)) this.scelti.delete(id); else this.scelti.add(id);
+      this.ultimoScelto = id;
+    } else {
+      this.scelti = new Set([id]);
+      this.ultimoScelto = id;
+    }
+    this.mostraScelti();
+  }
+
+  /** mette (o toglie) il bordo dei file scelti, senza ridisegnare tutta la griglia */
+  private mostraScelti() {
+    for (const e of this.corpo.querySelectorAll<HTMLElement>('.carta[data-id]')) e.classList.toggle('scelta', this.scelti.has(e.dataset.id!));
+    this.barra.querySelector('.bin-scelti')?.remove();
+    if (this.scelti.size > 1) this.barra.append(h('span', { class: 'bin-scelti', title: 'Trascinali nella timeline: vanno uno dopo l\'altro' }, `${this.scelti.size} scelti`));
+  }
+
+  private menuCartelleMolti(): VoceMenu[] {
+    const voci: VoceMenu[] = [{ nome: 'Fuori dalle cartelle', fn: () => { for (const id of this.sceltiInOrdine()) this.sposta(id, undefined); } }];
+    const scendi = (padre: string | undefined, rientro: string) => {
+      for (const c of figlieDi(padre)) { voci.push({ nome: rientro + '📁 ' + c.nome, fn: () => { for (const id of this.sceltiInOrdine()) this.sposta(id, c.id); } }); scendi(c.id, rientro + '   '); }
+    };
+    scendi(undefined, '');
+    return voci;
   }
 
   // ——— la libreria: schede piccole, solo il nome; al passaggio del mouse il provino vero ———

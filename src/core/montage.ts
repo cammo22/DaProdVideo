@@ -51,6 +51,8 @@ export interface OpzMontage {
   musica?: { media: string; durata: number; battiti?: number[]; nome?: string };
   /** scarta foto sfocate e doppie quando sono troppe */
   scarta: boolean;
+  /** foto e video di un formato diverso dal progetto: "intero" (scheda con ombra su uno sfondo sfumato) o "riempi" (a tutto quadro, taglia i bordi) */
+  adatta?: 'intero' | 'riempi';
 }
 
 /** una cosa sulla linea principale: quale file, quando comincia, quanto dura, da dove si prende (video) e come si muove */
@@ -327,11 +329,11 @@ export const fmtDur = (s: number) => { const m = Math.floor(s / 60), r = Math.ro
 
 // ——— Ken Burns ———
 /** dove sta e quanto è grande la foto: a tutto quadro se ha quasi le stesse proporzioni, se no intera, un po' più piccola, con l'ombra */
-export function inquadra(p: Pick<Project, 'w' | 'h'>, m: Pick<MediaItem, 'width' | 'height' | 'rotation'>): { scala: number; scheda: boolean } {
+export function inquadra(p: Pick<Project, 'w' | 'h'>, m: Pick<MediaItem, 'width' | 'height' | 'rotation'>, riempi = false): { scala: number; scheda: boolean } {
   const w = m.rotation % 180 ? m.height : m.width, h = m.rotation % 180 ? m.width : m.height;
   if (!w || !h) return { scala: 1, scheda: false };
   const ra = (w / h) / (p.w / p.h);
-  if (ra >= 0.8 && ra <= 1.25) {
+  if (riempi || (ra >= 0.8 && ra <= 1.25)) {
     const kf = Math.min(p.w / w, p.h / h), kc = Math.max(p.w / w, p.h / h);
     return { scala: kc / kf, scheda: false };
   }
@@ -339,8 +341,8 @@ export function inquadra(p: Pick<Project, 'w' | 'h'>, m: Pick<MediaItem, 'width'
 }
 
 /** partenza e arrivo del movimento; tfFine è undefined per "fermo" */
-export function moto(p: Pick<Project, 'w' | 'h'>, m: Pick<MediaItem, 'width' | 'height' | 'rotation'>, id: Moto, forza: number, indice = 0): { tf: Transform; tfFine?: Transform } {
-  const { scala, scheda } = inquadra(p, m);
+export function moto(p: Pick<Project, 'w' | 'h'>, m: Pick<MediaItem, 'width' | 'height' | 'rotation'>, id: Moto, forza: number, indice = 0, riempi = false): { tf: Transform; tfFine?: Transform } {
+  const { scala, scheda } = inquadra(p, m, riempi);
   const base: Transform = { ...TF0, scale: scala };
   if (scheda) { base.ombra = 0.75; base.angoli = 0.035; }
   if (id === 'fermo') return { tf: base };
@@ -404,7 +406,7 @@ export function costruisciSequenza(p: Project, piano: PianoMontage, o: OpzMontag
   piano.voci.forEach((v, i) => {
     const m = mediaDi(v.entrata.media);
     const len = durF[i];
-    const mt = m ? moto(p, m, v.moto, pr.forzaMoto * v.forza, v.verso) : { tf: { ...TF0 } };
+    const mt = m ? moto(p, m, v.moto, pr.forzaMoto * v.forza, v.verso, o.adatta === 'riempi') : { tf: { ...TF0 } };
     const link = v.entrata.tipo === 'video' && v.entrata.audio && o.audioVideo > -50 ? uid('l') : undefined;
     const c = newClip('media', tFoto.id, a, len, { media: v.entrata.media, name: v.entrata.nome, srcIn: v.srcIn, tf: mt.tf, tfFine: mt.tfFine, link, fx: { ...FX0, effetti: pr.look.length ? [...pr.look] : undefined } });
     if (i === 0) c.fadeIn = Math.min(Math.round(r * 0.8), Math.floor(len / 2));

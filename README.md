@@ -34,6 +34,7 @@ ed elimini. Gira su **Windows, Mac e Android** e, in versione prova, **nel brows
 
 ## ▶ Come si monta
 
+0. All'apertura trovi la **pagina iniziale**: i progetti recenti (con la miniatura), Nuovo, Apri e DaProdMontage. Torni quando vuoi dal tasto **Progetti** in alto.
 1. **Importa** i video (pulsante *Importa*, `Ctrl+I`, o trascinali nel contenitore). Il primo video decide il formato del progetto. Nel contenitore a sinistra c'è l'albero: **Video, Musica, Immagini** e **le tue cartelle** (*Nuova cartella*, trascina i file dentro); importando da una cartella il file entra lì, da Musica la finestra mostra solo gli audio.
 2. Nel **contenitore** passa il mouse su un video: scorre avanti e indietro col puntatore. **Trascinalo** nella timeline, o premi **+** per metterlo al cursore (e il cursore va alla fine: +, +, + e hai la scaletta). Se lì è occupato va su una traccia libera: **niente viene coperto**.
 3. Vuoi scegliere il pezzo? **Doppio clic**: si apre nel monitor come **sorgente**. Segna **attacco** (`I`) e **stacco** (`O`) e premi **`,`** (inserisci) o **`.`** (sovrascrivi). **Tab** torna al montaggio.

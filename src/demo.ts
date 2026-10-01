@@ -95,7 +95,7 @@ async function melodia(note: number[]): Promise<AudioBuffer> {
 }
 
 /** crea un file video di prova (MP4 se il sistema codifica H.264/AAC, altrimenti WebM) */
-async function creaClip(sc: typeof scene[number], o: { dur?: number; gop?: number } = {}): Promise<File> {
+async function creaClip(sc: typeof scene[number], o: { dur?: number; gop?: number; vfr?: boolean } = {}): Promise<File> {
   const DUR = o.dur ?? DUR0;
   const v = await getFirstEncodableVideoCodec(['avc', 'vp9', 'vp8', 'av1'], { width: W, height: H });
   if (!v) throw new Error('nessun codificatore video');
@@ -110,9 +110,21 @@ async function creaClip(sc: typeof scene[number], o: { dur?: number; gop?: numbe
   if (a) { as = new AudioBufferSource({ codec: a, bitrate: new Quality('medium') }); out.addAudioTrack(as); }
   await out.start();
   if (as) for (let t = 0; t < DUR; t += DUR0) await as.add(await melodia(sc.nota));
-  for (let i = 0; i < DUR * FPS; i++) {
-    sc.disegna(ctx, i / FPS);
-    await vs.add(i / FPS, 1 / FPS);
+  if (o.vfr) {
+    // frame rate variabile (come i telefoni): i fotogrammi arrivano a distanze diverse, da 1 a 4 passi
+    const passi = [1, 1, 3, 1, 2, 1, 4, 1, 1, 2];
+    let k = 0;
+    for (let t = 0; t < DUR * FPS; k++) {
+      const p = passi[k % passi.length];
+      sc.disegna(ctx, t / FPS);
+      await vs.add(t / FPS, p / FPS);
+      t += p;
+    }
+  } else {
+    for (let i = 0; i < DUR * FPS; i++) {
+      sc.disegna(ctx, i / FPS);
+      await vs.add(i / FPS, 1 / FPS);
+    }
   }
   await out.finalize();
   const nome = mp4 ? sc.nome : sc.nome.replace('.mp4', '.webm');
@@ -120,6 +132,33 @@ async function creaClip(sc: typeof scene[number], o: { dur?: number; gop?: numbe
 }
 
 /** una ripresa lunga con i fotogrammi chiave radi (come i video dei telefoni e dei generatori): per le prove */
+/** una ripresa a frame rate variabile (VFR), come quelle dei telefoni: per le prove */
+export const ripresaVfrDiProva = (dur: number) => creaClip({ ...scene[2], nome: `Telefono ${dur}s.mp4` }, { dur, gop: 25, vfr: true });
+
+/** un brano a bitrate variabile (Opus VBR, con pause: i pacchetti cambiano molto di grandezza): per le prove */
+export async function branoVbrDiProva(dur: number): Promise<File> {
+  const out = new Output({ format: new WebMOutputFormat(), target: new BufferTarget() });
+  const as = new AudioBufferSource({ codec: 'opus', bitrate: new Quality({ quality: 'high', preferBitrate: true, bitrateMode: 'variable' }) });
+  out.addAudioTrack(as);
+  await out.start();
+  const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.round(48000 * dur), sampleRate: 48000 });
+  const g = ctx.createGain();
+  g.connect(ctx.destination);
+  // note piene e pause: Opus a bitrate variabile usa pochissimi byte per le pause e tanti per le note
+  for (let i = 0; i < dur * 2; i++) {
+    if (i % 3 === 2) continue;
+    const o = ctx.createOscillator(), e = ctx.createGain();
+    o.type = i % 2 ? 'sawtooth' : 'triangle';
+    o.frequency.value = 180 + (i % 5) * 90;
+    e.gain.setValueAtTime(0, i * 0.5); e.gain.linearRampToValueAtTime(0.5, i * 0.5 + 0.02); e.gain.linearRampToValueAtTime(0, i * 0.5 + 0.45);
+    o.connect(e).connect(g);
+    o.start(i * 0.5); o.stop(i * 0.5 + 0.5);
+  }
+  await as.add(await ctx.startRendering());
+  await out.finalize();
+  return new File([(out.target as BufferTarget).buffer!], `Brano VBR ${dur}s.webm`, { type: 'audio/webm', lastModified: Date.now() });
+}
+
 export const ripresaDiProva = (dur: number, gop: number) => creaClip({ ...scene[2], nome: `Lunga ${dur}s.mp4` }, { dur, gop });
 
 export async function montaggioDimostrativo() {

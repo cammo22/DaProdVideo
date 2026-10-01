@@ -8,7 +8,8 @@ import * as M from '../core/montaggio';
 import { nuovoBlocco, posaBlocco } from '../core/blocchi';
 import { LINGUE, SOTTO0, bordoRiga, creaSrt, dividiRiga, leggiSrt, righeDaiDialoghi, sottotitoliDi, unisciRighe } from '../core/sottotitoli';
 import { MODELLI, fermaVoce, sottotitoliAI, type OpzioniVoce } from '../media/voce';
-import { LINGUE_MOTORE, LINGUE_VOCE, VOCI_MAGPIE, motoreNemo } from '../media/nemo';
+import { LINGUE_MOTORE, LINGUE_PARLATE, LINGUE_VOCE, VOCI_MAGPIE, motoreNemo } from '../media/nemo';
+import { LINGUE_TRADUZIONE, fermaTraduzione, sappiamoTradurre, traduciTesti } from '../media/traduci';
 import { doppia, linguaVoce, posaVoce } from '../media/doppiaggio';
 import { codificaWav } from '../media/wav';
 import { salvaMediaSulDisco, salvaTesto } from '../platform';
@@ -54,7 +55,7 @@ const SEZIONI: { id: Sezione; nome: string; icona: string; info: string }[] = [
   { id: 'sottotitoli', nome: 'Sottotitoli', icona: 'sottotitoli', info: 'righe, tempi dai dialoghi, .srt' },
   { id: 'logo', nome: 'Logo', icona: 'logo', info: 'il logo sempre in vista' },
   { id: 'apertura', nome: 'Apertura', icona: 'apertura', info: 'clip, titoli e nero all\'inizio e alla fine' },
-  { id: 'lingue', nome: 'Lingue e AI', icona: 'lingua', info: 'sottotitoli scritti dall\'AI, traduzione in inglese' },
+  { id: 'lingue', nome: 'Voce e lingue', icona: 'lingua', info: 'traduci i sottotitoli e falli parlare, anche in un\'altra lingua' },
   { id: 'esporta', nome: 'Esporta', icona: 'esporta', info: 'il master, la EDL, il fotogramma' },
 ];
 
@@ -158,7 +159,7 @@ export class Finale {
     if (z === 'sottotitoli') return pagina(...this.paginaSottotitoli(sez));
     if (z === 'logo') return pagina(this.paginaLogo(sez));
     if (z === 'apertura') return pagina(...this.paginaApertura(sez));
-    if (z === 'lingue') return pagina(this.paginaLingue(sez));
+    if (z === 'lingue') return pagina(...this.paginaLingue(sez));
     const esporta = h('div', { class: 'fin-esporta' },
       this.scelte('Formato', [['mp4', 'MP4'], ['mov', 'MOV'], ['webm', 'WebM'], ['wav', 'Solo audio']], () => this.formato, (v) => { this.formato = v; }),
       this.scelte('Qualità', [['media', 'Leggera'], ['alta', 'Alta'], ['altissima', 'Master']], () => this.qualita, (v) => { this.qualita = v; }),
@@ -312,14 +313,13 @@ export class Finale {
         ? 'Ascolta la presa diretta del montaggio (non la musica) e scrive le righe coi loro tempi. Il motore e il modello di NVIDIA (Nemotron 3.5) si scaricano una volta sola e poi restano sul computer; l\'audio non esce mai dal computer. Le righe si correggono qui sotto; Ctrl+Z torna a prima.'
         : 'Ascolta la presa diretta del montaggio (non la musica) e scrive le righe coi loro tempi. Il modello è Whisper (Hugging Face): si scarica una volta sola, poi resta sul computer. L\'audio non esce mai dal computer. Le righe si correggono qui sotto; Ctrl+Z torna a prima.';
     });
+    // le scelte che quasi nessuno cambia stanno in un riquadro chiuso: motore, modello, inglese diretto
+    const avanzate = h('details', { class: 'fin-avanzate' }, h('summary', null, 'Opzioni: chi ascolta e il modello'), motore, infoMotore, traduci, modello);
     const out = [
-      motore,
-      infoMotore,
       scelta('Si parla in', LINGUE_MOTORE.map(([v, , t]) => [v, t] as [string, string]), () => this.ai.lingua, (v) => { this.ai.lingua = v; }),
-      traduci,
-      modello,
       h('div', { class: 'isp-pulsanti' }, vai, ferma),
       ...lavoro.elementi,
+      avanzate,
       nota,
     ];
     salva();
@@ -389,12 +389,19 @@ export class Finale {
     silenzia.addEventListener('change', () => { this.voce.silenzia = silenzia.checked; salva(); });
     sinc.push(() => { silenzia.checked = this.voce.silenzia; });
     const linguaSott = () => sottotitoliDi(store.doc).lingua;
-    const scelte = scelta('Lingua', [['', 'Quella dei sottotitoli', 'La voce parla nella lingua in cui sono scritti i sottotitoli'], ...LINGUE_MOTORE.filter(([v]) => LINGUE_VOCE.includes(v)).map(([v, , t]) => [v, t] as [string, string])], () => this.voce.lingua, (v) => { this.voce.lingua = v; });
+    const scelte = scelta('La voce parla', [['', 'Come i sottotitoli', 'Nella lingua in cui sono scritti i sottotitoli'], ...LINGUE_PARLATE.map(([v, , t]) => [v, t, 'Se i sottotitoli sono in un\'altra lingua, prima si traducono (solo per la voce)'] as [string, string, string])], () => this.voce.lingua, (v) => { this.voce.lingua = v; });
     const nota = h('p', { class: 'nota' });
+    const nomeLingua = (l: string) => LINGUE.find(([v]) => v === l)?.[1] ?? l;
     sinc.push(() => {
-      nota.textContent = motoreNemo()
-        ? `Legge i sottotitoli (${LINGUE.find(([v]) => v === linguaSott())?.[1] ?? linguaSott()}) con una voce sintetica di NVIDIA (Magpie TTS): così cambi la voce di un parlato, o lo fai dire in un'altra lingua se i sottotitoli sono tradotti. Ogni frase va al suo posto (se è più lunga si accelera un po'). Il motore e il modello si scaricano una volta sola. Prima correggi le righe, poi premi il tasto; Ctrl+Z torna a prima.`
-        : 'La voce AI usa il motore di NVIDIA, che gira nell\'app per Windows e Mac (sul processore, o meglio sulla scheda NVIDIA). Nel browser non c\'è.';
+      const lS = linguaSott(), lV = this.voce.lingua || lS;
+      const diversa = !!lV && lV !== lS;
+      nota.textContent = !motoreNemo()
+        ? 'La voce AI usa il motore di NVIDIA, che gira nell\'app per Windows e Mac (sul processore, o meglio sulla scheda NVIDIA). Nel browser non c\'è.'
+        : !LINGUE_VOCE.includes(lV)
+          ? `La voce sa parlare italiano, inglese, spagnolo, francese, tedesco e cinese: scegli in che lingua deve parlare (i sottotitoli sono in ${nomeLingua(lS)}).`
+          : diversa
+            ? `I sottotitoli sono in ${nomeLingua(lS)} e la voce parla ${nomeLingua(lV)}: prima li traduco (solo per la voce, i sottotitoli restano come sono), poi li leggo. Ogni frase va al suo posto, e diventa una clip che puoi spostare o abbassare.`
+            : `La voce legge i sottotitoli (${nomeLingua(lS)}) con una voce sintetica di NVIDIA (Magpie TTS). Ogni frase va al suo posto, e diventa una clip che puoi spostare o abbassare.`;
       vai.disabled = !motoreNemo() || !!this.lavoroVoce;
     });
     this.aggiornaAI.push(() => sinc.forEach((f) => f()));
@@ -415,14 +422,14 @@ export class Finale {
     const p = store.doc;
     if (!sottotitoliDi(p).righe.some((x) => x.testo.trim())) { avviso('Prima servono i sottotitoli: scrivili qui, o fatti aiutare dall\'AI', 'info', 3000); return; }
     const lingua = linguaVoce(p, this.voce.lingua || undefined);
-    if (!lingua) { avviso('Magpie parla italiano, inglese, spagnolo, francese e tedesco: scegli la lingua', 'info', 3200); return; }
+    if (!lingua) { avviso('La voce parla italiano, inglese, spagnolo, francese, tedesco e cinese: scegli in che lingua', 'info', 3200); return; }
     const ctrl = new AbortController();
     this.lavoroVoce = ctrl;
     vai.disabled = true;
     ferma.style.display = '';
     lavoro.avvia('Comincio…');
     try {
-      const r = await doppia(structuredClone(p), { voce: this.voce.voce, lingua, silenzia: this.voce.silenzia }, (t, k) => lavoro.imposta(t, k), ctrl.signal);
+      const r = await doppia(structuredClone(p), { voce: this.voce.voce, lingua, silenzia: this.voce.silenzia, traduci: true }, (t, k) => lavoro.imposta(t, k), ctrl.signal);
       lavoro.imposta('Salvo l\'audio…', 0.97);
       const nome = `Voce AI ${VOCI_MAGPIE[this.voce.voce] ?? ''} ${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '.')}.wav`.replace('  ', ' ');
       const blob = new Blob([codificaWav(r.audio, r.sr) as BlobPart], { type: 'audio/wav' });
@@ -430,15 +437,16 @@ export class Finale {
       const file = new File([blob], nome, { type: 'audio/wav' });
       const [m] = await importaFile([{ name: nome, path, file: path ? undefined : file }], { chiediFormato: false });
       if (!m) throw new Error('non riesco a leggere l\'audio prodotto');
-      const ids = store.edit('Voce AI', (pp) => posaVoce(pp, m.id, r.audio.length / r.sr, this.voce.silenzia));
+      const ids = store.edit('Voce AI', (pp) => posaVoce(pp, m.id, r.audio.length / r.sr, this.voce.silenzia, r.posti));
       store.select(ids);
-      lavoro.fine(`Fatto: ${r.frasi} frasi, su una traccia nuova "Voce AI"`);
-      avviso(`🗣 Voce AI pronta: ${r.frasi} frasi su una traccia nuova${this.voce.silenzia ? ' (le voci originali sono in silenzio)' : ''}`, 'ok', 3600);
+      lavoro.fine(`Fatto: ${r.frasi} frasi${r.tradotto ? ' tradotte' : ''}, ognuna è una clip nella traccia "Voce AI"`);
+      avviso(`🗣 Voce AI pronta: ${r.frasi} frasi${r.tradotto ? ' (tradotte)' : ''}, una clip per frase${this.voce.silenzia ? ' · le voci originali sono in silenzio' : ''}. Clicca una riga dei sottotitoli per sceglierne la voce`, 'ok', 4800);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === 'fermato') lavoro.ferma('Fermato');
       else if (msg === 'senza-righe') lavoro.ferma('Non ci sono righe da leggere');
       else if (msg === 'lingua') lavoro.ferma('Questa lingua la voce non la sa');
+      else if (msg === 'traduzione') lavoro.ferma('Questa coppia di lingue non la so tradurre');
       else {
         lavoro.ferma('Non ci sono riuscito: ' + msg);
         avviso('La voce AI non è partita: ' + msg, 'errore', 5000);
@@ -596,19 +604,74 @@ export class Finale {
     avviso(dove === 'inizio' ? 'Il montaggio entra dal nero (e l\'audio sale)' : 'Il montaggio si chiude nel nero (e l\'audio scende)', 'ok');
   }
 
-  // ——— lingue e AI (predisposto) ———
-  private paginaLingue(sez: (t: string, ic: string, ...f: (HTMLElement | null)[]) => HTMLElement): HTMLElement {
+  // ——— voce e lingue ———
+  private trad = (() => {
+    const base = { a: 'en' };
+    try { return { ...base, ...(JSON.parse(localStorage.getItem('dpv-trad') ?? '{}') as Partial<typeof base>) }; } catch { return base; }
+  })();
+  private lavoroTrad: AbortController | null = null;
+
+  /** due passi: 1 i sottotitoli (in che lingua sono, e tradurli), 2 la voce (in che lingua parla: se è un'altra, si traduce da sola) */
+  private paginaLingue(sez: (t: string, ic: string, ...f: (HTMLElement | null)[]) => HTMLElement): HTMLElement[] {
     const lingua = h('select', { class: 'mini-select largo' }, LINGUE.map(([v, t]) => h('option', { value: v }, t))) as HTMLSelectElement;
     lingua.addEventListener('change', () => this.cambiaSott('Lingua dei sottotitoli', (x) => { x.lingua = lingua.value; }));
-    this.campi.push({ aggiorna: () => { lingua.value = sottotitoliDi(store.doc).lingua; } });
-    const vai = (nome: string, info: string, fn: () => void) => h('button', { class: 'fin-presto pronto', title: info, on: { click: fn } }, h('span', null, nome), h('i', null, 'VAI'));
-    return sez('Lingue e AI', 'lingua',
-      h('div', { class: 'fin-scelte' }, h('span', null, 'Lingua dei sottotitoli'), lingua),
-      vai('✨ Scrivi i sottotitoli con l\'AI', 'Nemotron (NVIDIA, nell\'app) o Whisper ascoltano i dialoghi e scrivono le righe coi tempi', () => { this.ai.traduci = false; this.mostra('sottotitoli'); }),
-      vai('🌍 Sottotitoli in inglese da un parlato italiano', 'Whisper ascolta l\'italiano e scrive direttamente in inglese', () => { this.ai.lingua = 'it'; this.ai.traduci = true; this.ai.motore = 'whisper'; this.mostra('sottotitoli'); this.aggiornaAI.forEach((f) => f()); }),
-      h('div', { class: 'fin-sotto' }, h('b', null, '🗣 Voce AI · cambia voce o lingua')),
-      ...this.pannelloVoce(),
-      h('p', { class: 'nota' }, 'I sottotitoli li scrive Nemotron 3.5 di NVIDIA (nell\'app) o Whisper di OpenAI (anche nel browser): girano sul tuo computer, l\'audio non va da nessuna parte e i modelli si scaricano una volta sola. La lingua qui sopra finisce nel nome del file .srt e dice alla voce AI in che lingua parlare.'));
+    const aTrad = h('select', { class: 'mini-select largo' }, LINGUE_TRADUZIONE.map(([v, , t]) => h('option', { value: v }, t))) as HTMLSelectElement;
+    aTrad.addEventListener('change', () => { this.trad.a = aTrad.value; try { localStorage.setItem('dpv-trad', JSON.stringify(this.trad)); } catch { /* niente */ } this.campi.forEach((c) => c.aggiorna()); });
+    const lavoro = new BarraLavoro();
+    const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroTrad?.abort(); fermaTraduzione(); } } }, '■ Ferma');
+    const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.traduciSottotitoli(lavoro, vai, ferma) } }, '🌍 Traduci i sottotitoli');
+    const nota = h('p', { class: 'nota' });
+    this.campi.push({ aggiorna: () => {
+      const s = sottotitoliDi(store.doc);
+      if (document.activeElement !== lingua) lingua.value = s.lingua;
+      aTrad.value = this.trad.a;
+      const nome = (l: string) => LINGUE.find(([v]) => v === l)?.[1] ?? l;
+      const stessa = s.lingua === this.trad.a;
+      vai.disabled = !!this.lavoroTrad || !s.righe.some((x) => x.testo.trim()) || stessa || !sappiamoTradurre(s.lingua, this.trad.a);
+      nota.textContent = !s.righe.some((x) => x.testo.trim()) ? 'Prima servono i sottotitoli: scrivili nella pagina Sottotitoli, o fatti aiutare dall\'AI.'
+        : stessa ? 'I sottotitoli sono già in questa lingua.'
+          : !sappiamoTradurre(s.lingua, this.trad.a) ? `Da ${nome(s.lingua)} a ${nome(this.trad.a)} non so tradurre.`
+            : `Le righe restano ai loro tempi, cambia solo il testo (da ${nome(s.lingua)} a ${nome(this.trad.a)}). Si annulla con Ctrl+Z. Il modello di traduzione (NLLB di Meta) si scarica la prima volta e poi resta sul computer.`;
+    } });
+    return [
+      sez('1 · Sottotitoli', 'sottotitoli',
+        h('div', { class: 'fin-scelte' }, h('span', null, 'Sono scritti in'), lingua),
+        h('div', { class: 'fin-scelte' }, h('span', null, 'Traduci in'), aTrad),
+        h('div', { class: 'isp-pulsanti' }, vai, ferma),
+        ...lavoro.elementi,
+        nota),
+      sez('2 · Voce', 'altoparlante', ...this.pannelloVoce()),
+      h('p', { class: 'nota' }, 'Tutto gira sul tuo computer: i testi e l\'audio non vanno da nessuna parte e i modelli si scaricano una volta sola. I sottotitoli e la voce possono essere in lingue diverse: se la voce parla un\'altra lingua, i testi si traducono da soli prima di leggerli.'),
+    ];
+  }
+
+  /** traduce il testo delle righe (restano ai loro tempi) e cambia la lingua dei sottotitoli */
+  private async traduciSottotitoli(lavoro: BarraLavoro, vai: HTMLButtonElement, ferma: HTMLElement) {
+    if (this.lavoroTrad) return;
+    const s = sottotitoliDi(store.doc);
+    const da = s.lingua, a = this.trad.a;
+    const righe = s.righe.map((x) => ({ id: x.id, testo: x.testo }));
+    if (!righe.some((x) => x.testo.trim())) { avviso('Non ci sono righe da tradurre', 'info'); return; }
+    const ctrl = new AbortController();
+    this.lavoroTrad = ctrl;
+    vai.disabled = true;
+    ferma.style.display = '';
+    lavoro.avvia('Comincio…');
+    try {
+      const nuovi = await traduciTesti(righe.map((x) => x.testo), da, a, (t, k) => lavoro.imposta(t, k), ctrl.signal);
+      const per = new Map(righe.map((x, i) => [x.id, nuovi[i]]));
+      this.cambiaSott('Traduci i sottotitoli', (x) => { for (const r of x.righe) if (per.has(r.id)) r.testo = per.get(r.id)!; x.lingua = a; });
+      lavoro.fine(`Fatto: ${righe.length} righe tradotte`);
+      avviso(`🌍 Sottotitoli tradotti (${LINGUE.find(([v]) => v === a)?.[1] ?? a}). Ctrl+Z per tornare indietro`, 'ok', 3200);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'fermato') lavoro.ferma('Fermato');
+      else { lavoro.ferma('Non ci sono riuscito: ' + msg); avviso('La traduzione non è partita: ' + msg, 'errore', 5000); }
+    } finally {
+      this.lavoroTrad = null;
+      ferma.style.display = 'none';
+      this.campi.forEach((c) => c.aggiorna());
+    }
   }
 
   /** porta tutte le clip audio a un livello comodo (come l'effetto "Livella" clip per clip) */

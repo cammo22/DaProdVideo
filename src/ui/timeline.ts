@@ -9,7 +9,7 @@ import { store } from '../core/store';
 import { motore } from '../motore';
 import * as M from '../core/montaggio';
 import { CURVE, curvaFade, nomeCurva, clipById, dbToGain, end, isVideoClip, keyValue, mediaOf, newTrack, newTransition, nextTrackName, projectEnd, srcTimeAt, trackOf, ALTEZZA } from '../core/progetto';
-import type { Clip, Key, Project, Sottotitolo, Track, TrackKind } from '../core/tipi';
+import type { Clip, Key, MediaItem, Project, Sottotitolo, Track, TrackKind } from '../core/tipi';
 import { SOTTO0, bordoRiga, dividiRiga, limitiRiga, unisciRighe } from '../core/sottotitoli';
 import { ETICHETTE } from '../core/tipi';
 import { fps, frameToTc, f2s, tcBase } from '../core/timecode';
@@ -1424,7 +1424,12 @@ export class Timeline {
         if (!c.sott) { motore.setMonitor('recorder'); store.setHead(Math.max(0, Math.round(c.f))); this.selSott.clear(); this.sporca(); return; }
         if (e.shiftKey) { if (this.selSott.has(c.sott.id)) this.selSott.delete(c.sott.id); else this.selSott.add(c.sott.id); }
         else if (!this.selSott.has(c.sott.id)) this.selSott = new Set([c.sott.id]);
-        if (store.sel.size) store.select([]);
+        // la riga ha la sua voce AI (una clip audio): si sceglie insieme, così le proprietà sono quelle della voce
+        // (volume, tracce, dissolvenze…) e si gestisce come ogni altra clip
+        const riga = store.doc.sottotitoli?.righe.find((z) => z.id === c.sott!.id);
+        const voce = riga?.voce && store.doc.clips.some((k) => k.id === riga.voce) ? riga.voce : null;
+        if (voce && !e.shiftKey) { store.select([voce]); document.dispatchEvent(new CustomEvent('dpv:proprieta')); }
+        else if (store.sel.size) store.select([]);
         store.begin('Sottotitolo');
         this.presa = { tipo: 'sott', id: c.sott.id, lato: c.sott.lato, x0: x, righe0: structuredClone(store.doc.sottotitoli!.righe), mosso: false };
         try { cv.setPointerCapture(e.pointerId); } catch { /* ok */ }
@@ -2052,20 +2057,24 @@ export class Timeline {
     const f = Math.max(0, Math.round(this.xF(x)));
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
     if (dato.startsWith('m:')) {
-      const m = p.media.find((z) => z.id === dato.slice(2));
-      if (!m) return null;
-      const len = m.type === 'image' ? Math.round(fps(p.rate) * 5) : Math.round(((m.markOut ?? m.duration) - (m.markIn ?? m.t0 ?? 0)) * fps(p.rate));
-      const tg = this.bersagliDrop(riga?.t, m.hasVideo, m.hasAudio);
+      const lista = this.mediaDaDato(dato);
+      if (!lista.length) return null;
       const out: { track: string; f: number; len: number; kind: 'video' | 'audio'; nuova?: boolean }[] = [];
       // prova a secco: dove finirebbe davvero (una traccia libera, o una nuova) senza toccare il progetto
       const prova = { ...p, tracks: p.tracks.slice() } as Project;
-      const dove = (kind: 'video' | 'audio', pref: string, evita?: Set<string>) => {
-        const id = modi.inserisci ? pref : M.tracciaLibera(prova, kind, pref, f, f + len, undefined, evita);
-        return p.tracks.some((t) => t.id === id) ? { track: id, nuova: false } : { track: pref, nuova: true };
-      };
-      if (tg.video) out.push({ ...dove('video', tg.video), f, len, kind: 'video' });
-      const usate = new Set<string>();
-      for (const a of tg.audio) { const d = dove('audio', a, usate); usate.add(d.track); out.push({ ...d, f, len, kind: 'audio' }); }
+      let a0 = this.fDrop(x, y, this.lenDiMedia(lista[0]), riga?.t);
+      for (const m of lista) {
+        const len = this.lenDiMedia(m);
+        const tg = this.bersagliDrop(riga?.t, m.hasVideo, m.hasAudio);
+        const dove = (kind: 'video' | 'audio', pref: string, evita?: Set<string>) => {
+          const id = modi.inserisci ? pref : M.tracciaLibera(prova, kind, pref, a0, a0 + len, undefined, evita);
+          return p.tracks.some((t) => t.id === id) ? { track: id, nuova: false } : { track: pref, nuova: true };
+        };
+        if (tg.video) out.push({ ...dove('video', tg.video), f: a0, len, kind: 'video' });
+        const usate = new Set<string>();
+        for (const a of tg.audio) { const d = dove('audio', a, usate); usate.add(d.track); out.push({ ...d, f: a0, len, kind: 'audio' }); }
+        a0 += len;
+      }
       return out;
     }
     return riga ? [{ track: riga.t.id, f, len: Math.round(fps(p.rate) * 5), kind: riga.t.kind }] : null;
@@ -2085,23 +2094,76 @@ export class Timeline {
     return { video, audio };
   }
 
+  /** i file di un trascinamento 'm:id1|id2|…' (quelli che esistono ancora) */
+  private mediaDaDato(dato: string): MediaItem[] {
+    const p = store.doc;
+    return dato.slice(2).split('|').map((id) => p.media.find((z) => z.id === id)).filter((m): m is MediaItem => !!m);
+  }
+
+  private lenDiMedia(m: MediaItem): number {
+    const r = fps(store.doc.rate);
+    return Math.max(1, m.type === 'image' ? Math.round(r * 5) : Math.round(((m.markOut ?? m.duration) - (m.markIn ?? m.t0 ?? 0)) * r));
+  }
+
+  /**
+   * Dove parte un file lasciato in x: l'aggancio è più largo di quello delle clip (14 px) e preferisce la fine di una clip
+   * della traccia sotto il puntatore: se lo lasci sulla seconda metà di una clip, si mette subito dopo di lei.
+   * Vale uguale per l'anteprima (il fantasma) e per quando lasci, così quello che vedi è quello che succede.
+   */
+  private fDrop(x: number, y: number, len: number, t?: Track): number {
+    const p = store.doc;
+    const f = Math.max(0, Math.round(this.xF(x)));
+    if (!modi.snap) { this.snapLinea = null; return f; }
+    const soglia = 14 / this.ppf;
+    let best = f, bd = soglia;
+    const prova = (punto: number, d: number, preferito: boolean) => {
+      const dd = preferito ? d * 0.5 : d;
+      if (dd < bd) { bd = dd; best = punto; }
+    };
+    // le clip della traccia sotto il puntatore: dopo di lei se sei nella seconda metà
+    const stessa = t ? p.clips.filter((c) => c.track === t.id && c.kind !== 'fx') : [];
+    const dentro = stessa.find((c) => f > c.start && f < end(c));
+    if (dentro && f >= dentro.start + dentro.len / 2) { this.snapLinea = end(dentro); return end(dentro); }
+    for (const c of stessa) prova(end(c), Math.abs(end(c) - f), true);
+    for (const s of M.snapPoints(p, new Set(), [Math.round(store.head)])) {
+      prova(s, Math.abs(s - f), false);
+      // anche la fine del file che arriva può appoggiarsi all'inizio di una clip
+      prova(s - len, Math.abs(s - len - f), false);
+    }
+    best = Math.max(0, best);
+    this.snapLinea = best !== f ? best : null;
+    return best;
+  }
+
   private rilascia(dato: string, x: number, y: number) {
     const p = store.doc;
     const f = Math.max(0, Math.round(this.xF(x)));
     const riga = this.righe(p).find((r) => y >= r.y && y < r.y + r.h);
     if (dato.startsWith('m:')) {
-      const m = p.media.find((z) => z.id === dato.slice(2));
-      if (!m) return;
-      const srcIn = m.markIn ?? m.t0 ?? 0;
-      const srcOut = m.markOut ?? (m.type === 'image' ? srcIn + 5 : m.duration);
-      const tg = this.bersagliDrop(riga?.t, m.hasVideo, m.hasAudio);
-      let fx = f;
-      if (modi.snap) fx = this.aggancia(f, new Set());
+      const lista = this.mediaDaDato(dato);
+      if (!lista.length) return;
+      const fx = this.fDrop(x, y, this.lenDiMedia(lista[0]), riga?.t);
       this.snapLinea = null;
       const n0 = store.doc.tracks.length;
-      const ids = store.edit('Metti nella timeline', (pp) => M.placeSource(pp, { mediaId: m.id, srcIn, srcOut }, fx, null, tg, modi.inserisci ? 'insert' : 'libero'));
+      // più file: uno dopo l'altro, a partire da dove li lasci
+      const ids = store.edit(lista.length > 1 ? `Metti ${lista.length} file nella timeline` : 'Metti nella timeline', (pp) => {
+        const tutti: string[] = [];
+        let a0 = fx;
+        for (const m of lista) {
+          const srcIn = m.markIn ?? m.t0 ?? 0;
+          const srcOut = m.markOut ?? (m.type === 'image' ? srcIn + 5 : m.duration);
+          const tg = this.bersagliDrop(riga?.t, m.hasVideo, m.hasAudio);
+          const nuovi = M.placeSource(pp, { mediaId: m.id, srcIn, srcOut }, a0, null, tg, modi.inserisci ? 'insert' : 'libero');
+          tutti.push(...nuovi);
+          // il prossimo parte dove finisce questo (il più lungo fra video e audio che ha creato)
+          const fine = Math.max(a0 + 1, ...nuovi.map((id) => { const c = clipById(pp, id); return c ? end(c) : 0; }));
+          a0 = fine;
+        }
+        return tutti;
+      });
       store.select(ids);
-      avviso(store.doc.tracks.length > n0 ? `${m.name}: lì era occupato, l'ho messa su una traccia nuova` : `${m.name} nella timeline`, 'ok', 1600);
+      const nome = lista.length > 1 ? `${lista.length} file` : lista[0].name;
+      avviso(store.doc.tracks.length > n0 ? `${nome}: lì era occupato, ho usato una traccia nuova` : `${nome} nella timeline`, 'ok', 1600);
     } else if (dato.startsWith('g:')) {
       const g = leggiGeneratore(dato);
       inserisciGeneratore(g.kind, f, riga?.t.kind === 'video' ? riga.t.id : undefined, { titolo: g.titolo, conto: g.conto, anim: g.anim });
