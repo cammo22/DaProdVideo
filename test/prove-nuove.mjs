@@ -9,13 +9,14 @@ import { servi } from './servi.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-import { leggi, vicino } from './aiuti.mjs';
+import { leggi, vicino, apriGruppi } from './aiuti.mjs';
 export { leggi, vicino };
 
-export async function proveNuove(ctx, quali = ['sfondo', 'animazioni', 'montage']) {
+export async function proveNuove(ctx, quali = ['sfondo', 'animazioni', 'montage', 'pannello']) {
   const { page, prova, OUT } = ctx;
   if (quali.includes('sfondo')) await proveSfondo({ page, prova, OUT });
   if (quali.includes('animazioni')) { const m = await import('./prove-animazioni.mjs').catch(() => null); if (m) await m.proveAnimazioni({ page, prova, OUT }); }
+  if (quali.includes('pannello')) { const m = await import('./prove-pannello.mjs').catch((e) => { console.log('  ✗ prove-pannello:', e.message); return null; }); if (m) await m.provePannello({ page, prova, OUT }); }
   if (quali.includes('montage')) { const m = await import('./prove-montage.mjs').catch(() => null); if (m) await m.proveMontage({ page, prova, OUT }); }
 }
 
@@ -118,6 +119,7 @@ async function proveSfondo({ page, prova, OUT }) {
   console.log('▶ Togliere lo sfondo: le proprietà e il contagocce');
   await page.evaluate(() => { const c = window.__dpv.doc.clips.find((x) => x.name === 'Fondale verde'); window.__dpv.select([c.id]); window.__motore.vaiA(10); });
   await page.waitForTimeout(300);
+  await apriGruppi(page);
   prova('nelle proprietà c\'è "Togli lo sfondo" con tutti i modi', (await page.locator('.isp-gruppo summary:has-text("Togli lo sfondo")').count()) === 1 && (await page.locator('.isp-gruppo:has(summary:has-text("Togli lo sfondo")) .chip').count()) >= 6);
   prova('con la chiave a colori si vedono contagocce, colori pronti e i cursori', (await page.locator('button:has-text("Contagocce")').count()) === 1 && (await page.locator('button:has-text("Trovalo da solo")').count()) === 1 && (await page.locator('.isp-riga:has(label:has-text("Via il riflesso"))').count()) === 1);
   // il contagocce: un clic sull'angolo verde del monitor mette quel colore

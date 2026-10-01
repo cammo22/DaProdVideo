@@ -68,7 +68,7 @@ button svg { pointer-events: none; }
 #app.senza-bin .contenitore, #app.senza-lato .lato { visibility: hidden; }
 #app.senza-puls .pulsantiera { display: none; }
 /* timeline stretta (tasto V): VU, proprietà e mixer scendono fino in fondo, la timeline si stringe a sinistra */
-#app.lato-lungo:not(.stretto):not([data-pagina='finale']):not([data-pagina='live']) {
+#app.lato-lungo:not(.stretto):not([data-pagina='finale']):not([data-pagina='live']):not([data-pagina='montage']) {
   grid-template-areas:
     'testa testa testa testa testa'
     'bin bbin monitor blato lato'
@@ -77,7 +77,7 @@ button svg { pointer-events: none; }
     'tl tl tl blato lato'
     'stato stato stato stato stato';
 }
-#app.lato-lungo.senza-lato:not(.stretto):not([data-pagina='finale']):not([data-pagina='live']) { grid-template-areas: 'testa testa testa testa testa' 'bin bbin monitor blato lato' 'puls puls puls puls puls' 'div div div div div' 'tl tl tl tl tl' 'stato stato stato stato stato'; }
+#app.lato-lungo.senza-lato:not(.stretto):not([data-pagina='finale']):not([data-pagina='live']):not([data-pagina='montage']) { grid-template-areas: 'testa testa testa testa testa' 'bin bbin monitor blato lato' 'puls puls puls puls puls' 'div div div div div' 'tl tl tl tl tl' 'stato stato stato stato stato'; }
 #app.lato-lungo .lato { border-bottom: 1px solid #000; }
 /* la pagina Finale: monitor grande, i ritocchi a destra, la timeline sotto */
 #app[data-pagina='finale'] {
@@ -97,13 +97,15 @@ button svg { pointer-events: none; }
 #app .live { grid-area: live; display: none; }
 #app[data-pagina='live'] .live { display: flex; }
 /* la pagina DaProdMontage: tre colonne (file, stile, scelte), la timeline resta sotto per vedere il risultato */
-#app[data-pagina='montage'] {
+#app[data-pagina='montage'][class] {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 44px minmax(0, 1fr) 7px var(--tlfin) 22px;
-  grid-template-areas: 'testa' 'montage' 'div' 'tl' 'stato';
+  grid-template-rows: 44px minmax(210px, 42vh) minmax(0, 1fr) 22px;
+  grid-template-areas: 'testa' 'monitor' 'montage' 'stato';
 }
+/* l'anteprima è il monitor vero, in alto a tutta larghezza; la timeline e le colonne a lato aspettano */
 #app[data-pagina='montage'] .contenitore, #app[data-pagina='montage'] .lato, #app[data-pagina='montage'] .bordo-bin, #app[data-pagina='montage'] .bordo-lato,
-#app[data-pagina='montage'] .pulsantiera, #app[data-pagina='montage'] .monitor, #app[data-pagina='montage'] .finale, #app[data-pagina='montage'] .live { display: none !important; }
+#app[data-pagina='montage'] .pulsantiera, #app[data-pagina='montage'] .timeline, #app[data-pagina='montage'] .divisore,
+#app[data-pagina='montage'] .finale, #app[data-pagina='montage'] .live, #app[data-pagina='montage'] .linguetta-lato { display: none !important; }
 #app .montage { grid-area: montage; display: none; }
 #app[data-pagina='montage'] .montage { display: flex; }
 .testata { grid-area: testa; }
@@ -589,6 +591,12 @@ button svg { pointer-events: none; }
 .isp-gruppo summary::before { content: '▸'; color: var(--testo3); transition: transform 0.15s; }
 .isp-gruppo[open] summary::before { transform: rotate(90deg); }
 .isp-gruppo > :not(summary) { margin: 0 9px 7px; }
+.isp-grip { margin-left: auto; padding: 0 4px; color: var(--testo3); font-size: 15px; line-height: 1; cursor: grab; touch-action: none; border-radius: 4px; }
+.isp-grip:hover { color: var(--oro); background: #23212b; }
+.isp-gruppo.trascinato { outline: 2px solid var(--oro); opacity: 0.88; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+.isp-gruppo.trascinato .isp-grip { cursor: grabbing; }
+.isp-ripristina { display: block; margin: 4px auto 10px; padding: 3px 10px; border-radius: 14px; border: 1px solid #000; background: #23212b; color: var(--testo3); font: 700 10.5px var(--ui); }
+.isp-ripristina:hover { color: var(--testo); }
 .isp-riga { display: grid; grid-template-columns: 96px 1fr auto; gap: 6px; align-items: center; font-size: 12px; color: var(--testo2); }
 .isp-riga label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .isp-riga input[type='range'] { width: 100%; accent-color: var(--oro); }
@@ -704,7 +712,7 @@ button svg { pointer-events: none; }
 .stretto .contenitore, .stretto .lato, .stretto .finale { grid-area: auto; position: fixed; left: 0; right: 0; bottom: 56px; height: 62vh; z-index: 50; transform: translateY(110%); transition: transform 0.22s; border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6); }
 .stretto[data-foglio='bin'] .contenitore, .stretto[data-foglio='lato'] .lato, .stretto[data-foglio='finale'] .finale { transform: none; visibility: visible; }
 /* DaProdMontage sul telefono: a tutto schermo fra la testata e la barra in basso, le tre colonne una sotto l'altra */
-#app.stretto[data-pagina='montage'] .montage { grid-area: auto; position: fixed; left: 0; right: 0; top: 44px; bottom: 56px; z-index: 55; background: var(--fondo); overflow: auto; }
+#app.stretto[data-pagina='montage'] .montage { grid-area: auto; position: fixed; left: 0; right: 0; top: max(224px, calc(44px + 38vh)); bottom: 56px; z-index: 55; background: var(--fondo); overflow: auto; }
 .stretto .mt-dentro { grid-template-columns: 1fr; overflow: visible; flex: none; }
 .stretto .mt-col { overflow: visible; }
 .stretto .mt-file { grid-template-columns: repeat(4, 1fr); }
@@ -999,6 +1007,12 @@ body.pip-live { margin: 0; background: #111016; overflow: hidden; }
 /* ——— DaProdMontage ——— */
 .montage { flex-direction: column; min-height: 0; border-left: 0; overflow: hidden; }
 .mt-m { color: var(--oro); }
+.mt-azioni { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #000; background: #15141b; flex-wrap: wrap; }
+.mt-azioni .btn { padding: 9px 16px; font-size: 13px; letter-spacing: 0.8px; white-space: nowrap; }
+.mt-importa { background: linear-gradient(180deg, #5dd39e, #2ea36f) !important; color: #04170e !important; border-color: #0b3a26 !important; }
+.mt-variante { font: 800 11px var(--ui); letter-spacing: 1.5px; color: var(--oro); padding: 3px 9px; border-radius: 20px; background: #23212b; box-shadow: inset 0 0 0 1px #000; }
+.mt-variante:empty { display: none; }
+.mt-azioni .mt-lavoro { flex: 1; min-width: 180px; }
 .mt-dentro { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 0.9fr) minmax(320px, 1.5fr) minmax(300px, 1fr); gap: 10px; padding: 10px; }
 .mt-col { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: var(--pannello, #1b1a21); box-shadow: inset 0 0 0 1px #000; }
 .mt-col h3 { display: flex; align-items: center; gap: 8px; margin: 0; font: 800 14px var(--ui); color: var(--testo); }
@@ -1029,6 +1043,5 @@ body.pip-live { margin: 0; background: #111016; overflow: hidden; }
 .mt-mmss .num { width: 52px; }
 .mt-riepilogo { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 6px; background: #14131a; box-shadow: inset 0 0 0 1px #000; font: 600 12px var(--ui); color: var(--testo2); }
 .mt-riepilogo b { color: var(--testo); font-size: 13px; }
-.mt-crea { padding: 12px 14px; font-size: 14px; letter-spacing: 1px; }
 .mt-lavoro { min-height: 0; }
 @media (max-width: 900px) { .mt-dentro { grid-template-columns: 1fr; overflow: auto; } .mt-col { overflow: visible; } }

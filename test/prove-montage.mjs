@@ -115,12 +115,12 @@ export async function proveMontage({ page, prova, OUT }) {
     const fps = doc.rate.num / doc.rate.den;
     const esiti = [];
     for (const pr of MP.PRESET_MONTAGE) {
-      for (const durata of [30, 95]) {
-        const o = { preset: pr.id, durata, ordine: 'data', titoli: true, effetti: true, audioVideo: -14, testi: { titolo: 'Titolo', sottotitolo: 'Sotto', nomi: 'Giulia e Marco', data: '12 giugno 2026' }, seme: 1, scarta: true };
+      for (const [durata, seme] of [[30, 1], [95, 1], [30, 99], [95, 2024], [30, 31337]]) {
+        const o = { preset: pr.id, durata, ordine: 'data', titoli: true, effetti: true, audioVideo: -14, testi: { titolo: 'Titolo', sottotitolo: 'Sotto', nomi: 'Giulia e Marco', data: '12 giugno 2026' }, seme, scarta: true };
         const copia = JSON.parse(JSON.stringify(doc));
         let r, err = null, piano;
         try { piano = MT.pianifica(entrate, o); r = MT.costruisciSequenza(copia, piano, o); } catch (e) { err = String(e && e.stack || e); }
-        if (err) { esiti.push({ id: pr.id, durata, err }); continue; }
+        if (err) { esiti.push({ id: pr.id, durata, seme, err }); continue; }
         const totF = Math.round(durata * fps);
         const linea = copia.tracks.filter((t) => t.kind === 'video');
         // nessuna sovrapposizione fra clip vere (non blocchi) sulla stessa traccia
@@ -137,13 +137,13 @@ export async function proveMontage({ page, prova, OUT }) {
         const fine = Math.max(...foto.map((c) => c.start + c.len));
         const dalla = foto.slice().sort((a, b) => a.start - b.start);
         let buchi = 0; for (let i = 1; i < dalla.length; i++) if (dalla[i].start !== dalla[i - 1].start + dalla[i - 1].len) buchi++;
-        esiti.push({ id: pr.id, durata, totF, fine, inizio: dalla[0]?.start, buchi, sovrap, fuori, senzaMedia, nFoto: foto.length, usate: piano.usate, ripetute: piano.ripetute, nome: copia.sequenze?.find((s) => s.id === copia.seqAttiva)?.nome, tracce: copia.tracks.length, brevi: foto.filter((c) => c.len < 2).length });
+        esiti.push({ id: pr.id, durata, seme, totF, fine, inizio: dalla[0]?.start, buchi, sovrap, fuori, senzaMedia, nFoto: foto.length, usate: piano.usate, ripetute: piano.ripetute, nome: copia.sequenze?.find((s) => s.id === copia.seqAttiva)?.nome, tracce: copia.tracks.length, brevi: foto.filter((c) => c.len < 2).length });
       }
     }
     return esiti;
   });
   const errori = tutti.filter((e) => e.err);
-  prova(`i ${tutti.length / 2} preset montano senza errori, a 30 e a 95 secondi`, !errori.length && tutti.length >= 44, JSON.stringify(errori.slice(0, 2)));
+  prova(`i ${tutti.length / 5} preset montano senza errori, a 30 e a 95 secondi e con semi diversi`, !errori.length && tutti.length >= 22 * 5, JSON.stringify(errori.slice(0, 2)));
   const sbagliati = tutti.filter((e) => !e.err && (e.fine !== e.totF || e.inizio !== 0 || e.buchi || e.sovrap || e.fuori || e.senzaMedia || e.brevi));
   prova('in ogni montaggio le foto riempiono tutto il tempo chiesto al fotogramma, senza buchi, sovrapposizioni o fuori misura', !sbagliati.length, JSON.stringify(sbagliati.slice(0, 3)));
   const conRipetute = tutti.filter((e) => e.durata === 95 && e.ripetute > 0).length;
@@ -201,27 +201,42 @@ export async function proveMontage({ page, prova, OUT }) {
   await page.waitForTimeout(400);
   const prima = await page.evaluate(() => ({ riep: document.querySelector('.mt-riepilogo')?.textContent, seq: (window.__dpv.doc.sequenze ?? []).length, salvate: localStorage.getItem('dpv-montage') }));
   prova('il riepilogo dice stile e durata, e le scelte si ricordano', /Battesimo/.test(prima.riep) && /20 s/.test(prima.riep) && /battesimo/.test(prima.salvate ?? ''), JSON.stringify(prima));
+  // l'anteprima parte da sola nell'uso vero; nelle prove si ferma sul fotogramma
+  await page.evaluate(() => { window.__dpvTest.ui().montage.partenza = false; document.querySelector('#app').classList.add('lato-lungo'); });
+  const prima2 = await page.evaluate(() => (window.__dpv.doc.sequenze ?? []).length);
   await page.click('.mt-crea');
   await page.evaluate(() => window.__dpvTest.ui().montage.ultimo);
-  await page.waitForFunction(() => document.getElementById('app').dataset.pagina === 'montaggio', null, { timeout: 30000 }).catch(() => {});
-  await page.waitForTimeout(800);
-  const dopo = await page.evaluate(() => {
+  await page.waitForTimeout(1000);
+  const stato = () => page.evaluate(() => {
     const d = window.__dpv.doc;
     const fps = d.rate.num / d.rate.den;
     const foto = d.clips.filter((c) => c.kind === 'media' && (window.__fotoMontage ?? []).includes(c.media));
-    const fine = Math.max(...foto.map((c) => c.start + c.len));
+    const fine = foto.length ? Math.max(...foto.map((c) => c.start + c.len)) : 0;
     const titoli = d.clips.filter((c) => c.kind === 'title');
     const nome = d.sequenze?.find((s) => s.id === d.seqAttiva)?.nome;
-    const testo = JSON.stringify(titoli.map((c) => c.gen?.anim));
-    return { pagina: document.getElementById('app').dataset.pagina, nome, fine, atteso: Math.round(20 * fps), nFoto: foto.length, titoli: titoli.length, testo, tracce: d.tracks.length, blocchi: d.clips.filter((c) => c.kind === 'fx').length };
+    const vis = (q) => { const e = document.querySelector(q); return !!e && getComputedStyle(e).display !== 'none'; };
+    const box = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return { y: Math.round(r.top), h: Math.round(r.height), w: Math.round(r.width) }; };
+    const forma = JSON.stringify([
+      foto.slice().sort((a, b) => a.start - b.start).map((c) => [c.media.slice(-5), c.len, Math.round((c.tfFine?.scale ?? 0) * 1000), Math.round(c.tf?.x ?? 0), Math.round(c.tfFine?.x ?? 0)]),
+      d.clips.filter((c) => c.kind === 'fx').map((c) => (c.fxb?.id ?? '') + ':' + c.start + ':' + c.len),
+      titoli.map((c) => c.gen?.anim?.id + ':' + c.start),
+    ]);
+    return {
+      pagina: document.getElementById('app').dataset.pagina, nome, fine, atteso: Math.round(20 * fps), nFoto: foto.length, titoli: titoli.length, testo: JSON.stringify(titoli.map((c) => c.gen?.anim)),
+      blocchi: d.clips.filter((c) => c.kind === 'fx').length, seq: (d.sequenze ?? []).length, undo: window.__dpv.undoLabel(), forma,
+      crea: vis('.mt-crea'), rigenera: vis('.mt-rigenera'), importa: vis('.mt-importa'), scarta: vis('.mt-scarta'), variante: document.querySelector('.mt-variante')?.textContent ?? '',
+      monitor: box('.monitor'), pannello: box('.montage'), timeline: vis('.timeline'),
+    };
   });
-  prova('"Crea il montaggio" costruisce la timeline e torna al Montaggio', dopo.pagina === 'montaggio' && /Battesimo/.test(dopo.nome ?? '') && dopo.nFoto >= 3, JSON.stringify(dopo));
-  prova('le foto riempiono esattamente 20 secondi e il nome inserito sta nel titolo', dopo.fine === dopo.atteso && /Leonardo/.test(dopo.testo) && dopo.titoli >= 1, JSON.stringify(dopo));
+  const dopo = await stato();
+  prova('"Crea il montaggio" fa l\'anteprima e resta sulla pagina: ci sono Rigenera, Importa e Scarta, e la variante', dopo.pagina === 'montage' && /Battesimo/.test(dopo.nome ?? '') && dopo.nFoto >= 3 && !dopo.crea && dopo.rigenera && dopo.importa && dopo.scarta && /^Variante [0-9A-Z]{5}$/.test(dopo.variante), JSON.stringify({ ...dopo, forma: undefined }));
+  prova('le foto riempiono esattamente 20 secondi e il nome inserito sta nel titolo', dopo.fine === dopo.atteso && /Leonardo/.test(dopo.testo) && dopo.titoli >= 1, JSON.stringify([dopo.fine, dopo.atteso]));
   prova('ci sono transizioni o effetti come blocchetti sopra le clip', dopo.blocchi >= 2, String(dopo.blocchi));
+  prova('il monitor sta in alto e grande (anche col pannello Proprietà fissato), il pannello sotto, la timeline nascosta', dopo.monitor && dopo.pannello && dopo.monitor.h > 200 && dopo.monitor.w > 900 && dopo.monitor.y < dopo.pannello.y && dopo.pannello.h > 250 && !dopo.timeline, JSON.stringify([dopo.monitor, dopo.pannello, dopo.timeline]));
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(OUT, 'montage-risultato.png') });
 
-  // il montaggio si guarda: il monitor a metà non è nero e la riproduzione parte
+  // l'anteprima si guarda nel monitor di sopra: non è nera, ha colori
   const guarda = await page.evaluate(async () => {
     const m = window.__motore; const rec = m.rec;
     const d = window.__dpv.doc; const fps = d.rate.num / d.rate.den;
@@ -237,6 +252,76 @@ export async function proveMontage({ page, prova, OUT }) {
   });
   prova('il monitor mostra il montaggio (non nero, con colori) a 3, 8 e 14 secondi', guarda.every((p) => p.luce > 25 && p.colori > 4), JSON.stringify(guarda));
   await page.screenshot({ path: path.join(OUT, 'montage-monitor.png') });
+
+  console.log('▶ DaProdMontage: rigenera, importa, scarta');
+  // rigenera: stesse scelte, ma ogni volta un montaggio diverso; l'anteprima di prima si toglie (non si accumulano timeline)
+  const forme = [dopo.forma];
+  const sequenze = [dopo.seq];
+  for (let k = 0; k < 3; k++) {
+    await page.click('.mt-rigenera');
+    await page.evaluate(() => window.__dpvTest.ui().montage.ultimo);
+    await page.waitForTimeout(500);
+    const x = await stato();
+    forme.push(x.forma); sequenze.push(x.seq);
+    if (k === 2) prova('dopo ogni rigenera la variante cambia e il tempo resta quello chiesto (20 s)', x.fine === x.atteso && x.variante !== dopo.variante && x.pagina === 'montage', JSON.stringify([x.variante, dopo.variante, x.fine, x.atteso]));
+  }
+  prova('rigenerare dà sempre un montaggio diverso (movimenti, durate, transizioni, effetti)', new Set(forme).size === 4, `${new Set(forme).size} diversi su 4`);
+  prova('le timeline non si accumulano: dopo quattro anteprime ce n\'è una sola in più, e un solo "annulla" le toglie', sequenze.every((n) => n === sequenze[0]) && sequenze[0] === prima2 + 1, JSON.stringify([prima2, sequenze]));
+  // lo stesso seme dà lo stesso montaggio (serve a ritrovare una variante che piaceva)
+  const stessi = [];
+  for (let k = 0; k < 2; k++) {
+    await page.evaluate(() => window.__dpvTest.ui().montage.crea(424242));
+    stessi.push((await stato()).forma);
+  }
+  prova('con lo stesso seme esce lo stesso montaggio', stessi[0] === stessi[1] && stessi[0] !== forme[0], '');
+  // lo stesso preset, 12 semi: le scelte variano davvero (non solo l'ordine)
+  const variet = await page.evaluate(() => {
+    const { MT } = window.__dpvTest;
+    const doc = window.__dpv.doc; const ids = window.__fotoMontage;
+    const entrate = ids.map((id, i) => { const m = doc.media.find((x) => x.id === id); return { media: id, nome: m.name, tipo: 'image', durata: 0, w: m.width, h: m.height, data: i, audio: false, punteggio: 0.5 + (i % 3) * 0.1 }; });
+    const base = { preset: 'compleanno', durata: 60, ordine: 'data', titoli: true, effetti: true, audioVideo: -14, testi: { titolo: 'T', sottotitolo: '', nomi: 'Sofia', data: '' }, scarta: true };
+    const piani = Array.from({ length: 12 }, (_, k) => MT.pianifica(entrate, { ...base, seme: 1000 + k * 7919 }));
+    const set = (f) => new Set(piani.map(f)).size;
+    return {
+      moti: set((p) => p.voci.map((v) => v.moto).join()), durate: set((p) => p.voci.map((v) => v.len.toFixed(2)).join()), transizioni: set((p) => p.transizioni.map((t) => t.id).join()),
+      effetti: set((p) => JSON.stringify(p.effetti.map((e) => [e.id, Math.round(e.start)]))), sovr: set((p) => p.sovrapposizioni.map((x) => x.anim.id + Math.round(x.start)).join()),
+      somme: piani.every((p) => Math.abs(p.voci.reduce((a, v) => a + v.len, 0) - 60) < 1e-6), mossa: piani.every((p) => p.voci.every((v, i, a) => !i || v.moto !== a[i - 1].moto)),
+      limiti: piani.every((p) => p.voci.every((v) => v.len >= 2 && v.forza >= 0.8 && v.forza <= 1.25)),
+    };
+  });
+  prova('con 12 semi cambiano movimenti, durate, transizioni, effetti e sovrapposizioni; sempre 60 s esatti e mai due movimenti uguali di fila', variet.moti >= 10 && variet.durate >= 10 && variet.transizioni >= 8 && variet.effetti >= 6 && variet.somme && variet.mossa && variet.limiti, JSON.stringify(variet));
+
+  // importa: il montaggio resta come timeline vera e si apre il Montaggio
+  const nSeq = (await stato()).seq;
+  await page.click('.mt-importa');
+  await page.waitForFunction(() => document.getElementById('app').dataset.pagina === 'montaggio', null, { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const imp = await stato();
+  prova('"Importa nella timeline" tiene il montaggio e apre il Montaggio', imp.pagina === 'montaggio' && imp.seq === nSeq && /Battesimo/.test(imp.nome ?? '') && imp.fine === imp.atteso, JSON.stringify([imp.pagina, imp.seq, nSeq, imp.nome]));
+  await page.screenshot({ path: path.join(OUT, 'montage-importato.png') });
+  await page.keyboard.press('F8');
+  await page.waitForTimeout(500);
+  const dopoImp = await stato();
+  prova('tornando sulla pagina c\'è di nuovo solo "Crea" (l\'importato non si tocca)', dopoImp.crea && !dopoImp.rigenera && !dopoImp.importa && dopoImp.seq === nSeq, JSON.stringify([dopoImp.crea, dopoImp.rigenera, dopoImp.seq]));
+  // un'altra anteprima va in una timeline nuova; "Scarta" la toglie e si torna a com'era
+  await page.click('.mt-crea');
+  await page.evaluate(() => window.__dpvTest.ui().montage.ultimo);
+  await page.waitForTimeout(500);
+  const altra = await stato();
+  prova('dopo l\'import un\'altra anteprima è una timeline nuova (l\'importata resta)', altra.seq === nSeq + 1 && altra.rigenera, JSON.stringify([altra.seq, nSeq]));
+  await page.click('.mt-scarta');
+  await page.waitForTimeout(400);
+  const scartata = await stato();
+  prova('"Scarta" toglie l\'anteprima: le timeline tornano com\'erano e c\'è di nuovo "Crea"', scartata.seq === nSeq && scartata.crea && !scartata.rigenera && scartata.nome === imp.nome, JSON.stringify([scartata.seq, nSeq, scartata.nome, scartata.undo]));
+  // un annulla (Ctrl+Z) sull'anteprima: i bottoni tornano a "Crea"
+  await page.click('.mt-crea');
+  await page.evaluate(() => window.__dpvTest.ui().montage.ultimo);
+  await page.waitForTimeout(400);
+  await page.evaluate(() => { window.__dpv.doUndo(); window.__dpv.flushNow(); });
+  await page.waitForTimeout(500);
+  const annullata = await stato();
+  prova('se annulli l\'anteprima con Ctrl+Z i bottoni tornano a "Crea"', annullata.crea && !annullata.rigenera && annullata.seq === nSeq, JSON.stringify([annullata.crea, annullata.rigenera, annullata.seq]));
+  await page.evaluate(() => document.querySelector('#app').classList.remove('lato-lungo'));
 
   // solo foto, poche: 3 foto per 40 s → si ripetono, e lo dice
   await page.keyboard.press('F8');

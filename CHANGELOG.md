@@ -4,6 +4,19 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.5] — 2026-10-01 · DaProdMontage con l'anteprima in alto, ogni montaggio diverso, proprietà riordinabili 🎲
+
+### DaProdMontage: prima lo guardi, poi lo importi
+- **L'anteprima sta in alto, nel monitor**: premi **✨ CREA IL MONTAGGIO** e il montaggio parte da solo lì sopra, con tutti i comandi del monitor (play, scorri, fotogramma). La timeline non si tocca finché non sei contento.
+- **🎲 RIGENERA**: un altro montaggio con le stesse scelte, tutte le volte che vuoi. **✅ IMPORTA NELLA TIMELINE** lo tiene (resta come scheda nuova, da ritoccare) e **✖ Scarta** toglie l'anteprima e torna a com'era. Rigenerare non accumula timeline: l'anteprima di prima si toglie da sola. Se premi Ctrl+Z i bottoni tornano a "Crea".
+- **Ogni volta è originale** anche con le stesse impostazioni: a ogni generazione cambiano i movimenti delle foto (mai due uguali di fila), quanto sta ognuna, le transizioni (anche qualcuna fuori dalla lista dello stile, ma del suo ritmo), quando cadono gli effetti e le animazioni sopra, quali foto restano fuori o si ripetono se sono troppe o poche. Il tempo totale resta quello chiesto, al fotogramma.
+- Ogni montaggio ha il suo codice (**Variante K7F2Q**): lo stesso codice dà lo stesso montaggio (utile per le prove e per ritrovarne uno). Le misure delle foto e il ritmo del brano si fanno una volta sola, quindi rigenerare è veloce.
+- **Sistemato**: con il pannello Proprietà fissato (📌) la pagina Montage si apriva con la griglia rotta (una zona nera in alto e le colonne in fondo). Ora è a posto in ogni combinazione di pannelli aperti e chiusi. Sul telefono l'anteprima resta visibile sopra le scelte, e c'è il tasto **Monta** nella barra.
+
+### Proprietà: tutto chiuso e riordinabile
+- **Di partenza tutte le sezioni sono chiuse**: scegli una clip e vedi l'elenco; apri solo quello che ti serve (una volta aperta resta aperta passando da una clip all'altra).
+- **Trascina la maniglia ⠿** a destra di ogni sezione per spostarla: l'ordine si **ricorda per ogni tipo di elemento** (immagine, video, audio, titolo, animazione, generatore, effetto a tempo, transizione), anche chiudendo e riaprendo il programma. Il bottone **↺ Ordine di partenza** in fondo lo rimette com'era per quel tipo.
+
 ## [1.1.4] — 2026-10-01 · Togliere lo sfondo, animazioni personalizzate e DaProdMontage ✨
 
 > 🤖 **Android in pausa**: questa versione esce per Windows e Mac (e nel browser).

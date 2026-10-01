@@ -15,3 +15,9 @@ export const leggi = (page, punti, vista = 0) => page.evaluate(async ([punti, vi
 /** a vicino a b (ogni canale entro tol) */
 export const vicino = (a, b, tol = 40) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
 
+
+/** le sezioni delle proprietà partono chiuse: le prove che ci lavorano dentro le aprono (e restano aperte) */
+export const apriGruppi = async (page) => {
+  await page.evaluate(() => { document.querySelectorAll('.isp-gruppo:not([open]) > summary').forEach((x) => x.click()); });
+  await page.waitForTimeout(150);
+};

@@ -32,6 +32,13 @@ interface Scelte {
   musica: string;
 }
 
+/** l'inizio del nome con cui l'anteprima sta nell'annulla (serve a riconoscerla: ogni variante ha il suo) */
+const ETICHETTA = 'DaProdMontage';
+/** un seme nuovo a ogni montaggio */
+const nuovoSeme = () => (Math.random() * 0x7fffffff) >>> 0;
+/** il seme in breve, da far vedere ("Variante K7F2Q") e da scriversi se un montaggio piace */
+const codiceSeme = (n: number) => n.toString(36).toUpperCase().padStart(5, '0').slice(-5);
+
 const DURATE = [30, 60, 90, 120, 180, 300, 600];
 const MISURE: Record<Exclude<Formato, 'auto' | 'progetto'>, [number, number]> = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080] };
 
@@ -67,6 +74,15 @@ export class Montage {
   private sinc: (() => void)[] = [];
   private visibile = false;
   private occupato = false;
+  /** l'anteprima in timeline (finché non la importi): il seme con cui è nata */
+  private anteprima: { seme: number; etichetta: string } | null = null;
+  private bRigenera: HTMLButtonElement;
+  private bImporta: HTMLButtonElement;
+  private bScarta: HTMLButtonElement;
+  private etichetta: HTMLElement;
+  /** quello che si è già misurato (qualità, pezzo migliore, battiti): rigenerare è subito */
+  private analisi = new Map<string, { punteggio: number; firma?: string; inizioMigliore?: number }>();
+  private ritmi = new Map<string, number[] | undefined>();
   /** finisce quando il montaggio è pronto (per le prove) */
   ultimo: Promise<unknown> = Promise.resolve();
 
@@ -83,6 +99,10 @@ export class Montage {
     this.campiTesto = h('div', { class: 'mt-testi' });
     this.selMusica = h('select', { class: 'mini-select largo', title: 'La musica del video', on: { change: () => { this.s.musica = this.selMusica.value; this.aggiorna(); } } }) as HTMLSelectElement;
     this.bCrea = h('button', { class: 'btn primario mt-crea', on: { click: () => void this.crea() } }, '✨ CREA IL MONTAGGIO') as HTMLButtonElement;
+    this.bRigenera = h('button', { class: 'btn mt-rigenera', title: 'Un altro montaggio con le stesse scelte: cambiano movimenti, durate, transizioni ed effetti', on: { click: () => void this.crea() } }, '🎲 RIGENERA') as HTMLButtonElement;
+    this.bImporta = h('button', { class: 'btn primario mt-importa', title: 'Tiene questo montaggio e apre la timeline per ritoccarlo', on: { click: () => this.importa() } }, '✅ IMPORTA NELLA TIMELINE') as HTMLButtonElement;
+    this.bScarta = h('button', { class: 'btn mt-scarta', title: 'Toglie l\'anteprima e torna a com\'era prima', on: { click: () => this.scarta() } }, '✖ Scarta') as HTMLButtonElement;
+    this.etichetta = h('span', { class: 'mt-variante' });
 
     const chip = (testo: string, acceso: () => boolean, fn: () => void, title = '') => {
       const b = h('button', { class: 'chip', title, on: { click: () => { fn(); this.salva(); this.sinc.forEach((f) => f()); this.aggiorna(); } } }, testo);
@@ -145,13 +165,18 @@ export class Montage {
         h('div', { class: 'isp-chips' }, ([['auto', 'Come lo stile'], ['progetto', 'Come il progetto'], ['16:9', 'Orizzontale'], ['9:16', 'Verticale'], ['1:1', 'Quadrato']] as [Formato, string][])
           .map(([f, t]) => chip(t, () => this.s.formato === f, () => { this.s.formato = f; }))),
         h('p', { class: 'nota' }, 'Il formato si cambia solo se il progetto è ancora vuoto: se no resta quello che c\'è.')),
-      this.riepilogo, this.bCrea, h('div', { class: 'mt-lavoro' }, ...this.lavoro.elementi));
+      this.riepilogo);
 
     this.el = h('section', { class: 'montage' },
       h('header', { class: 'fin-testa' }, h('b', null, 'DAPROD'), h('b', { class: 'mt-m' }, 'MONTAGE'), h('span', null, 'butta dentro le foto, scegli la festa e il programma monta da solo'),
         h('span', { class: 'live-tastiera' }, 'F8 · poi ritocchi tutto nel Montaggio')),
+      h('div', { class: 'mt-azioni' }, this.bCrea, this.bRigenera, this.bImporta, this.bScarta, this.etichetta, h('div', { class: 'mt-lavoro' }, ...this.lavoro.elementi)),
       h('div', { class: 'mt-dentro' }, colFile, colFesta, colCome));
-    store.on('doc', () => { if (this.visibile) this.rinfresca(); });
+    store.on('doc', () => {
+      // un annulla (o una modifica) ha tolto l'anteprima di mezzo: i bottoni tornano a "Crea"
+      if (this.anteprima && !this.occupato && !this.anteprimaViva()) this.anteprima = null;
+      if (this.visibile) this.rinfresca(); else this.aggiornaBarra();
+    });
     this.sincronizza();
   }
 
@@ -167,6 +192,7 @@ export class Montage {
 
   mostrata(si: boolean) {
     this.visibile = si;
+    if (!si) this.motoreFerma();
     if (si) { this.rinfresca(); void caricaFontAnimazioni().then(() => { if (this.visibile) this.disegnaFeste(); }); }
   }
 
@@ -180,6 +206,7 @@ export class Montage {
     this.disegnaMusica();
     this.sincronizza();
     this.aggiorna();
+    this.aggiornaBarra();
   }
 
   private disegnaFile() {
@@ -251,8 +278,8 @@ export class Montage {
     }));
   }
 
-  private opzioni(musica?: OpzMontage['musica']): OpzMontage {
-    return { preset: this.s.preset, durata: this.s.durata, ordine: this.s.ordine, titoli: this.s.titoli, effetti: this.s.effetti, audioVideo: this.s.audioVideo, testi: this.s.testi, seme: 12345, scarta: this.s.scarta, musica };
+  private opzioni(musica?: OpzMontage['musica'], seme = 12345): OpzMontage {
+    return { preset: this.s.preset, durata: this.s.durata, ordine: this.s.ordine, titoli: this.s.titoli, effetti: this.s.effetti, audioVideo: this.s.audioVideo, testi: this.s.testi, seme, scarta: this.s.scarta, musica };
   }
 
   /** il riassunto sotto le scelte: quante foto, quanto sta ognuna (senza analisi: serve solo a dare un'idea) */
@@ -262,7 +289,7 @@ export class Montage {
       const e = this.entrate();
       const nF = e.filter((x) => x.tipo === 'image').length, nV = e.length - nF;
       this.conta.textContent = e.length ? `${nF} foto · ${nV} video scelti` : 'Nessun file scelto';
-      this.bCrea.disabled = this.occupato || !e.length;
+      this.aggiornaBarra();
       if (!e.length) { this.riepilogo.textContent = 'Scegli almeno un file.'; return; }
       const mus = this.s.musica ? this.brani().find((m) => m.id === this.s.musica) : undefined;
       const pi = pianifica(e, this.opzioni(mus ? { media: mus.id, durata: mus.duration } : undefined));
@@ -285,18 +312,72 @@ export class Montage {
     if (nuovo) { this.s.musica = nuovo.id; this.selMusica.value = nuovo.id; this.aggiorna(); }
   }
 
-  /** il montaggio vero: legge le date, misura le foto, trova i battiti, pianifica e costruisce la timeline */
-  async crea(): Promise<void> {
+  /** i bottoni: prima "Crea", poi "Rigenera" e "Importa" finché c'è un'anteprima */
+  private aggiornaBarra() {
+    const c = !!this.anteprima;
+    const n = this.entrate().length;
+    this.bCrea.style.display = c ? 'none' : '';
+    this.bRigenera.style.display = c ? '' : 'none';
+    this.bImporta.style.display = c ? '' : 'none';
+    this.bScarta.style.display = c ? '' : 'none';
+    this.bCrea.disabled = this.occupato || !n;
+    this.bRigenera.disabled = this.occupato || !n;
+    this.bImporta.disabled = this.occupato;
+    this.bScarta.disabled = this.occupato;
+    this.etichetta.textContent = this.anteprima ? `Variante ${codiceSeme(this.anteprima.seme)}` : '';
+  }
+
+  /** l'anteprima è ancora quella che abbiamo fatto noi? (se hai cambiato qualcosa o hai annullato, non lo è più) */
+  private anteprimaViva(): boolean {
+    return !!this.anteprima && store.canUndo() && store.undoLabel() === this.anteprima.etichetta;
+  }
+
+  /** toglie l'anteprima (un solo annulla: il progetto torna com'era), se nel frattempo non è stata toccata */
+  private togliAnteprima() {
+    if (this.anteprimaViva()) store.doUndo();
+    this.anteprima = null;
+  }
+
+  private scarta() {
+    if (this.occupato) return;
+    this.motoreFerma();
+    this.togliAnteprima();
+    this.aggiornaBarra();
+    motore.vaiA(0);
+    document.dispatchEvent(new CustomEvent('dpv:adatta'));
+    avviso('Anteprima scartata', 'info', 1600);
+  }
+
+  /** tiene il montaggio: è già una timeline vera, si apre per ritoccarla */
+  private importa() {
+    if (!this.anteprima) return;
+    this.motoreFerma();
+    this.anteprima = null;
+    this.aggiornaBarra();
+    store.select([]);
+    document.dispatchEvent(new CustomEvent('dpv:pagina', { detail: 'montaggio' }));
+    motore.setMonitor('recorder');
+    motore.vaiA(0);
+    document.dispatchEvent(new CustomEvent('dpv:adatta'));
+    avviso('Montaggio messo nella timeline: ritoccalo come vuoi', 'ok', 2600);
+  }
+
+  private motoreFerma() { try { motore.stop(); } catch { /* niente */ } }
+
+  /** il montaggio vero: legge le date, misura le foto, trova i battiti, pianifica e lo mette in timeline come anteprima.
+   *  Ogni volta il seme è nuovo (o quello dato, per le prove): stesse scelte, montaggio diverso. */
+  async crea(seme?: number): Promise<void> {
     if (this.occupato) return this.ultimo as Promise<void>;
     this.occupato = true;
-    this.bCrea.disabled = true;
+    this.aggiornaBarra();
     const lavoro = (async () => {
       const lav = this.lavoro;
       lav.avvia('Guardo i file…');
       try {
+        this.motoreFerma();
         const lista = this.disponibili().filter((m) => this.incluse.has(m.id));
         const entrate = this.entrate();
-        // quando sono state scattate (EXIF) e, se serve, quanto sono venute bene
+        // quando sono state scattate (EXIF) e, se serve, quanto sono venute bene (una volta sola per file)
         for (let i = 0; i < lista.length; i++) {
           const m = lista[i], e = entrate[i];
           lav.imposta(`Guardo ${m.name} (${i + 1} di ${lista.length})`, (i / lista.length) * 0.6);
@@ -306,6 +387,8 @@ export class Montage {
             if (d) e.data = d;
           }
           if (this.s.scarta) {
+            const gia = this.analisi.get(m.id);
+            if (gia) { Object.assign(e, gia); continue; }
             try {
               if (m.type === 'image') { const px = await pixelAl(m.id, 0, 128); if (px) { const q = misuraQualita(px); e.punteggio = q.punteggio; e.firma = q.firma; } }
               else if (m.duration > 4) {
@@ -314,47 +397,67 @@ export class Montage {
                 for (let k = 1; k <= 6; k++) { const t = (m.duration * k) / 7; const px = await pixelAl(m.id, t, 96); if (!px) continue; const q = misuraQualita(px); if (q.punteggio > best) { best = q.punteggio; tb = t; } }
                 if (best >= 0) { e.punteggio = best; e.inizioMigliore = Math.max(0, tb - 1); }
               }
+              this.analisi.set(m.id, { punteggio: e.punteggio, firma: e.firma, inizioMigliore: e.inizioMigliore });
             } catch { /* resta il valore di mezzo */ }
           }
         }
         let musica: OpzMontage['musica'];
         const mus = this.s.musica ? this.brani().find((m) => m.id === this.s.musica) : undefined;
         if (mus) {
-          lav.imposta('Ascolto il ritmo del brano…', 0.65);
-          const rit = await battitiDi(mus.id, (k) => lav.imposta('Ascolto il ritmo del brano…', 0.65 + k * 0.2)).catch(() => null);
-          musica = { media: mus.id, durata: mus.duration, nome: mus.name, battiti: rit && rit.sicurezza > 0.15 ? rit.battiti : undefined };
-          if (rit && musica.battiti) avviso(`♪ Ritmo trovato: ${Math.round(rit.bpm)} battiti al minuto`, 'info', 2200);
+          let battiti = this.ritmi.get(mus.id);
+          if (!this.ritmi.has(mus.id)) {
+            lav.imposta('Ascolto il ritmo del brano…', 0.65);
+            const rit = await battitiDi(mus.id, (k) => lav.imposta('Ascolto il ritmo del brano…', 0.65 + k * 0.2)).catch(() => null);
+            battiti = rit && rit.sicurezza > 0.15 ? rit.battiti : undefined;
+            this.ritmi.set(mus.id, battiti);
+            if (rit && battiti) avviso(`♪ Ritmo trovato: ${Math.round(rit.bpm)} battiti al minuto`, 'info', 2200);
+          }
+          musica = { media: mus.id, durata: mus.duration, nome: mus.name, battiti };
         }
         lav.imposta('Monto…', 0.9);
-        const opz = this.opzioni(musica);
+        const usato = seme ?? nuovoSeme();
+        const opz = this.opzioni(musica, usato);
         const piano = pianifica(entrate, opz);
         if (!piano.voci.length) throw new Error('Non c\'è niente da montare');
         const pr = presetMontage(this.s.preset)!;
+        // la scorsa anteprima si toglie (un annulla), poi si fa la nuova
+        this.togliAnteprima();
         // il formato, solo se il progetto è ancora vuoto
         const vuoto = store.doc.clips.length === 0 && !(store.doc.sequenze ?? []).some((q) => q.clips?.length);
         const f = this.s.formato === 'auto' ? (pr.formato === 'verticale' ? '9:16' : pr.formato === 'quadrato' ? '1:1' : 'progetto') : this.s.formato;
-        const info = store.edit('DaProdMontage', (pp) => {
+        const etichetta = `${ETICHETTA} · variante ${codiceSeme(usato)}`;
+        store.edit(etichetta, (pp) => {
           if (vuoto && f !== 'progetto') { const [w, hh] = MISURE[f]; pp.w = w; pp.h = hh; }
           return costruisciSequenza(pp, piano, opz);
         });
+        this.anteprima = { seme: usato, etichetta };
         lav.fine(`Fatto: ${piano.voci.length} cose in ${fmtDur(piano.durata)}`);
         store.select([]);
-        document.dispatchEvent(new CustomEvent('dpv:pagina', { detail: 'montaggio' }));
         motore.setMonitor('recorder');
         motore.vaiA(0);
         document.dispatchEvent(new CustomEvent('dpv:adatta'));
-        avviso(`✨ ${pr.nome}: ${piano.voci.length} cose in ${fmtDur(piano.durata)}${piano.note.length ? ' · ' + piano.note[0] : ''}. Premi Spazio per vederlo (${info.tracce} tracce)`, 'ok', 6000);
+        if (this.partenza) motore.play(1);
+        else motore.vaiA(Math.round(Math.min(1.5, piano.durata / 10) * (store.doc.rate.num / store.doc.rate.den)));
+        this.riassuntoAnteprima(piano.voci.length, piano.durata, piano.note);
         this.ultimo = Promise.resolve(piano);
       } catch (e) {
         lav.ferma('Non riuscito');
         avviso('DaProdMontage: ' + (e instanceof Error ? e.message : String(e)), 'errore', 5000);
       } finally {
         this.occupato = false;
+        this.aggiornaBarra();
         this.aggiorna();
       }
     })();
     this.ultimo = lavoro;
     return lavoro;
   }
-}
 
+  /** il montaggio parte da solo appena è pronto (le prove lo spengono) */
+  partenza = true;
+
+  private riassuntoAnteprima(n: number, durata: number, note: string[]) {
+    const pr = presetMontage(this.s.preset)!;
+    avviso(`${pr.emoji} ${pr.nome}: ${n} cose in ${fmtDur(durata)}${note.length ? ' · ' + note[0] : ''}. Ti piace? Importalo; se no, rigenera`, 'ok', 5000);
+  }
+}
