@@ -16,6 +16,9 @@ import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, haCentro, 
 import { SUONI } from '../core/suoni';
 import { ascoltaSuono } from '../media/audio';
 import { bolla, MOVIMENTI, movimentoPronto, presentazione, SFONDI } from '../core/cornici';
+import { CHIAVI, coloriChiave, QUALITA_RITAGLIO, SPILL0 } from '../core/sfondo';
+import { modelliPer, modelloRitaglio, maschereAggiornate } from '../media/ritaglio';
+import { azzeraPunti, elaboraClip, fermaClip, impostaModo, lavoroDi, modiPossibili, modoSfondo, NOMI_MODO, provaOggetto, scegliColore, scegliOggetto, statoMaschere, togliColoreExtra, togliPunto, trovaColore } from './sfondo';
 
 type Campo = { el: HTMLElement; aggiorna: () => void };
 
@@ -35,13 +38,17 @@ export class Ispettore {
   private corpo: HTMLElement;
   private campi: Campo[] = [];
   private firma = '';
-  private aperti = new Set<string>(['fxv', 'fxa', 'immagine', 'titolo', 'audio', 'generatore', 'trin', 'durata']);
+  private aperti = new Set<string>(['fxv', 'fxa', 'immagine', 'titolo', 'audio', 'generatore', 'trin', 'durata', 'sfondo']);
 
   constructor() {
     this.corpo = h('div', { class: 'isp-corpo' });
     this.el = h('div', { class: 'ispettore' }, this.corpo);
     store.on('sel', () => this.costruisci());
     store.on('doc', () => this.costruisci());
+    // le maschere dell'AI sono pronte (o è cambiato il lavoro): il gruppo "Togli lo sfondo" si rifà
+    const rifai = () => { this.firma = ''; this.costruisci(); };
+    document.addEventListener('dpv:maschere', rifai);
+    document.addEventListener('dpv:lavoro-sfondo', rifai);
     this.costruisci();
   }
 
@@ -52,7 +59,8 @@ export class Ispettore {
   private costruisci() {
     const cs = this.sel();
     // si ricostruisce se cambia la scelta o se cambiano i blocchi FX (le transizioni della clip scelta)
-    const firma = cs.map((c) => c.id + c.kind + (c.fxb ? c.fxb.id : '')).join(',') + '|' + store.doc.clips.filter((c) => c.kind === 'fx').map((c) => c.id + c.start + ':' + c.len + (c.fxb?.id ?? '')).join(',');
+    const firma = cs.map((c) => c.id + c.kind + (c.fxb ? c.fxb.id : '') + ':' + c.fx.key + (c.fx.keyColori?.length ?? 0) + (c.ritaglio ? c.ritaglio.modo + (c.ritaglio.punti?.length ?? 0) + (maschereAggiornate(c) ? 'ok' : 'no') : ''))
+      .join(',') + '|' + store.doc.clips.filter((c) => c.kind === 'fx').map((c) => c.id + c.start + ':' + c.len + (c.fxb?.id ?? '')).join(',');
     if (firma === this.firma && this.campi.length) { for (const c of this.campi) c.aggiorna(); return; }
     this.firma = firma;
     this.campi = [];
@@ -130,6 +138,7 @@ export class Ispettore {
         this.cursore('Ombra', 0, 100, 1, (c) => Math.round((c.tf.ombra ?? 0) * 100), (c, v) => { c.tf.ombra = v / 100; }, '%', video),
         video.some((c) => c.opKeys.length) ? h('p', { class: 'nota' }, 'Questa clip ha una linea elastica: la trasparenza cambia nel tempo. Muovere l\'opacità la toglie.') : null,
       ]));
+      out.push(this.sfondoGruppo(video));
       const sg = this.seguiGruppo(video);
       if (sg) out.push(sg);
       out.push(this.gruppo('colore', 'Colore della clip', [
@@ -186,7 +195,7 @@ export class Ispettore {
       ]));
     }
     if (video.length) {
-      out.push(this.gruppo('avanzate', 'Avanzate (posizione, ritaglio, chiave)', [
+      out.push(this.gruppo('avanzate', 'Avanzate (posizione e ritaglio)', [
         this.cursore('Orizzontale', -p.w, p.w, 1, (c) => Math.round(c.tf.x), (c, v) => { c.tf.x = v; }, 'px', video),
         this.cursore('Verticale', -p.h, p.h, 1, (c) => Math.round(c.tf.y), (c, v) => { c.tf.y = v; }, 'px', video),
         this.cursore('Rotazione', -180, 180, 0.5, (c) => c.tf.rot, (c, v) => { c.tf.rot = v; }, '°', video),
@@ -195,15 +204,86 @@ export class Ispettore {
         this.cursore('Ritaglio sopra', 0, 50, 0.5, (c) => c.tf.cropT * 100, (c, v) => { c.tf.cropT = v / 100; }, '%', video),
         this.cursore('Ritaglio sotto', 0, 50, 0.5, (c) => c.tf.cropB * 100, (c, v) => { c.tf.cropB = v / 100; }, '%', video),
         this.cursore('Tinta', -180, 180, 1, (c) => c.fx.hue, (c, v) => { c.fx.hue = v; }, '°', video),
-        this.scelta('Chiave', [['none', 'Nessuna'], ['luma', 'Luminanza (toglie il nero)'], ['chroma', 'Croma (green / blue screen)']], (c) => c.fx.key, (c, v) => { c.fx.key = v as Clip['fx']['key']; }, video),
-        this.colore('Colore della chiave', (c) => c.fx.keyColor, (c, v) => { c.fx.keyColor = v; }, video),
-        this.pulsanti([['Green screen', () => store.edit('Chiave verde', () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = '#00b140'; } })], ['Blue screen', () => store.edit('Chiave blu', () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = '#0047bb'; } })]]),
-        this.cursore('Soglia', 0, 100, 1, (c) => Math.round(c.fx.keyLevel * 100), (c, v) => { c.fx.keyLevel = v / 100; }, '', video),
-        this.cursore('Morbidezza', 0, 50, 1, (c) => Math.round(c.fx.keySoft * 100), (c, v) => { c.fx.keySoft = v / 100; }, '', video),
-        this.spunta('Inverti la chiave', (c) => c.fx.keyInvert, (c, v) => { c.fx.keyInvert = v; }, video),
       ], true));
     }
     this.corpo.replaceChildren(...out);
+  }
+
+  /** "Togli lo sfondo": il colore (green screen), la luce, o l'AI che lo toglie da sola (persona, soggetto, oggetti coi clic) */
+  private sfondoGruppo(video: Clip[]): HTMLElement {
+    const c0 = video[0];
+    const ids = video.map((c) => c.id);
+    const modo = modoSfondo(c0);
+    const righe: (HTMLElement | null)[] = [];
+    righe.push(h('div', { class: 'isp-chips' }, modiPossibili(c0).map((m) => h('button', {
+      class: 'chip' + (m === modo ? ' acceso' : ''), title: NOMI_MODO[m], on: { click: () => { if (m !== modo) impostaModo(ids, m); } },
+    }, NOMI_MODO[m]))));
+    if (modo === 'nessuno') {
+      righe.push(h('p', { class: 'nota' }, 'Scegli come togliere lo sfondo: col colore se hai girato su un fondale verde o blu, con la luce per un fondo nero o bianco, oppure lascia fare all\'AI (una persona, un soggetto qualunque, o l\'oggetto che clicchi). Quello che togli diventa trasparente: metti un\'altra clip sotto.'));
+    }
+    if (modo === 'colori') {
+      const colori = coloriChiave(c0.fx);
+      righe.push(h('div', { class: 'sf-colori' },
+        this.colore('Colore da togliere', (c) => c.fx.keyColor, (c, v) => { c.fx.keyColor = v; }, video),
+        ...colori.slice(1).map((col, i) => h('div', { class: 'isp-riga sf-extra' },
+          h('label', null, 'Altro colore'),
+          h('input', { type: 'color', value: col, on: { change: (e: Event) => store.edit('Colore da togliere', (pp) => { const z = clipById(pp, c0.id); if (z?.fx.keyColori) z.fx.keyColori[i] = (e.target as HTMLInputElement).value; }) } }),
+          h('button', { class: 'btn-mini', title: 'Toglie questo colore', on: { click: () => togliColoreExtra(c0.id, i) } }, '✕')))));
+      righe.push(this.pulsanti([
+        ['💧 Contagocce sul monitor', () => scegliColore(c0.id, false)],
+        ...(colori.length < 3 ? [['＋ Un altro colore', () => scegliColore(c0.id, true)] as [string, () => void]] : []),
+        ['✨ Trovalo da solo', () => void trovaColore(c0.id)],
+      ]));
+      righe.push(this.pulsanti(CHIAVI.map((k): [string, () => void] => [k.nome, () => store.edit('Chiave ' + k.nome, () => { for (const c of video) { c.fx.key = 'chroma'; c.fx.keyColor = k.colore; delete c.fx.keyColori; } })])));
+      righe.push(
+        this.cursore('Soglia', 0, 100, 1, (c) => Math.round(c.fx.keyLevel * 100), (c, v) => { c.fx.keyLevel = v / 100; }, '', video),
+        this.cursore('Morbidezza', 0, 50, 1, (c) => Math.round(c.fx.keySoft * 100), (c, v) => { c.fx.keySoft = v / 100; }, '', video),
+        this.cursore('Bordo', -100, 100, 1, (c) => Math.round((c.fx.keyBordo ?? 0) * 100), (c, v) => { c.fx.keyBordo = v / 100; }, '', video),
+        this.cursore('Sfuma il bordo', 0, 100, 1, (c) => Math.round((c.fx.keySfuma ?? 0) * 100), (c, v) => { c.fx.keySfuma = v / 100; }, '', video),
+        this.cursore('Pulisci', 0, 100, 1, (c) => Math.round((c.fx.keyPulisci ?? 0) * 100), (c, v) => { c.fx.keyPulisci = v / 100; }, '', video),
+        this.cursore('Via il riflesso', 0, 100, 1, (c) => Math.round((c.fx.keySpill ?? SPILL0) * 100), (c, v) => { c.fx.keySpill = v / 100; }, '', video),
+        this.spunta('Inverti: tieni il fondale', (c) => c.fx.keyInvert, (c, v) => { c.fx.keyInvert = v; }, video),
+        h('p', { class: 'nota' }, 'Guarda il risultato col tasto SFONDO sopra il monitor: la maschera (bianco = resta) o il soggetto sugli scacchi. Bordo: − stringe il soggetto, + lo allarga. Pulisci toglie i puntini; "Via il riflesso" toglie dal bordo il colore del fondale. Se restano aloni alza la Soglia; se il soggetto si mangia, abbassala.'));
+    }
+    if (modo === 'luma') {
+      righe.push(
+        this.cursore('Soglia', 0, 100, 1, (c) => Math.round(c.fx.keyLevel * 100), (c, v) => { c.fx.keyLevel = v / 100; }, '', video),
+        this.cursore('Morbidezza', 0, 50, 1, (c) => Math.round(c.fx.keySoft * 100), (c, v) => { c.fx.keySoft = v / 100; }, '', video),
+        this.spunta('Inverti: toglie il bianco', (c) => c.fx.keyInvert, (c, v) => { c.fx.keyInvert = v; }, video));
+    }
+    if (modo === 'persona' || modo === 'soggetto' || modo === 'oggetti') {
+      const r = c0.ritaglio!;
+      const mod = modelloRitaglio(r.modello);
+      righe.push(
+        this.scelta('Modello', modelliPer(modo).map((m) => [m.id, `${m.nome} — ${m.info}`] as [string, string]), (c) => c.ritaglio?.modello ?? '', (c, v) => { if (c.ritaglio) c.ritaglio.modello = v; }, video),
+        this.scelta('Precisione', QUALITA_RITAGLIO.map((q, i) => [String(i), `${q.nome} (${q.hz} fotogrammi al secondo)`] as [string, string]), (c) => String(c.ritaglio?.qualita ?? 1), (c, v) => { if (c.ritaglio) c.ritaglio.qualita = Number(v); }, video));
+      if (modo === 'oggetti') {
+        const punti = r.punti ?? [];
+        righe.push(this.pulsanti([
+          ['🖱 Clicca l\'oggetto sul monitor', () => scegliOggetto(c0.id)],
+          ['Prova su questo fotogramma', () => void provaOggetto(c0.id)],
+          ...(punti.length ? [['Toglie i clic', () => azzeraPunti(c0.id)] as [string, () => void]] : []),
+        ]));
+        righe.push(punti.length
+          ? h('div', { class: 'isp-chips' }, punti.map((q, i) => h('button', { class: 'chip ' + (q.dentro ? 'acceso' : ''), title: 'Clic: toglie questo punto', on: { click: () => togliPunto(c0.id, i) } }, (q.dentro ? '＋ ' : '－ ') + (i + 1))))
+          : h('p', { class: 'nota' }, 'Metti il cursore su un fotogramma dove l\'oggetto si vede bene, premi "Clicca l\'oggetto" e clicca sopra (più clic se serve). Alt+clic su una parte che NON è l\'oggetto.'));
+        righe.push(this.spunta('Segui l\'oggetto nel video', (c) => c.ritaglio?.segui !== false, (c, v) => { if (c.ritaglio) c.ritaglio.segui = v; }, video));
+      }
+      const lav = lavoroDi(c0.id);
+      const inCorso = !!lav && !lav.finito;
+      righe.push(this.pulsanti([
+        [inCorso ? '⏹ Ferma' : '✂ Togli lo sfondo', () => { if (inCorso) fermaClip(c0.id); else void elaboraClip(c0.id); }],
+      ]));
+      if (lav) righe.push(h('div', { class: 'sf-lavoro' }, ...lav.barra.elementi));
+      const st = statoMaschere(c0);
+      righe.push(h('p', { class: 'nota' + (st.ok ? ' ok' : '') }, st.testo));
+      righe.push(
+        this.cursore('Bordo', -100, 100, 1, (c) => Math.round((c.ritaglio?.bordo ?? 0) * 100), (c, v) => { if (c.ritaglio) c.ritaglio.bordo = v / 100; }, '', video),
+        this.cursore('Morbidezza', 0, 100, 1, (c) => Math.round((c.ritaglio?.morbido ?? 0) * 100), (c, v) => { if (c.ritaglio) c.ritaglio.morbido = v / 100; }, '', video),
+        this.spunta('Inverti: tieni lo sfondo', (c) => !!c.ritaglio?.inverti, (c, v) => { if (c.ritaglio) c.ritaglio.inverti = v || undefined; }, video),
+        h('p', { class: 'nota' }, `Il modello${mod ? ' ' + mod.nome + ' (licenza ' + mod.licenza + ')' : ''} si scarica da Hugging Face la prima volta e poi resta nel computer; le immagini non escono mai. Guarda il risultato col tasto SFONDO sopra il monitor. La velocità dipende dalla scheda video: senza, scegli "Veloce".`));
+    }
+    return this.gruppo('sfondo', 'Togli lo sfondo', righe);
   }
 
   /** "Segui": un oggetto tracciato in una ripresa, e chi lo segue (titoli, immagini, centri degli effetti) */

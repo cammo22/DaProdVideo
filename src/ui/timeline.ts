@@ -1136,6 +1136,7 @@ export class Timeline {
       if (isVideoClip(c) && c.opacity < 1 && !c.opKeys.length) nome += `  ${Math.round(c.opacity * 100)}%`;
       if (c.speed && Math.abs(c.speed - 1) > 0.005) nome += `  ⏩${etichettaVelocita(c.speed)}${c.fluido ? '≈' : ''}`;
       if (c.fx.key !== 'none') nome += '  ⬚chiave';
+      if (c.ritaglio) nome += '  ✂ sfondo AI';
       if (this.haVolume(c, t) && !c.gainKeys.length && c.gain !== 0) nome += `  ${c.gain > 0 ? '+' : ''}${c.gain} dB`;
       // il nome parte dopo la maniglia della dissolvenza (il quadratino in alto a sinistra)
       const tx = Math.max(x + (w >= 40 ? 14 : 4), 4);
