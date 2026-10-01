@@ -62,6 +62,10 @@ export interface Voce {
   moto: Moto;
   /** è la seconda volta che compare (non c'erano abbastanza file per riempire il tempo) */
   ripetuta: boolean;
+  /** quanto è forte il movimento rispetto a quello dello stile (cambia a ogni generazione) */
+  forza: number;
+  /** da che parte parte il movimento (0 o 1) */
+  verso: number;
 }
 
 export interface PianoMontage {
@@ -191,9 +195,12 @@ export function pianifica(entrate: EntrataMontage[], o: OpzMontage): PianoMontag
   // troppe per il tempo: via le peggiori, ma non la prima e l'ultima
   const min = (e: EntrataMontage) => limiti(e, pr).min;
   let sfoltite = 0;
+  // il caso di questa generazione: stesse scelte, esito diverso (lo stesso seme dà sempre lo stesso montaggio)
+  const rnd = casoSeme(Math.imul(o.seme | 0, 2654435761) ^ 0x5bd1e995);
+  const rumore = new Map<EntrataMontage, number>(lista.map((e) => [e, (rnd() - 0.5) * 0.14]));
   while (lista.length > 2 && lista.reduce((a, e) => a + min(e), 0) > A) {
     let idx = -1, peggio = Infinity;
-    for (let i = 1; i < lista.length - 1; i++) if (lista[i].punteggio <= peggio) { peggio = lista[i].punteggio; idx = i; }
+    for (let i = 1; i < lista.length - 1; i++) { const v = lista[i].punteggio + (rumore.get(lista[i]) ?? 0); if (v <= peggio) { peggio = v; idx = i; } }
     if (idx < 0) break;
     lista.splice(idx, 1); sfoltite++;
   }
@@ -203,16 +210,18 @@ export function pianifica(entrate: EntrataMontage[], o: OpzMontage): PianoMontag
   // pochi per il tempo: si ripetono i più belli (in fondo, in ordine di data) finché non basta
   let tutte = lista.map((e) => ({ e, ripetuta: false }));
   let ripetute = 0;
-  let lim = tutte.map((x) => limiti(x.e, pr));
+  // ogni foto sta un po' di più o un po' di meno: il ritmo non è mai uguale
+  const variata = (e: EntrataMontage): Lim => { const l = limiti(e, pr); return { ...l, tip: Math.min(l.max, Math.max(l.min, l.tip * (0.72 + rnd() * 0.56))) }; };
+  let lim = tutte.map((x) => variata(x.e));
   const sommaMax = (l: Lim[]) => l.reduce((a, b) => a + b.max, 0);
   if (sommaMax(lim) < A) {
-    const migliori = [...lista].sort((a, b) => b.punteggio - a.punteggio);
+    const migliori = [...lista].sort((a, b) => (b.punteggio + (rumore.get(b) ?? 0)) - (a.punteggio + (rumore.get(a) ?? 0)));
     const giri = Math.min(4, Math.ceil(A / Math.max(1, sommaMax(lim))));
     for (let g = 0; g < giri && sommaMax(lim) < A; g++) {
       const extra = migliori.slice(0, Math.max(1, Math.ceil(lista.length * 0.6))).sort((a, b) => lista.indexOf(a) - lista.indexOf(b));
       for (const e of extra) {
         if (sommaMax(lim) >= A) break;
-        tutte.push({ e, ripetuta: true }); lim.push(limiti(e, pr)); ripetute++;
+        tutte.push({ e, ripetuta: true }); lim.push(variata(e)); ripetute++;
       }
     }
     if (ripetute) note.push(`${ripetute} foto compaiono due volte: con quelle che hai non si arriva a ${fmtDur(A)}`);
@@ -232,6 +241,16 @@ export function pianifica(entrate: EntrataMontage[], o: OpzMontage): PianoMontag
   const voci: Voce[] = [];
   let t = 0;
   const mosse: Moto[] = pr.moto.length ? pr.moto : ['zoomIn'];
+  const EXTRA: Moto[] = ['zoomIn', 'zoomOut', 'panSx', 'panDx', 'diagonale'];
+  let precedente: Moto | null = null;
+  /** un movimento a caso fra quelli dello stile (ogni tanto uno in più), mai due uguali di fila */
+  const scegliMoto = (): Moto => {
+    const da = rnd() < 0.18 ? EXTRA : mosse;
+    const pool = da.filter((m) => m !== precedente);
+    const m = (pool.length ? pool : da)[Math.floor(rnd() * (pool.length ? pool.length : da.length))];
+    precedente = m;
+    return m;
+  };
   const usati = new Map<string, number>();
   tutte.forEach((x, i) => {
     const e = x.e;
@@ -244,17 +263,27 @@ export function pianifica(entrate: EntrataMontage[], o: OpzMontage): PianoMontag
       const base = e.inizioMigliore ?? Math.min(e.durata * 0.12, Math.max(0, e.durata - len));
       srcIn = Math.max(0, Math.min(e.durata - len, base + vol * len));
     }
-    voci.push({ entrata: e, start: t, len, srcIn, moto: mosse[i % mosse.length], ripetuta: x.ripetuta });
+    voci.push({ entrata: e, start: t, len, srcIn, moto: scegliMoto(), ripetuta: x.ripetuta, forza: 0.8 + rnd() * 0.45, verso: rnd() < 0.5 ? 0 : 1 });
     t += len;
   });
 
   // transizioni sui tagli: mai più lunghe del 45% della più corta delle due vicine
   const transizioni: PianoMontage['transizioni'] = [];
   const idsTr = pr.transizioni.length ? pr.transizioni : ['mix'];
+  // ogni tanto una transizione fuori dalla lista dello stile, ma del suo ritmo (se no sarebbero sempre le stesse)
+  const FANTASIA: Record<PresetMontage['ritmo'], string[]> = {
+    lento: ['mix', 'dip'],
+    medio: ['mix', 'dve:301', 'dve:351', 'dip'],
+    veloce: ['dve:301', 'dve:351', 'dve:321', 'dve:331', 'mix'],
+  };
+  let trPrima = '';
   for (let i = 1; i < voci.length; i++) {
-    const len = Math.min(pr.durTr, 0.45 * Math.min(voci[i - 1].len, voci[i].len));
+    const len = Math.min(pr.durTr * (0.85 + rnd() * 0.35), 0.45 * Math.min(voci[i - 1].len, voci[i].len));
     if (len < 0.2) continue;
-    transizioni.push({ id: idsTr[(i - 1) % idsTr.length], centro: voci[i].start, len });
+    const pool = (rnd() < 0.25 ? FANTASIA[pr.ritmo] : idsTr).filter((x) => x !== trPrima);
+    const id = pool.length ? pool[Math.floor(rnd() * pool.length)] : idsTr[0];
+    trPrima = id;
+    transizioni.push({ id, centro: voci[i].start, len });
   }
 
   // titoli: apertura sopra le prime foto, chiusura sopra le ultime
@@ -270,18 +299,23 @@ export function pianifica(entrate: EntrataMontage[], o: OpzMontage): PianoMontag
   const sovr: PianoMontage['sovrapposizioni'] = [];
   const eff: PianoMontage['effetti'] = [];
   if (o.effetti) {
-    for (const s of pr.sovrapposizioni) {
+    pr.sovrapposizioni.forEach((s, k) => {
+      // si sposta un po' e ogni tanto salta il giro (ma la prima c'è sempre)
+      if (k > 0 && pr.sovrapposizioni.length >= 3 && rnd() < 0.15) return;
       const v = typeof s.v === 'function' ? s.v(o.testi) : s.v ?? {};
       const an = animazione(s.anim) ? nuovaAnim(s.anim, v) : null;
-      const start = s.da * A, len = (s.a - s.da) * A;
+      // la durata varia un po' ma non esce mai dal montaggio (quelle che durano quasi tutto restano com'erano)
+      const intera = (s.a - s.da) * A;
+      const len = Math.min(intera * (0.85 + rnd() * 0.3), intera >= 0.9 * A ? intera : 0.96 * A);
+      const start = Math.max(Math.min(s.da * A, 0.02 * A), Math.min(A - len - 0.02 * A, s.da * A + (rnd() - 0.5) * 0.08 * A));
       if (an && len >= 2) sovr.push({ anim: an, start, len });
-    }
+    });
     for (const e of pr.effetti) {
       if (e.quando === 'tutto') { eff.push({ id: e.id, start: 0, len: e.durata ?? A }); continue; }
       if (e.quando === 'tagli') {
-        for (let i = e.ogni; i < voci.length; i += e.ogni) eff.push({ id: e.id, start: Math.max(0, voci[i].start - e.durata / 2), len: e.durata });
+        for (let i = e.ogni + (rnd() < 0.5 ? 0 : 1); i < voci.length; i += e.ogni + (rnd() < 0.3 ? 1 : 0)) eff.push({ id: e.id, start: Math.max(0, voci[i].start - e.durata / 2), len: e.durata * (0.85 + rnd() * 0.3) });
       } else {
-        for (let s = e.da ?? e.ogni; s + e.durata < A - 2; s += e.ogni) eff.push({ id: e.id, start: s, len: e.durata });
+        for (let s = (e.da ?? e.ogni) * (0.8 + rnd() * 0.4); s + e.durata < A - 2; s += e.ogni * (0.8 + rnd() * 0.4)) eff.push({ id: e.id, start: s, len: e.durata });
       }
     }
   }
@@ -370,7 +404,7 @@ export function costruisciSequenza(p: Project, piano: PianoMontage, o: OpzMontag
   piano.voci.forEach((v, i) => {
     const m = mediaDi(v.entrata.media);
     const len = durF[i];
-    const mt = m ? moto(p, m, v.moto, pr.forzaMoto, i) : { tf: { ...TF0 } };
+    const mt = m ? moto(p, m, v.moto, pr.forzaMoto * v.forza, v.verso) : { tf: { ...TF0 } };
     const link = v.entrata.tipo === 'video' && v.entrata.audio && o.audioVideo > -50 ? uid('l') : undefined;
     const c = newClip('media', tFoto.id, a, len, { media: v.entrata.media, name: v.entrata.nome, srcIn: v.srcIn, tf: mt.tf, tfFine: mt.tfFine, link, fx: { ...FX0, effetti: pr.look.length ? [...pr.look] : undefined } });
     if (i === 0) c.fadeIn = Math.min(Math.round(r * 0.8), Math.floor(len / 2));

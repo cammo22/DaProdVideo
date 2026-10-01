@@ -39,7 +39,10 @@ export class Ispettore {
   private corpo: HTMLElement;
   private campi: Campo[] = [];
   private firma = '';
-  private aperti = new Set<string>(['fxv', 'fxa', 'immagine', 'titolo', 'audio', 'generatore', 'trin', 'durata', 'sfondo', 'animazione']);
+  /** le sezioni aperte (di partenza sono tutte chiuse; si ricorda finché il programma è aperto) */
+  private aperti = new Set<string>();
+  /** di che tipo è quello che si sta guardando (clip video, audio, titolo…): l'ordine delle sezioni si ricorda per ognuno */
+  private chiave = '';
 
   constructor() {
     this.corpo = h('div', { class: 'isp-corpo' });
@@ -79,7 +82,7 @@ export class Ispettore {
       return;
     }
     const blocchi = cs.filter((c) => c.kind === 'fx');
-    if (blocchi.length === cs.length) { this.corpo.replaceChildren(...this.blocchi(blocchi)); return; }
+    if (blocchi.length === cs.length) { const tr = blocchi[0].fxb?.tipo === 'transizione'; this.corpo.replaceChildren(...this.conOrdine(tr ? 'blocco:transizione' : 'blocco:effetto', this.blocchi(blocchi))); return; }
     const video = cs.filter(isVideoClip);
     const audio = cs.filter((c) => !isVideoClip(c) && c.kind !== 'fx');
     const primo = video[0] ?? audio[0];
@@ -149,7 +152,7 @@ export class Ispettore {
         this.cursore('Temperatura', -100, 100, 1, (c) => Math.round((c.fx.temp ?? 0) * 100), (c, v) => { c.fx.temp = v / 100; }, '', video),
         this.pulsanti([['Azzera', () => store.edit('Azzera colore', () => { for (const c of video) { c.fx.bright = 0; c.fx.contrast = 1; c.fx.sat = 1; c.fx.hue = 0; c.fx.temp = 0; c.fx.look = 'none'; c.fx.effetti = undefined; } })]]),
         h('p', { class: 'nota' }, 'Il colore automatico e il look di tutto il montaggio sono nella pagina Finale.'),
-      ], true));
+      ]));
     }
     if (audio.length) {
       out.push(this.gruppo('audio', 'Volume', [
@@ -207,9 +210,10 @@ export class Ispettore {
         this.cursore('Ritaglio sopra', 0, 50, 0.5, (c) => c.tf.cropT * 100, (c, v) => { c.tf.cropT = v / 100; }, '%', video),
         this.cursore('Ritaglio sotto', 0, 50, 0.5, (c) => c.tf.cropB * 100, (c, v) => { c.tf.cropB = v / 100; }, '%', video),
         this.cursore('Tinta', -180, 180, 1, (c) => c.fx.hue, (c, v) => { c.fx.hue = v; }, '°', video),
-      ], true));
+      ]));
     }
-    this.corpo.replaceChildren(...out);
+    const chiaveClip = (primo.kind === 'title' ? (primo.gen?.anim ? 'animazione' : 'titolo') : primo.kind === 'media' ? (m?.type === 'image' ? 'immagine' : isVideoClip(primo) ? 'video' : 'audio') : 'generatore');
+    this.corpo.replaceChildren(...this.conOrdine('clip:' + chiaveClip, out));
   }
 
   /** le animazioni del catalogo: quale, e tutti i campi che ha (testi, colori, numeri), con i loro valori */
@@ -357,7 +361,7 @@ export class Ispettore {
       righe.push(this.scelta('Segue', opz, get, (c, v) => agganciaSegue(store.doc, c, v), cs));
       if (get(c0)) righe.push(h('p', { class: 'nota' }, 'Segue l\'oggetto: trascinandolo sul monitor lo sposti rispetto a lui (lo scarto).'));
     }
-    return righe.length ? this.gruppo('segui', 'Segui un oggetto', righe, !c0.traccia && !get(c0)) : null;
+    return righe.length ? this.gruppo('segui', 'Segui un oggetto', righe) : null;
   }
 
   /** le transizioni all'inizio e alla fine della clip: i blocchetti che stanno su quei bordi */
@@ -551,11 +555,78 @@ export class Ispettore {
   }
 
   // ——— mattoncini ———
-  private gruppo(id: string, titolo: string, righe: (HTMLElement | null)[], chiuso = false): HTMLElement {
-    const aperto = this.aperti.has(id) || (!chiuso && !this.aperti.has('!' + id));
-    const el = h('details', { class: 'isp-gruppo', open: aperto }, h('summary', null, titolo), ...righe.filter(Boolean) as HTMLElement[]);
-    el.addEventListener('toggle', () => { if ((el as HTMLDetailsElement).open) { this.aperti.add(id); this.aperti.delete('!' + id); } else { this.aperti.delete(id); this.aperti.add('!' + id); } });
+  private gruppo(id: string, titolo: string, righe: (HTMLElement | null)[]): HTMLElement {
+    const grip = h('span', { class: 'isp-grip', title: 'Trascina per spostare la sezione (l\'ordine si ricorda)' }, '⠿');
+    const el = h('details', { class: 'isp-gruppo', open: this.aperti.has(id), 'data-g': id }, h('summary', null, titolo, grip), ...righe.filter(Boolean) as HTMLElement[]);
+    el.addEventListener('toggle', () => { if ((el as HTMLDetailsElement).open) this.aperti.add(id); else this.aperti.delete(id); });
+    // la maniglia non apre né chiude: serve solo a trascinare
+    grip.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+    grip.addEventListener('pointerdown', (e) => this.trascina(el, e));
     return el;
+  }
+
+  // ——— l'ordine delle sezioni: si riordinano trascinando la maniglia e l'ordine si salva per ogni tipo di elemento ———
+  private ordiniSalvati(): Record<string, string[]> {
+    try { return JSON.parse(localStorage.getItem('dpv-isp-ordine') ?? '{}') ?? {}; } catch { return {}; }
+  }
+  private scriviOrdini(o: Record<string, string[]>) {
+    try { localStorage.setItem('dpv-isp-ordine', JSON.stringify(o)); } catch { /* niente */ }
+  }
+
+  /** rimette le sezioni nell'ordine salvato per questo tipo (quelle nuove o mai spostate vanno in fondo); il resto resta dov'è */
+  private conOrdine(chiave: string, out: HTMLElement[]): HTMLElement[] {
+    this.chiave = chiave;
+    const posti = out.map((e, i) => (e.dataset?.g ? i : -1)).filter((i) => i >= 0);
+    const gruppi = posti.map((i) => out[i]);
+    const ids = gruppi.map((g) => g.dataset.g!);
+    const salvato = this.ordiniSalvati()[chiave];
+    if (!salvato?.length) return out;
+    const ordine = [...salvato.filter((id) => ids.includes(id)), ...ids.filter((id) => !salvato.includes(id))];
+    const per = new Map(gruppi.map((g) => [g.dataset.g!, g]));
+    posti.forEach((i, k) => { out[i] = per.get(ordine[k])!; });
+    out.push(h('button', { class: 'isp-ripristina', title: 'Rimette le sezioni nell\'ordine di partenza, per questo tipo di elemento', on: { click: () => { const o = this.ordiniSalvati(); delete o[chiave]; this.scriviOrdini(o); this.firma = ''; this.costruisci(); } } }, '↺ Ordine di partenza'));
+    return out;
+  }
+
+  private trascina(el: HTMLElement, e: PointerEvent) {
+    if (e.button !== 0 || !el.parentElement) return;
+    e.preventDefault();
+    const cont = el.parentElement;
+    el.classList.add('trascinato');
+    const muovi = (ev: PointerEvent) => {
+      const altri = [...cont.children].filter((x) => x !== el && (x as HTMLElement).dataset?.g) as HTMLElement[];
+      const dopo = altri.find((x) => { const b = x.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+      if (dopo) { if (el.nextElementSibling !== dopo) cont.insertBefore(el, dopo); }
+      else { const ultimo = altri[altri.length - 1]; if (ultimo && ultimo.nextElementSibling !== el) cont.insertBefore(el, ultimo.nextSibling); }
+    };
+    const fine = () => {
+      document.removeEventListener('pointermove', muovi);
+      document.removeEventListener('pointerup', fine);
+      document.removeEventListener('pointercancel', fine);
+      el.classList.remove('trascinato');
+      this.salvaOrdineDa(cont);
+    };
+    document.addEventListener('pointermove', muovi);
+    document.addEventListener('pointerup', fine);
+    document.addEventListener('pointercancel', fine);
+  }
+
+  /** salva l'ordine che si vede: le sezioni in quel momento nascoste restano dove stavano */
+  private salvaOrdineDa(cont: HTMLElement) {
+    if (!this.chiave) return;
+    const visibili = [...cont.querySelectorAll(':scope > [data-g]')].map((x) => (x as HTMLElement).dataset.g!);
+    const tutti = this.ordiniSalvati();
+    const vecchio = tutti[this.chiave] ?? [];
+    let k = 0;
+    const nuovo = vecchio.map((id) => (visibili.includes(id) ? visibili[k++] : id));
+    for (; k < visibili.length; k++) nuovo.push(visibili[k]);
+    // chi non c'era ancora (mai spostato) va comunque nell'ordine che si vede
+    const completo = [...new Set([...nuovo.filter((id) => visibili.includes(id) || vecchio.includes(id))])];
+    for (const id of visibili) if (!completo.includes(id)) completo.push(id);
+    tutti[this.chiave] = completo;
+    this.scriviOrdini(tutti);
+    // il bottone "Ordine di partenza" compare subito
+    this.firma = ''; this.costruisci();
   }
 
   private cursore(nome: string, min: number, max: number, step: number, get: (c: Clip) => number, put: (c: Clip, v: number) => void, unita: string, quali: Clip[]): HTMLElement {

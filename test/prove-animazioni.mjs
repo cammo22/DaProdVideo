@@ -1,6 +1,6 @@
 // Le prove delle animazioni (catalogo, disegno, inserimento, proprietà, libreria). Vedi prove-nuove.mjs.
 import path from 'node:path';
-import { leggi, vicino } from './aiuti.mjs';
+import { leggi, vicino, apriGruppi } from './aiuti.mjs';
 
 export async function proveAnimazioni({ page, prova, OUT }) {
   console.log('▶ Animazioni: il catalogo e il disegno');
@@ -107,6 +107,7 @@ export async function proveAnimazioni({ page, prova, OUT }) {
 
   console.log('▶ Animazioni: le proprietà');
   await page.waitForTimeout(300);
+  await apriGruppi(page);
   const gruppo = '.isp-gruppo:has(summary:has-text("Animazione"))';
   prova('nelle proprietà c\'è il gruppo "Animazione" con i suoi campi (nome, ruolo, colore, posizione, grandezza)', (await page.locator(gruppo + ' textarea, ' + gruppo + ' input[type=text]').count()) >= 2 && (await page.locator(gruppo + ' input[type=color]').count()) === 1 && (await page.locator(gruppo + ' label:has-text("Dove sta")').count()) === 1 && (await page.locator(gruppo + ' label:has-text("Grandezza")').count()) === 1);
   const campo = page.locator(gruppo + ' input.campo-testo').first();

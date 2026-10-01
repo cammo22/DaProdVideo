@@ -260,6 +260,8 @@ try {
     await page.evaluate((id) => window.__dpv.select([id]), clipFoto.id);
     await page.click('.lato .scheda[data-s=clip]');
     await page.waitForTimeout(200);
+    await page.evaluate(() => document.querySelectorAll('.isp-gruppo:not([open]) > summary').forEach((x) => x.click()));
+    await page.waitForTimeout(150);
     await page.click('.isp-pulsanti button:has-text("+5 s")');
     dd = await doc();
     prova('l\'istantanea si allunga (+5 s dalle proprietà)', dd.clips.find((c) => c.id === clipFoto.id).len === 50 + 125, dd.clips.find((c) => c.id === clipFoto.id).len);

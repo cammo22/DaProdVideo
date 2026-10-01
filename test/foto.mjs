@@ -158,6 +158,14 @@ async function scatta(nome, viewport, extra = {}) {
     await p.click('.pagina-btn[data-p=montage]');
     await p.waitForTimeout(1500);
     await p.screenshot({ path: path.join(OUT, nome + '-montage.png') });
+  // l'anteprima in alto: si crea (ferma sul fotogramma) e si guarda, poi si scarta
+  await p.evaluate(() => { window.__dpvTest.ui().montage.partenza = false; });
+  await p.click('.mt-crea');
+  await p.evaluate(() => window.__dpvTest.ui().montage.ultimo);
+  await p.waitForTimeout(1800);
+  await p.screenshot({ path: path.join(OUT, nome + '-montage-anteprima.png') });
+  await p.click('.mt-scarta');
+  await p.waitForTimeout(400);
     await p.click('.pagina-btn[data-p=montaggio]');
     // le novità della versione
     await p.click('.voce-menu:has-text("Aiuto")');
