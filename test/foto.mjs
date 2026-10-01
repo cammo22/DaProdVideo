@@ -167,6 +167,16 @@ async function scatta(nome, viewport, extra = {}) {
   await p.click('.mt-scarta');
   await p.waitForTimeout(400);
     await p.click('.pagina-btn[data-p=montaggio]');
+    // Voce e lingue (Finale) e la pagina iniziale
+    await p.click('.pagina-btn[data-p=finale]');
+    await p.click('.fin-voce[data-s=lingue]');
+    await p.waitForTimeout(600);
+    await p.screenshot({ path: path.join(OUT, nome + '-voce-lingue.png') });
+    await p.click('.pagina-btn[data-p=montaggio]');
+    await p.evaluate(() => document.dispatchEvent(new CustomEvent('dpv:home')));
+    await p.waitForTimeout(500);
+    await p.screenshot({ path: path.join(OUT, nome + '-pagina-iniziale.png') });
+    await p.keyboard.press('Escape');
     // le novità della versione
     await p.click('.voce-menu:has-text("Aiuto")');
     await p.click('.tendina .voce:has-text("Novità della")');

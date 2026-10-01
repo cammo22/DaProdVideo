@@ -3,25 +3,28 @@
 // lingua se i sottotitoli sono tradotti. Ogni frase va al suo posto: se la voce è più lunga dello spazio che ha, si
 // accelera un po' (col tono giusto, src/media/stira.ts); poi l'audio intero diventa un file e va su una traccia sua.
 import type { Clip, Project, Sottotitolo } from '../core/tipi';
-import { end, newTrack, nextTrackName, uid } from '../core/progetto';
+import { end, newClip, newTrack, nextTrackName, uid } from '../core/progetto';
 import { f2s, fps } from '../core/timecode';
 import { sottotitoliDi } from '../core/sottotitoli';
 import * as M from '../core/montaggio';
 import { assicuraMotore, LINGUE_VOCE, motoreNemo, type Parlato } from './nemo';
 import { stiraTutto } from './stira';
+import { codiceNllb, sappiamoTradurre, traduciTesti } from './traduci';
 import { ricampiona } from './wav';
 
 export interface OpzioniDoppiaggio {
   /** quale voce di Magpie (0-4) */
   voce: number;
-  /** la lingua in cui si parla: it, en, es, fr, de */
+  /** la lingua in cui si parla: it, en, es, fr, de, zh */
   lingua: string;
+  /** se la lingua della voce è diversa da quella dei sottotitoli, si traducono prima di leggerli (di partenza sì) */
+  traduci?: boolean;
   /** l'audio originale delle riprese va in silenzio */
   silenzia: boolean;
 }
 
 /** una frase da dire, coi tempi in secondi dall'inizio del montaggio */
-export interface Enunciato { id: string; da: number; a: number; testo: string }
+export interface Enunciato { id: string; da: number; a: number; testo: string; /** le righe dei sottotitoli che ci sono dentro */ righe?: string[] }
 
 /** l'audio finale esce a 48 kHz */
 export const SR_VOCE = 48000;
@@ -43,7 +46,8 @@ export function enunciatiDaRighe(righe: Sottotitolo[], p: Project): Enunciato[] 
     if (u && da - u.a <= 0.5 && !FINE_FRASE.test(u.testo) && u.testo.length + testo.length < 170) {
       u.testo += ' ' + testo;
       u.a = Math.max(u.a, a);
-    } else out.push({ id: uid('f'), da, a, testo });
+      u.righe!.push(x.id);
+    } else out.push({ id: uid('f'), da, a, testo, righe: [x.id] });
   }
   return out;
 }
@@ -59,8 +63,17 @@ export function clipDialogo(p: Project): Clip[] {
 
 /** mette le frasi al loro posto in un audio solo. Ogni frase: a livello, e accelerata se non ci sta prima della successiva. */
 export function componiVoce(enunc: Enunciato[], parlati: Map<string, Parlato>, o: { velocitaMax?: number } = {}): Float32Array {
+  return componiVoceConPosti(enunc, parlati, o).audio;
+}
+
+/** dove sta ogni frase nell'audio composto (secondi dall'inizio del montaggio) */
+export interface PostoVoce { id: string; da: number; len: number; testo: string; righe: string[] }
+
+/** come componiVoce, e dice anche dove sta ogni frase: così ognuna può diventare una clip sua */
+export function componiVoceConPosti(enunc: Enunciato[], parlati: Map<string, Parlato>, o: { velocitaMax?: number } = {}): { audio: Float32Array; posti: PostoVoce[] } {
   const vMax = o.velocitaMax ?? 1.6;
   const pezzi: { at: number; audio: Float32Array }[] = [];
+  const posti: PostoVoce[] = [];
   let tot = 0;
   enunc.forEach((e, i) => {
     const pr = parlati.get(e.id);
@@ -87,11 +100,12 @@ export function componiVoce(enunc: Enunciato[], parlati: Map<string, Parlato>, o
     }
     const at = Math.max(0, Math.round(e.da * SR_VOCE));
     pezzi.push({ at, audio: a });
+    posti.push({ id: e.id, da: at / SR_VOCE, len: a.length / SR_VOCE, testo: e.testo, righe: e.righe ?? [] });
     tot = Math.max(tot, at + a.length);
   });
   const out = new Float32Array(tot);
   for (const x of pezzi) for (let k = 0; k < x.audio.length; k++) out[x.at + k] += x.audio[k];
-  return out;
+  return { audio: out, posti };
 }
 
 /** la lingua della voce: quella indicata se Magpie la sa, altrimenti quella dei sottotitoli, altrimenti null */
@@ -104,35 +118,60 @@ export function linguaVoce(p: Project, scelta?: string): string | null {
  * Fa dire i sottotitoli a una voce. stato(testo, 0..1) racconta cosa sta facendo; il segnale ferma tutto.
  * Ritorna l'audio (mono, 48 kHz) e quante frasi ha detto.
  */
-export async function doppia(p: Project, o: OpzioniDoppiaggio, stato: (testo: string, k: number) => void, segnale?: AbortSignal): Promise<{ audio: Float32Array; sr: number; frasi: number }> {
+export async function doppia(p: Project, o: OpzioniDoppiaggio, stato: (testo: string, k: number) => void, segnale?: AbortSignal): Promise<{ audio: Float32Array; sr: number; frasi: number; posti: PostoVoce[]; tradotto: boolean }> {
   const fermo = () => { if (segnale?.aborted) throw new Error('fermato'); };
   const nem = motoreNemo();
   if (!nem) throw new Error('la voce AI serve l\'app per Windows o Mac');
   const enunc = enunciatiDaRighe(sottotitoliDi(p).righe, p);
   if (!enunc.length) throw new Error('senza-righe');
   if (!LINGUE_VOCE.includes(o.lingua)) throw new Error('lingua');
-  await assicuraMotore(nem, ['tts'], (k, t) => stato(t, k * 0.3), segnale);
+  // sottotitoli in una lingua e voce in un'altra: prima si traduce (solo per la voce, i sottotitoli restano), se no la voce
+  // leggerebbe parole di una lingua con l'accento dell'altra
+  const lingS = sottotitoliDi(p).lingua;
+  const serve = o.traduci !== false && !!lingS && lingS !== o.lingua && codiceNllb(lingS) !== codiceNllb(o.lingua);
+  if (serve && !sappiamoTradurre(lingS, o.lingua)) throw new Error('traduzione');
+  let testi = enunc.map((e) => e.testo);
+  if (serve) {
+    testi = await traduciTesti(testi, lingS, o.lingua, (t, k) => stato(t, k * 0.3), segnale);
+    fermo();
+  }
+  await assicuraMotore(nem, ['tts'], (k, t) => stato(t, (serve ? 0.3 : 0) + k * 0.2), segnale);
   fermo();
-  const parlati = await nem.sintetizza(enunc.map((e) => ({ id: e.id, testo: e.testo })), { lingua: o.lingua, voce: o.voce }, (k, t) => stato(t, 0.3 + k * 0.62), segnale);
+  const base = serve ? 0.5 : 0.2;
+  const parlati = await nem.sintetizza(enunc.map((e, i) => ({ id: e.id, testo: testi[i] })), { lingua: o.lingua, voce: o.voce }, (k, t) => stato(t, base + k * (0.92 - base)), segnale);
   fermo();
   stato('Metto le frasi al loro posto…', 0.94);
-  const audio = componiVoce(enunc, parlati);
+  const { audio, posti } = componiVoceConPosti(enunc, parlati);
   if (!audio.length) throw new Error('muto');
   stato('Fatto', 1);
-  return { audio, sr: SR_VOCE, frasi: enunc.length };
+  return { audio, sr: SR_VOCE, frasi: enunc.length, posti, tradotto: serve };
 }
 
 /**
  * Mette la voce nel montaggio: su una traccia audio nuova ("Voce AI"), dall'inizio. Se `silenzia`, le voci originali
  * vanno a zero: la traccia si silenzia se contiene solo dialoghi, altrimenti si abbassano quelle clip.
  */
-export function posaVoce(p: Project, mediaId: string, duratasec: number, silenzia: boolean): string[] {
+export function posaVoce(p: Project, mediaId: string, duratasec: number, silenzia: boolean, posti?: PostoVoce[]): string[] {
   const tr = newTrack('audio', nextTrackName(p, 'audio'));
   tr.name = 'Voce AI';
   const dialoghi = silenzia ? clipDialogo(p) : [];
   p.tracks.push(tr);
-  const nuovi = M.placeSource(p, { mediaId, srcIn: 0, srcOut: duratasec }, 0, null, { video: null, audio: [tr.id] }, 'libero');
-  for (const c of p.clips) if (nuovi.includes(c.id)) c.name = 'Voce AI';
+  let nuovi: string[];
+  if (posti?.length) {
+    // una clip per frase (dallo stesso file): ognuna si sceglie, si sposta, si abbassa o si toglie come ogni altra clip;
+    // e la riga dei sottotitoli sa qual è la sua
+    const r = fps(p.rate);
+    nuovi = [];
+    for (const x of posti) {
+      const c = newClip('media', tr.id, Math.max(0, Math.round(x.da * r)), Math.max(2, Math.round(x.len * r)), { media: mediaId, name: 'Voce: ' + (x.testo.length > 28 ? x.testo.slice(0, 27) + '…' : x.testo), srcIn: x.da, fadeIn: 1, fadeOut: 2 });
+      p.clips.push(c);
+      nuovi.push(c.id);
+      for (const idRiga of x.righe) { const riga = p.sottotitoli?.righe.find((z) => z.id === idRiga); if (riga) riga.voce = c.id; }
+    }
+  } else {
+    nuovi = M.placeSource(p, { mediaId, srcIn: 0, srcOut: duratasec }, 0, null, { video: null, audio: [tr.id] }, 'libero');
+    for (const c of p.clips) if (nuovi.includes(c.id)) c.name = 'Voce AI';
+  }
   if (silenzia) {
     const usati = new Set(dialoghi.map((c) => c.track));
     for (const t of p.tracks) {

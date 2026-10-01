@@ -50,9 +50,13 @@ export const LINGUE_MOTORE: [string, string, string][] = [
   ['fr', 'fr-FR', 'Francese'],
   ['de', 'de-DE', 'Tedesco'],
 ];
-export const codiceLingua = (l: string) => LINGUE_MOTORE.find((x) => x[0] === l)?.[1] ?? (l.includes('-') ? l : 'en-US');
-/** le lingue in cui Magpie sa parlare (fra quelle che offriamo) */
-export const LINGUE_VOCE = ['it', 'en', 'es', 'fr', 'de'];
+/** le lingue in cui Magpie sa parlare (fra quelle che offriamo): c'è anche il cinese (mandarino), che il riconoscimento qui non offre */
+export const LINGUE_VOCE = ['it', 'en', 'es', 'fr', 'de', 'zh'];
+/** nome e codice del motore delle lingue della voce */
+export const LINGUE_PARLATE: [string, string, string][] = [
+  ['it', 'it-IT', 'Italiano'], ['en', 'en-US', 'Inglese'], ['es', 'es-ES', 'Spagnolo'], ['fr', 'fr-FR', 'Francese'], ['de', 'de-DE', 'Tedesco'], ['zh', 'zh-CN', 'Cinese'],
+];
+export const codiceLingua = (l: string) => LINGUE_MOTORE.find((x) => x[0] === l)?.[1] ?? LINGUE_PARLATE.find((x) => x[0] === l)?.[1] ?? (l.includes('-') ? l : 'en-US');
 
 // ——— i sottotitoli .srt che escono dal motore ———
 

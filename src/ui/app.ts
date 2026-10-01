@@ -10,6 +10,7 @@ import { PannelloMonitor } from './monitor';
 import { Finale } from './finale';
 import { Live } from './live';
 import { Montage } from './montage';
+import { Home } from './home';
 import { Contenitore } from './contenitore';
 import { Pulsantiera } from './pulsantiera';
 import { Ispettore } from './ispettore';
@@ -82,6 +83,8 @@ export function avvia(radice: HTMLElement) {
     if (pg === 'finale' && radice.classList.contains('stretto')) radice.dataset.foglio = 'finale';
     setTimeout(() => { monitor.adatta(); tl.adattaTutto(); }, 80);
   };
+  const home = new Home(() => pagina('montage'));
+  document.addEventListener('dpv:home', () => home.mostra());
   const tastoPagina = (pg: Pagina, nome: string, ic: string, title: string) => h('button', { class: 'pagina-btn' + (pg === 'montaggio' ? ' attiva' : ''), 'data-p': pg, title, on: { click: () => pagina(pg) } }, icona(ic, 16), h('span', null, nome));
 
   // ——— menu ———
@@ -91,6 +94,8 @@ export function avvia(radice: HTMLElement) {
   };
   const menus: [string, () => VoceMenu[]][] = [
     ['File', () => [
+      { nome: 'Pagina iniziale (progetti)', fn: () => home.mostra() },
+      { sep: true },
       { nome: 'Nuovo progetto', tasto: 'Ctrl+N', sotto: FORMATI.map((f) => ({ nome: f.nome, fn: () => nuovo(f) })) },
       { nome: 'Apri progetto…', tasto: 'Ctrl+O', fn: () => apri() },
       { nome: 'Salva', tasto: 'Ctrl+S', fn: () => salva() },
@@ -195,6 +200,7 @@ export function avvia(radice: HTMLElement) {
   const testa = h('header', { class: 'testata' },
     h('button', { class: 'marchio', title: 'DaProd Video', on: { click: () => finestraInfo() } },
       h('span', { class: 'moneta' }, 'D'), h('span', { class: 'scritta' }, 'Da', h('b', null, 'Prod'), h('i', null, ' VIDEO'))),
+    h('button', { class: 'btn-progetti', title: 'I tuoi progetti: nuovo, apri, recenti', on: { click: () => home.mostra() } }, icona('apri', 15), h('span', null, 'Progetti')),
     barraMenu,
     h('div', { class: 'pagine' },
       tastoPagina('montaggio', 'MONTAGGIO', 'montaggio', 'Il banco di montaggio (F9)'),
@@ -240,7 +246,7 @@ export function avvia(radice: HTMLElement) {
   // col pannello chiuso resta una linguetta sul bordo destro per riaprirlo
   const linguetta = h('button', { class: 'linguetta-lato', title: 'Riapri il pannello delle proprietà', on: { click: () => { radice.classList.remove('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); } } }, '‹ Proprietà');
   radice.dataset.pagina = 'montaggio';
-  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, live.el, montage.el, puls.el, divisore, tl.el, statoBar, barraTel, linguetta);
+  radice.append(testa, bin.el, bordoBin, monitor.el, bordoLato, pannelloLato, finale.el, live.el, montage.el, home.el, puls.el, divisore, tl.el, statoBar, barraTel, linguetta);
 
   const VARI = ['--alto', '--bin', '--lato', '--fin', '--tlfin'];
   const salvaBanco = () => {
@@ -371,6 +377,8 @@ export function avvia(radice: HTMLElement) {
   void daFile.then(async (f) => {
     if (f) { await apriFile({ path: f }); setTimeout(() => tl.adattaTutto(), 200); return; }
     if (await riprendi()) setTimeout(() => tl.adattaTutto(), 200);
+    // all'apertura si parte dai progetti (non nelle prove automatiche: lì il banco deve essere subito libero)
+    if (!navigator.webdriver) home.mostra();
   });
   // sul Mac, doppio clic su un progetto con l'app già aperta
   if (isTauri) void import('@tauri-apps/api/event').then(({ listen }) => listen<string>('apri-file', (e) => { void invoke<string | null>('file_di_avvio'); void apriFile({ path: e.payload }); })).catch(() => {});

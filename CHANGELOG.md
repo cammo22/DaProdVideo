@@ -4,6 +4,36 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.1.6] — 2026-10-02 · Pagina iniziale, scelta multipla nel contenitore, voce in altre lingue (anche cinese), file a velocità costante 🗂
+
+### Pagina iniziale: i tuoi progetti
+- All'apertura (o dal tasto **Progetti** in alto, o File → Pagina iniziale) vedi **i progetti recenti con la miniatura**, **Nuovo progetto** (HD, 24p/30p, verticale, quadrato, 4K), **Apri un progetto…**, **DaProdMontage** e **Continua** il montaggio in corso. Un clic su un recente lo riapre; la ✕ lo toglie dall'elenco (il file resta dov'è). Esc chiude. Quello che salvi o apri finisce da solo nell'elenco (nel browser il programma tiene anche una copia per riaprirlo).
+
+### Contenitore
+- **Scelta multipla**: **Ctrl+clic** aggiunge o toglie un file, **Maiusc+clic** prende un tratto, clic nel vuoto toglie la scelta. **Trascinando** uno dei file scelti li porti tutti nella timeline, **uno dopo l'altro** (anche in una cartella, o col tasto destro: in coda al cursore).
+- I file **già in timeline hanno un bordo verde** (con il numero di volte che ci sono); quelli scelti, un bordo oro.
+- **Aggancio dopo una clip**: lasciando un file sulla seconda metà di una clip si mette **subito dopo di lei**; più in generale il file si aggancia a inizi e fini delle clip con una calamita più larga (14 px), e **il fantasma che vedi mentre trascini è già nel punto giusto**, non solo quando lasci.
+
+### DaProdMontage
+- **Il monitor è più piccolo** (poco più di un quarto dello schermo): più posto alle scelte e ai file.
+- **I video si guardano prima di sceglierli**: passandoci sopra con il mouse scorrono (con il tempo), e la **lente 🔍** li apre nel monitor in alto con il play.
+- **Foto e video di un formato diverso dal progetto**: scegli **Intere, con lo sfondo** (nessun pezzo tagliato) oppure **Riempi il quadro** (a tutto quadro, tagliando i bordi). Non vengono mai stirati: nelle prove un cerchio resta un cerchio in 16:9, 9:16 e 1:1.
+- Sistemato: con nessun pannello aperto o chiuso (nessuna classe sul banco) la griglia della pagina Montage non scattava.
+
+### Voce e lingue (Finale)
+- **Il cinese** fra le lingue della voce (Mandarino, `zh-CN`).
+- **Se la voce parla un'altra lingua dei sottotitoli, i testi si traducono da soli prima di essere letti** (prima una voce inglese leggeva il testo italiano con l'accento sbagliato). I sottotitoli restano come sono: puoi avere sottotitoli in una lingua e voce in un'altra.
+- **Traduci i sottotitoli**: scegli la lingua e le righe si traducono ai loro tempi (Ctrl+Z per tornare). Il traduttore è **NLLB-200 di Meta** (nove lingue: italiano, inglese, spagnolo, francese, tedesco, portoghese, cinese, giapponese, arabo); gira sul tuo computer e si scarica la prima volta (il modello è grande: circa 600 MB).
+- **La voce AI è una clip per frase**: ogni frase sta al suo posto nella traccia "Voce AI" e si sposta, si abbassa, si taglia o si toglie come ogni altra clip. **Un clic su una riga dei sottotitoli sceglie la sua voce**, e il pannello a destra mostra volume e il resto.
+- **Finale più semplice**: la pagina si chiama **Voce e lingue** e ha due passi (1 · Sottotitoli: in che lingua sono e traduci; 2 · Voce: scegli la voce e la lingua, e un tasto). Le scelte che quasi nessuno cambia (chi ascolta, il modello) stanno in un riquadro chiuso nei Sottotitoli.
+
+### File a velocità costante (importazione)
+- Un **video a frame rate variabile (VFR)**, come quelli dei telefoni, si rifà da solo a **frame rate costante** all'importazione (se no in montaggio audio e video slittano); un **brano a bitrate variabile (VBR: MP3, Opus, Vorbis)** si rifà a **bitrate costante**. Si converte solo se serve davvero, l'**originale non si tocca** (la copia va in Video/DaProd Video nell'app, in memoria nel browser) e il programma te lo dice. Per spegnere: `localStorage dpv-normalizza = no`.
+
+### Per chi ha curiosità
+- Dentro: `src/ui/home.ts` + `registraRecente`/`apriRecente` in `src/progetti.ts`; `src/media/traduci.ts` (+ worker); `src/media/normalizza.ts`; `componiVoceConPosti` e `posaVoce` con le clip per frase in `src/media/doppiaggio.ts`; `Sottotitolo.voce`.
+- Prove nuove in `test/prove-seguito.mjs`. **Nota onesta**: i modelli di traduzione (NLLB) e la voce cinese di Magpie non sono stati provati con i modelli veri (dal luogo dove si prova non si raggiungono Hugging Face né i modelli NVIDIA): le prove usano un traduttore e un motore finti con lo stesso protocollo. Il cinese per la voce dipende dalla versione del motore di NVIDIA installata.
+
 ## [1.1.5] — 2026-10-01 · DaProdMontage con l'anteprima in alto, ogni montaggio diverso, proprietà riordinabili 🎲
 
 ### DaProdMontage: prima lo guardi, poi lo importi

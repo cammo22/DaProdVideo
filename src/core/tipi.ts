@@ -391,7 +391,11 @@ export interface Logo {
 }
 
 /** una riga dei sottotitoli: da e a in fotogrammi della timeline */
-export interface Sottotitolo { id: string; da: number; a: number; testo: string }
+export interface Sottotitolo {
+  id: string; da: number; a: number; testo: string;
+  /** la clip audio con la voce AI di questa riga (si sceglie dalla riga e si gestisce come ogni altra clip) */
+  voce?: string;
+}
 
 export interface Sottotitoli {
   righe: Sottotitolo[];

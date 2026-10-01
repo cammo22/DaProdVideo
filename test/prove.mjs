@@ -777,7 +777,7 @@ try {
     prova('il titolo d\'apertura entra all\'inizio e sposta avanti il resto', fine1 === fine0 + 75 && dd.clips.some((c) => c.kind === 'title' && c.start === 0 && c.name.includes('apertura')), `${fine0} → ${fine1}`);
     await tasto('Control+z');
     await page.click('.fin-voce[data-s=lingue]');
-    prova('Lingue e AI: i sottotitoli con l\'AI pronti e la voce AI accesa (niente più "presto")', (await page.locator('.fin-presto.pronto').count()) === 2 && (await page.locator('.fin-presto[disabled]').count()) === 0 && (await page.locator('.fin-pagina[data-s=lingue] .ai-vai').count()) === 1);
+    prova('Voce e lingue: due passi (sottotitoli con la traduzione, voce), i tasti ci sono e nessuno è "presto"', (await page.locator('.fin-pagina[data-s=lingue] .fin-sezione h4', { hasText: '1 · Sottotitoli' }).count()) === 1 && (await page.locator('.fin-pagina[data-s=lingue] .fin-sezione h4', { hasText: '2 · Voce' }).count()) === 1 && (await page.locator('.fin-pagina[data-s=lingue] .ai-vai').count()) === 2);
     // le novità della versione (dal CHANGELOG dentro l'app) e il confronto fra versioni
     {
       const cmp = await page.evaluate(() => { const { AG } = window.__dpvTest; return [AG.piuNuova('1.0.10', '1.0.9'), AG.piuNuova('1.0.5', '1.0.5'), AG.piuNuova('1.0.4', '1.0.5'), /proxy/i.test(AG.noteDi('1.0.4')?.note ?? '')]; });
@@ -1304,16 +1304,20 @@ try {
     const dopo = await pa.evaluate(() => {
       const d = window.__dpv.doc;
       const tr = d.tracks.find((t) => t.name === 'Voce AI');
-      const c = d.clips.find((x) => x.track === tr.id);
+      const cs = d.clips.filter((x) => x.track === tr.id).sort((a, b) => a.start - b.start);
+      const c = cs[0];
       const m = d.media.find((x) => x.id === c.media);
+      const righe = d.sottotitoli.righe;
       return {
-        chiamate: window.__voceChiamate, traccia: tr.kind, start: c.start, len: c.len, tipo: m.type, durata: m.duration,
+        chiamate: window.__voceChiamate, traccia: tr.kind, start: c.start, len: c.len, tipo: m.type, durata: m.duration, nClip: cs.length, starts: cs.map((x) => x.start),
+        collegate: righe.every((x) => cs.some((k) => k.id === x.voce)), nomi: cs.map((k) => k.name),
         mute: d.tracks.filter((t) => t.mute).map((t) => t.name), gain: d.clips.filter((x) => x.gain <= -40).length,
-        fine: document.querySelector('.fin-pagina[data-s=lingue] .ai-tempo').textContent,
+        fine: [...document.querySelectorAll('.fin-pagina[data-s=lingue] .ai-tempo')].pop().textContent,
       };
     });
     prova('la voce AI: due frasi, lingua italiana, la voce numero 1 (Sofia)', dopo.chiamate.join() === 'modello:tts,sintetizza:2:it:1', dopo.chiamate.join());
-    prova('l\'audio della voce va su una traccia audio nuova "Voce AI", dall\'inizio, lungo quanto il parlato', dopo.traccia === 'audio' && dopo.start === 0 && dopo.tipo === 'audio' && Math.abs(dopo.len / 25 - dopo.durata) < 0.1 && dopo.durata > 3, JSON.stringify(dopo));
+    prova('la voce va su una traccia audio nuova "Voce AI": una clip per frase (ognuna al suo posto) dallo stesso file', dopo.traccia === 'audio' && dopo.start === 0 && dopo.tipo === 'audio' && dopo.nClip === 2 && dopo.starts[1] === 60 && dopo.durata > 3 && dopo.len > 10 && dopo.len < dopo.durata * 25, JSON.stringify(dopo));
+    prova('ogni riga dei sottotitoli sa qual è la sua clip di voce', dopo.collegate && dopo.nomi.every((n) => n.startsWith('Voce: ')), JSON.stringify(dopo.nomi));
     prova('le voci originali vanno in silenzio (traccia muta o clip a −40 dB)', dopo.mute.length > 0 || dopo.gain > 0, JSON.stringify(dopo));
     prova('a lavoro finito la barra dice quanto ci ha messo', /finito in/.test(dopo.fine), dopo.fine);
     await pa.keyboard.press('Control+z'); await pa.waitForTimeout(150);

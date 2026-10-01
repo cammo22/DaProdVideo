@@ -8,6 +8,7 @@ import { costruisciSequenza, fmtDur, pianifica, type EntrataMontage, type Ordine
 import { disegnaAnimazione } from '../render/animazioni';
 import { caricaFontAnimazioni } from '../render/font';
 import { mediaRT } from '../media/libreria';
+import { fotogramma, lascia, quandoFotogramma } from '../media/fotogrammi';
 import { pixelAl } from '../media/campiona';
 import { misuraQualita } from '../media/qualita';
 import { dataDiScatto } from '../media/exif';
@@ -28,6 +29,7 @@ interface Scelte {
   scarta: boolean;
   audioVideo: number;
   formato: Formato;
+  adatta: 'intero' | 'riempi';
   testi: TestiMontage;
   musica: string;
 }
@@ -81,6 +83,8 @@ export class Montage {
   private bScarta: HTMLButtonElement;
   private etichetta: HTMLElement;
   /** quello che si è già misurato (qualità, pezzo migliore, battiti): rigenerare è subito */
+  /** il video su cui passa il mouse (anteprima che scorre) */
+  private scorrendo: { m: MediaItem; cv: HTMLCanvasElement; t: number } | null = null;
   private analisi = new Map<string, { punteggio: number; firma?: string; inizioMigliore?: number }>();
   private ritmi = new Map<string, number[] | undefined>();
   /** finisce quando il montaggio è pronto (per le prove) */
@@ -90,7 +94,7 @@ export class Montage {
     const salvate = leggi();
     this.s = {
       preset: salvate.preset && presetMontage(salvate.preset) ? salvate.preset : 'matrimonio', durata: salvate.durata ?? 120, ordine: salvate.ordine ?? 'data',
-      titoli: salvate.titoli ?? true, effetti: salvate.effetti ?? true, scarta: salvate.scarta ?? true, audioVideo: salvate.audioVideo ?? -14, formato: salvate.formato ?? 'auto',
+      titoli: salvate.titoli ?? true, effetti: salvate.effetti ?? true, scarta: salvate.scarta ?? true, audioVideo: salvate.audioVideo ?? -14, formato: salvate.formato ?? 'auto', adatta: salvate.adatta ?? 'intero',
       testi: salvate.testi ?? { titolo: '', sottotitolo: '', nomi: '', data: '' }, musica: '',
     };
     this.griglia = h('div', { class: 'mt-file' });
@@ -164,7 +168,12 @@ export class Montage {
       h('div', { class: 'fin-sezione' }, h('h4', null, 'Formato'),
         h('div', { class: 'isp-chips' }, ([['auto', 'Come lo stile'], ['progetto', 'Come il progetto'], ['16:9', 'Orizzontale'], ['9:16', 'Verticale'], ['1:1', 'Quadrato']] as [Formato, string][])
           .map(([f, t]) => chip(t, () => this.s.formato === f, () => { this.s.formato = f; }))),
-        h('p', { class: 'nota' }, 'Il formato si cambia solo se il progetto è ancora vuoto: se no resta quello che c\'è.')),
+        h('p', { class: 'nota' }, 'Il formato si cambia solo se il progetto è ancora vuoto: se no resta quello che c\'è.'),
+        h('h4', null, 'Foto e video di un altro formato'),
+        h('div', { class: 'isp-chips' },
+          chip('Intere, con lo sfondo', () => this.s.adatta === 'intero', () => { this.s.adatta = 'intero'; }, 'Nessun pezzo tagliato: la foto sta intera su uno sfondo sfumato, con l\'ombra'),
+          chip('Riempi il quadro', () => this.s.adatta === 'riempi', () => { this.s.adatta = 'riempi'; }, 'A tutto quadro, senza bande: i bordi che non entrano si tagliano (mai stirate)')),
+        h('p', { class: 'nota' }, 'Mai deformate: o intere con lo sfondo, o a tutto quadro con i bordi tagliati.')),
       this.riepilogo);
 
     this.el = h('section', { class: 'montage' },
@@ -172,6 +181,7 @@ export class Montage {
         h('span', { class: 'live-tastiera' }, 'F8 · poi ritocchi tutto nel Montaggio')),
       h('div', { class: 'mt-azioni' }, this.bCrea, this.bRigenera, this.bImporta, this.bScarta, this.etichetta, h('div', { class: 'mt-lavoro' }, ...this.lavoro.elementi)),
       h('div', { class: 'mt-dentro' }, colFile, colFesta, colCome));
+    quandoFotogramma(() => { if (this.scorrendo) this.disegnaScorre(); });
     store.on('doc', () => {
       // un annulla (o una modifica) ha tolto l'anteprima di mezzo: i bottoni tornano a "Crea"
       if (this.anteprima && !this.occupato && !this.anteprimaViva()) this.anteprima = null;
@@ -196,6 +206,30 @@ export class Montage {
     if (si) { this.rinfresca(); void caricaFontAnimazioni().then(() => { if (this.visibile) this.disegnaFeste(); }); }
   }
 
+  private disegnaScorre() {
+    const s = this.scorrendo;
+    if (!s) return;
+    const f = fotogramma('mt', s.m.id, s.t, false);
+    if (!f) return;
+    const ctx = s.cv.getContext('2d')!;
+    const W = s.cv.width, H = s.cv.height;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    if (f instanceof ImageBitmap) {
+      const k = Math.min(W / f.width, H / f.height);
+      ctx.drawImage(f, (W - f.width * k) / 2, (H - f.height * k) / 2, f.width * k, f.height * k);
+    } else {
+      try { f.drawWithFit(ctx, { fit: 'contain' }); } catch { /* fotogramma chiuso nel frattempo */ }
+    }
+  }
+
+  /** il video nel monitor in alto, con i suoi comandi: si guarda e poi si decide se usarlo */
+  private guardaNelMonitor(m: MediaItem) {
+    this.motoreFerma();
+    motore.caricaPlayer(m.id);
+    motore.setMonitor('player');
+    motore.play(1);
+  }
+
   private rinfresca() {
     // i file nuovi si scelgono da soli (quelli che l'utente ha già tolto a mano restano tolti)
     for (const m of this.disponibili()) if (!this.viste.has(m.id)) { this.viste.add(m.id); this.incluse.add(m.id); }
@@ -213,15 +247,44 @@ export class Montage {
     const lista = this.disponibili();
     this.carte.clear();
     this.griglia.replaceChildren(...lista.map((m) => {
-      const cv = h('canvas', { width: 96, height: 54 }) as HTMLCanvasElement;
-      const r = mediaRT(m.id);
-      const src = r?.poster as (CanvasImageSource & { width: number; height: number }) | undefined;
-      const x = cv.getContext('2d')!;
-      x.fillStyle = '#15141a'; x.fillRect(0, 0, 96, 54);
-      if (src && src.width) { const k = Math.max(96 / src.width, 54 / src.height); x.drawImage(src, (96 - src.width * k) / 2, (54 - src.height * k) / 2, src.width * k, src.height * k); }
-      const el = h('button', { class: 'mt-thumb' + (this.incluse.has(m.id) ? ' scelta' : ''), title: `${m.name}${m.type === 'video' ? ` · ${fmtDur(m.duration)}` : ''}\nClic: usa / non usare`, 'data-id': m.id,
-        on: { click: () => { if (this.incluse.has(m.id)) this.incluse.delete(m.id); else this.incluse.add(m.id); el.classList.toggle('scelta', this.incluse.has(m.id)); this.aggiorna(); } } },
-      cv, m.type === 'video' ? h('i', { class: 'mt-tipo' }, '▶') : null, h('i', { class: 'mt-spunta' }, '✓'));
+      const cv = h('canvas', { width: 160, height: 90 }) as HTMLCanvasElement;
+      const disegnaPoster = () => {
+        const r = mediaRT(m.id);
+        const src = r?.poster as (CanvasImageSource & { width: number; height: number }) | undefined;
+        const x = cv.getContext('2d')!;
+        x.fillStyle = '#15141a'; x.fillRect(0, 0, 160, 90);
+        if (src && src.width) { const k = Math.min(160 / src.width, 90 / src.height); x.drawImage(src, (160 - src.width * k) / 2, (90 - src.height * k) / 2, src.width * k, src.height * k); }
+      };
+      disegnaPoster();
+      const linea = h('i', { class: 'mt-linea' });
+      const tempo = h('i', { class: 'mt-tempo' });
+      // un video si guarda prima di sceglierlo: passando col mouse scorre; la lente lo apre nel monitor in alto
+      const guarda = m.type === 'video' ? h('i', { class: 'mt-guarda', title: 'Guardalo nel monitor in alto (play)', on: { click: (e: MouseEvent) => { e.stopPropagation(); this.guardaNelMonitor(m); }, pointerdown: (e: PointerEvent) => e.stopPropagation() } }, '🔍') : null;
+      const el = h('button', { class: 'mt-thumb' + (this.incluse.has(m.id) ? ' scelta' : ''), title: `${m.name}${m.type === 'video' ? ` · ${fmtDur(m.duration)}` : ''}\nClic: usa / non usare${m.type === 'video' ? ' · passaci sopra per vederlo scorrere · 🔍 lo guardi nel monitor' : ''}`, 'data-id': m.id,
+        on: {
+          click: () => { if (this.incluse.has(m.id)) this.incluse.delete(m.id); else this.incluse.add(m.id); el.classList.toggle('scelta', this.incluse.has(m.id)); this.aggiorna(); },
+          dblclick: () => { if (m.type === 'video') this.guardaNelMonitor(m); },
+        } },
+      cv, linea, tempo, m.type === 'video' ? h('i', { class: 'mt-tipo' }, '▶') : null, guarda, h('i', { class: 'mt-spunta' }, '✓'));
+      if (m.type === 'video' && mediaRT(m.id)?.stato === 'ok') {
+        const dur = Math.max(0.1, m.duration - (m.t0 || 0));
+        el.addEventListener('pointermove', (e) => {
+          if (e.pointerType === 'touch') return;
+          const r = el.getBoundingClientRect();
+          const k = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+          linea.style.left = k * 100 + '%';
+          el.classList.add('scorre');
+          tempo.textContent = fmtDur(k * dur) + ' / ' + fmtDur(dur);
+          this.scorrendo = { m, cv, t: (m.t0 || 0) + k * Math.max(0, dur - 0.04) };
+          this.disegnaScorre();
+        });
+        el.addEventListener('pointerleave', () => {
+          el.classList.remove('scorre');
+          if (this.scorrendo?.cv === cv) this.scorrendo = null;
+          lascia('mt', m.id);
+          disegnaPoster();
+        });
+      }
       this.carte.set(m.id, el);
       return el;
     }));
@@ -279,7 +342,7 @@ export class Montage {
   }
 
   private opzioni(musica?: OpzMontage['musica'], seme = 12345): OpzMontage {
-    return { preset: this.s.preset, durata: this.s.durata, ordine: this.s.ordine, titoli: this.s.titoli, effetti: this.s.effetti, audioVideo: this.s.audioVideo, testi: this.s.testi, seme, scarta: this.s.scarta, musica };
+    return { preset: this.s.preset, durata: this.s.durata, ordine: this.s.ordine, titoli: this.s.titoli, effetti: this.s.effetti, audioVideo: this.s.audioVideo, testi: this.s.testi, seme, scarta: this.s.scarta, adatta: this.s.adatta, musica };
   }
 
   /** il riassunto sotto le scelte: quante foto, quanto sta ognuna (senza analisi: serve solo a dare un'idea) */
