@@ -37,7 +37,8 @@ export function riquadroClip(p: Project, c: Clip, tf: Transform, f: number): Riq
   }
   // i titoli stanno su una tela grande: il riquadro si stringe attorno alle lettere
   let bx0 = tf.cropL, by0 = tf.cropT, bx1 = 1 - tf.cropR, by1 = 1 - tf.cropB;
-  if (c.kind === 'title') {
+  // le animazioni del catalogo riempiono il quadro: il riquadro è tutto il quadro (si sposta e si ingrandisce intera)
+  if (c.kind === 'title' && !c.gen?.anim) {
     const t = f2s(Math.max(0, f - c.start), p.rate);
     const spec = specAlTempo(c.gen?.title ?? TITLE0, t);
     const tt = telaTitolo(spec, W, H);
@@ -98,6 +99,22 @@ const quanto = (c: Clip, f: number, fx: boolean) => Math.max(0, Math.min(1, fx ?
 /** il fotogramma di una tappa */
 const fotogrammaDi = (c: Clip, t: number, fx: boolean) => c.start + (fx ? Math.floor(t * c.len) : Math.round(t * (c.len - 1)));
 
+/**
+ * Una scelta sull'immagine: il contagocce della chiave (un clic = un colore) o i clic dell'oggetto da ritagliare
+ * (clic = è l'oggetto, Alt+clic = non lo è). Chi la chiede manda l'evento "dpv:scegli" con questi dati.
+ */
+export interface SceltaImmagine {
+  /** la clip su cui si clicca */
+  id: string;
+  testo: string;
+  /** a ogni clic: dove nell'immagine (frazioni 0..1 dall'angolo in alto a sinistra) e se c'era Alt */
+  clic: (x: number, y: number, alt: boolean) => void;
+  /** i punti da disegnare sopra l'immagine (dentro = verde, fuori = rosso) */
+  punti?: () => { x: number; y: number; dentro: boolean }[];
+  /** resta aperta dopo il primo clic */
+  continua: boolean;
+}
+
 /** la mira del tracking: dove hai segnato l'oggetto da seguire */
 interface Mira { id: string; x: number; y: number; lato: number; lavoro: boolean; prog: number }
 
@@ -119,6 +136,8 @@ export class Posiziona {
   /** ritaglio invece di stirare: i lati e gli angoli tagliano l'immagine */
   private ritaglia = false;
   private mira: Mira | null = null;
+  private scelta: SceltaImmagine | null = null;
+  private bScelta: HTMLElement;
   private ferma = false;
   private firmaTappe = '';
 
@@ -139,12 +158,21 @@ export class Posiziona {
       h('span', { class: 'pos-mira-testo' }, 'Trascina il mirino sull\'oggetto'), ...lati,
       btn('▶ Avvia', 'Segue l\'oggetto dal fotogramma dove sei fino alla fine e all\'inizio della clip', () => void this.segui(), 'acceso'),
       btn('✕', 'Lascia stare', () => this.esciMira()));
-    this.barra = h('div', { class: 'pos-barra' }, this.nome, this.bMoto, this.bInizio, this.tappeEl, this.bFine, this.bPiu, this.bMeno, this.bRitaglia, this.bSegui, this.bAdatta, this.bMira);
+    this.bScelta = h('span', { class: 'pos-mira', hidden: true },
+      h('span', { class: 'pos-mira-testo' }),
+      btn('✓ Fatto', 'Finito di cliccare', () => this.esciScelta(), 'acceso'));
+    this.barra = h('div', { class: 'pos-barra' }, this.nome, this.bMoto, this.bInizio, this.tappeEl, this.bFine, this.bPiu, this.bMeno, this.bRitaglia, this.bSegui, this.bAdatta, this.bMira, this.bScelta);
     schermo.append(this.barra);
     schermo.addEventListener('pointerdown', (e) => this.giu(e));
     schermo.addEventListener('pointermove', (e) => { if (!this.trascina) this.cursore(e); });
-    store.on('sel', () => { if (this.mira && !store.sel.has(this.mira.id)) this.mira = null; this.ridisegna(); });
+    store.on('sel', () => {
+      if (this.mira && !store.sel.has(this.mira.id)) this.mira = null;
+      if (this.scelta && !store.sel.has(this.scelta.id)) this.scelta = null;
+      this.ridisegna();
+    });
     document.addEventListener('dpv:mira', () => this.avviaMira());
+    document.addEventListener('dpv:scegli', (e) => this.avviaScelta((e as CustomEvent<SceltaImmagine>).detail));
+    document.addEventListener('dpv:scegli-fine', () => this.esciScelta());
   }
 
   private k() { return this.sopra.getBoundingClientRect().width / store.doc.w; }
@@ -192,8 +220,16 @@ export class Posiziona {
   /** accende la barretta e rimette a posto i suoi pezzi */
   private aggiornaBarra(b: Bersaglio | null) {
     const mira = !!this.mira;
-    this.barra.classList.toggle('su', (!!b || mira) && !motore.playing);
-    this.barra.classList.toggle('in-mira', mira);
+    const sceglie = !!this.scelta;
+    this.barra.classList.toggle('su', (!!b || mira || sceglie) && !motore.playing);
+    this.barra.classList.toggle('in-mira', mira || sceglie);
+    this.bScelta.hidden = !sceglie;
+    if (sceglie) {
+      this.bMira.hidden = true;
+      this.nome.textContent = store.doc.clips.find((x) => x.id === this.scelta!.id)?.name ?? '';
+      (this.bScelta.firstChild as HTMLElement).textContent = this.scelta!.testo;
+      return;
+    }
     if (mira) {
       this.bMira.hidden = false;
       const c = store.doc.clips.find((x) => x.id === this.mira!.id);
@@ -234,6 +270,7 @@ export class Posiziona {
   disegna(ctx: CanvasRenderingContext2D, W: number, H: number) {
     const b = this.bersaglio();
     this.aggiornaBarra(b);
+    if (this.scelta) { this.disegnaScelta(ctx, W, H); return; }
     if (this.mira) { this.disegnaMira(ctx, W, H); return; }
     if (!b) return;
     if (motore.playing) return;
@@ -451,7 +488,7 @@ export class Posiziona {
 
   private cursore(e: PointerEvent) {
     if (motore.attivo !== 'recorder') { this.schermo.style.cursor = ''; return; }
-    if (this.mira) { this.schermo.style.cursor = 'crosshair'; return; }
+    if (this.mira || this.scelta) { this.schermo.style.cursor = 'crosshair'; return; }
     const b = this.bersaglio();
     const { x, y } = this.punto(e);
     const presa = b ? this.presaSotto(b, x, y) : null;
@@ -465,6 +502,7 @@ export class Posiziona {
     if (e.button !== 0 || motore.attivo !== 'recorder') return;
     if ((e.target as HTMLElement).closest('.pos-barra, .mini-tl')) return;
     const { x, y } = this.punto(e);
+    if (this.scelta) { this.giuScelta(e, x, y); return; }
     if (this.mira) { this.giuMira(e, x, y); return; }
     let b = this.bersaglio();
     let presa = b ? this.presaSotto(b, x, y) : null;
@@ -699,6 +737,65 @@ export class Posiziona {
     });
   }
 
+  // ——— le scelte sull'immagine (contagocce, clic dell'oggetto) ———
+  private avviaScelta(sc: SceltaImmagine) {
+    const p = store.doc, c = p.clips.find((x) => x.id === sc.id);
+    if (!c) return;
+    const f = Math.floor(store.head + 1e-6);
+    if (f < c.start || f >= end(c)) { avviso('Metti il cursore dentro la clip', 'info', 2600); return; }
+    if (motore.playing) motore.stop();
+    motore.setMonitor('recorder');
+    this.mira = null;
+    this.scelta = sc;
+    this.ridisegna();
+  }
+
+  private esciScelta() {
+    if (!this.scelta) return;
+    this.scelta = null;
+    this.ridisegna();
+  }
+
+  private giuScelta(e: PointerEvent, x: number, y: number) {
+    const sc = this.scelta!;
+    const p = store.doc, c = p.clips.find((z) => z.id === sc.id);
+    if (!c) { this.esciScelta(); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    const f = Math.floor(store.head + 1e-6);
+    const q = immagineDa(p, c, f, x, y);
+    if (!q || q.x < 0 || q.x > 1 || q.y < 0 || q.y > 1) { avviso('Clicca sull\'immagine della clip', 'info', 1800); return; }
+    sc.clic(q.x, q.y, e.altKey);
+    if (!sc.continua) this.scelta = null;
+    this.ridisegna();
+  }
+
+  private disegnaScelta(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const sc = this.scelta!, p = store.doc, f = Math.floor(store.head + 1e-6);
+    const c = p.clips.find((x) => x.id === sc.id);
+    if (!c) return;
+    const k = W / p.w, dpr = W / Math.max(1, this.sopra.getBoundingClientRect().width);
+    const seg = spostaTraccia(p, c, f);
+    ctx.save();
+    for (const pt of sc.punti?.() ?? []) {
+      const o = sulQuadro(p, c, pt.x, pt.y, f);
+      if (!o) continue;
+      const X = (p.w / 2 + o[0] + seg.dx) * k, Y = (p.h / 2 + o[1] + seg.dy) * k;
+      ctx.lineWidth = 3 * dpr;
+      ctx.strokeStyle = '#000';
+      ctx.beginPath(); ctx.arc(X, Y, 9 * dpr, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = pt.dentro ? '#5dd39e' : '#ff4d6d';
+      ctx.fillStyle = pt.dentro ? '#5dd39e' : '#ff4d6d';
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.arc(X, Y, 9 * dpr, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(X - 5 * dpr, Y); ctx.lineTo(X + 5 * dpr, Y);
+      if (pt.dentro) { ctx.moveTo(X, Y - 5 * dpr); ctx.lineTo(X, Y + 5 * dpr); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // ——— il tracking ———
   private avviaMira() {
     const b = this.bersaglio();
@@ -709,6 +806,7 @@ export class Posiziona {
     if (f < c.start || f >= end(c)) { avviso('Metti il cursore dentro la clip, dove l\'oggetto si vede bene', 'info', 2600); return; }
     if (motore.playing) motore.stop();
     motore.setMonitor('recorder');
+    this.scelta = null;
     this.mira = { id: c.id, x: 0.5, y: 0.5, lato: 0.12, lavoro: false, prog: 0 };
     this.ferma = false;
     this.ridisegna();

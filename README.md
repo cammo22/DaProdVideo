@@ -49,6 +49,8 @@ ed elimini. Gira su **Windows, Mac e Android** e, in versione prova, **nel brows
 13. **`P`** fa un'**istantanea** del fotogramma nel contenitore, da allungare quanto vuoi (**`Shift+P`**: fermo immagine al cursore).
 14. **Sull'immagine del monitor**: clic su quello che vedi e lo scegli; trascina per spostarlo, tira un angolo per ingrandirlo, il pallino in alto lo gira. tira un lato per stirare (Maiusc sugli angoli, Ctrl dal centro, **✂** per ritagliare) e Ctrl+clic sceglie quella sotto. **↝ Movimento** gli dà una posizione d'inizio e una di fine e tutte le **tappe** che vuoi (**＋**, o fermo fra due tappe muovi) e ci passa dentro piano piano; **🎯** segue un oggetto (tracking) e titoli, immagini ed effetti lo inseguono; nelle proprietà ci sono i movimenti pronti (entra da sinistra, sale dal basso, si avvicina…). Gli effetti come **bolla**, **vortice** e **zoom** hanno un mirino: mettilo dove vuoi, anche in movimento. Più **transizioni sullo stesso taglio si sommano**.
 15. **File → Salva il pacchetto .daprod**: il progetto **con dentro tutti i suoi file** (uno zip vero, i file restano identici). Lo apri su un altro computer e ritrovi tutto. Il **.dpv** invece è il progetto leggero: tiene il montaggio, i file restano dove sono.
+17. **`F8`** apre **DaProdMontage**, la quarta pagina: butta dentro **foto e video alla rinfusa** (anche solo foto), scegli **cosa festeggi** (28 stili: matrimonio, battesimo, comunione, cresima, laurea, compleanno, Natale, viaggio, reel verticale…), quanto deve durare e, se vuoi, il brano. **✨ CREA IL MONTAGGIO** e il programma ordina le foto (per data di scatto), le tiene il tempo giusto, le muove, mette transizioni, titoli e quello che cade sopra, appoggia i tagli ai battiti e ti lascia una timeline normale da ritoccare.
+18. **Togliere lo sfondo**: sulla clip, **Proprietà → Sfondo** (o il tasto **SFONDO** sul monitor). **Colore** (green screen con fino a 3 colori, contagocce, via il riflesso), **Luce** o **AI** (soggetto, persona, oggetti coi clic). **Generatori → Animazioni**: 49 animazioni personalizzabili (sottopancia, testi, grafici, social, fondi, cerimonie).
 16. A **schermo pieno** le tracce crescono da sole; **`Ctrl+Shift`+rotella** le alza e le abbassa. Nell'app **`Ctrl +`** e **`Ctrl −`** ingrandiscono tutta l'interfaccia.
 
 ### 🎛 La pulsantiera
@@ -144,6 +146,9 @@ Se il sito non si accende da solo, una volta sola: *Settings → Pages → Deplo
 | Pacchetto .daprod | uno **zip** scritto a mano (nomi UTF-8, **zip64** oltre i 4 GB), coi file "stored": nell'app Rust copia i byte e calcola il CRC a pezzi da 64 MB; all'apertura i media si leggono **direttamente da dentro lo zip** (inizio e lunghezza di ogni file), senza scompattare |
 | Timeline | una sola **tela 2D** ridisegnata solo quando serve; miniature a potenze di due (zoomando si riusano) e forma d'onda a 100 picchi al secondo |
 | Modello | fotogrammi interi sulla timeline (come le centraline a nastro), più timeline (sequenze) nello stesso progetto, annulla a fotografie del progetto |
+| Togliere lo sfondo | chiave a colori nel piano del colore (YUV) dello shader; ritaglio AI con [transformers.js](https://github.com/huggingface/transformers.js) in un Worker: **BEN2** e **BiRefNet** (MIT), **MODNet** (Apache-2.0), **SAM 2.1** / SlimSAM (Apache-2.0); le maschere si mescolano nel tempo e stanno in una cache sul computer |
+| Animazioni | funzioni pure del tempo disegnate su **Canvas 2D** (`src/render/anim/`), ispirate al catalogo di [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0); caratteri **@fontsource** (OFL) |
+| DaProdMontage | `src/core/montage.ts` (piano: ordine, doppioni, tempo esatto, battiti, Ken Burns) + 28 stili in `montagePreset.ts`; data EXIF, qualità e ritmo del brano calcolati sul posto, senza AI |
 | Sottotitoli AI | **Nemotron 3.5** di NVIDIA con [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) (programma a parte che l'app scarica da sola: CUDA, Metal o CPU; modelli GGUF che scarica lui) oppure **Whisper** (tiny, base o small) con [transformers.js](https://huggingface.co/docs/transformers.js) in un worker, su WebGPU se c'è (se no WASM): la libreria arriva dalla CDN e il modello da Hugging Face **una volta sola**, poi restano in cache. L'audio della presa diretta si prende a 16 kHz, si taglia nei silenzi a pezzi di un minuto e **non esce mai dal computer** |
 | App | **Tauri 2 / Rust**: `src-tauri/src/lib.rs` legge i media a pezzi, scrive l'export in streaming (anche `content://` su Android), salva progetti e autosalvataggio; `aggiorna.rs` scarica e apre la versione nuova |
 
@@ -155,12 +160,17 @@ npm run tauri dev      # l'app desktop in sviluppo (serve Rust)
 npm run tauri build    # l'app desktop di rilascio
 ```
 
+### 🙏 Crediti e licenze (1.1.4)
+
+- **Animazioni**: il catalogo si ispira a [HyperFrames](https://github.com/heygen-com/hyperframes) di HeyGen (Apache-2.0); i disegni sono riscritti da zero per il nostro motore, nessun codice è copiato. I caratteri vengono da [Fontsource](https://fontsource.org) (SIL Open Font License).
+- **Togliere lo sfondo**: i modelli non stanno nell'app, si scaricano al primo uso da Hugging Face e restano sul computer: [BEN2](https://huggingface.co/PramaLLC/BEN2) e [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) (MIT), [MODNet](https://github.com/ZHKKKe/MODNet) (Apache-2.0), [SAM 2.1](https://github.com/facebookresearch/sam2) e [SlimSAM](https://github.com/czg1225/SlimSAM) (Apache-2.0), tutti via [transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0). Per la chiave a colori e il ritaglio ho letto come li fa [OpenReel](https://github.com/Augani/openreel-video) per confrontare le idee; il codice è nostro.
+
 ### ✅ Controlli automatici
 
 ```bash
 npm run build
 npx playwright install chromium
-node test/prove.mjs    # oltre 150 prove: timecode, 1 taglia (e sceglie il pezzo corto), 2 elimina (e passa alla
+node test/prove.mjs    # oltre 300 prove (più `node test/prove-nuove.mjs [sfondo|animazioni|montage]` da sole): timecode, 1 taglia (e sceglie il pezzo corto), 2 elimina (e passa alla
                        # dopo), S separa/unisce, Q e W, tracce accese, rotella, niente viene coperto, volume
                        # trascinato, FX sulle clip (si attaccano ai bordi, seguono la clip, suoni accesi/spenti
                        # e nel mixaggio), Alt+Shift, maniglie delle dissolvenze, navigatore, pagina Finale
@@ -178,6 +188,6 @@ node test/foto.mjs     # foto del banco (computer, Finale, contenitore, timeline
 - `src/pacchetto.ts` il pacchetto .daprod (zip e zip64, scrittura e lettura).
 - `src/media/` Mediabunny: contenitore, fotogrammi (flusso e ricerca), proxy automatici, banco audio.
 - `src/render/` il piano di ogni fotogramma e il mixer WebGL2 (effetti a tempo, colore automatico e colore finale, logo e sottotitoli), titolatrice e countdown, le anteprime del contenitore coi fotogrammi del cursore (`provino.ts`).
-- `src/ui/` timeline, monitor, pulsantiera, contenitore, proprietà, pagina Finale, pagina LIVE (`live.ts`), mixer e VU, strumenti, finestre.
+- `src/ui/` timeline, monitor, pulsantiera, contenitore, proprietà, pagina Finale, pagina LIVE (`live.ts`), pagina DaProdMontage (`montage.ts`), togliere lo sfondo (`sfondo.ts`), mixer e VU, strumenti, finestre.
 - `src/azioni.ts` tutti i comandi con i loro tasti · `src/effetti.ts` gli effetti al volo · `src/export/` export ed EDL · `src/demo.ts` il montaggio dimostrativo.
 - `src-tauri/` l'app Rust, con `gen/android` per l'APK · `test/` le prove.

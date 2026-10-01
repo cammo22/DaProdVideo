@@ -114,6 +114,34 @@ export interface Traccia {
   fiducia: number;
 }
 
+/**
+ * Togliere lo sfondo con l'AI: il modello disegna una maschera (bianco = soggetto) per tanti fotogrammi della ripresa,
+ * in tutta la clip; il compositore la usa come trasparenza (src/media/ritaglio.ts). Le maschere non stanno nel progetto
+ * (pesano troppo): si rifanno, o si rileggono dalla cache del computer se i parametri sono gli stessi.
+ */
+export interface Ritaglio {
+  /** persona = ritratti veloci · soggetto = qualunque cosa in primo piano (la più precisa) · oggetti = scelti con i clic */
+  modo: 'persona' | 'soggetto' | 'oggetti';
+  /** il modello usato (src/media/ritaglio.ts MODELLI_RITAGLIO) */
+  modello: string;
+  /** oggetti: i clic sull'immagine (frazioni 0..1 dall'angolo in alto a sinistra): dentro = è l'oggetto, fuori = non lo è */
+  punti?: { x: number; y: number; dentro: boolean }[];
+  /** oggetti: l'istante della sorgente (secondi) dove hai messo i clic */
+  da?: number;
+  /** oggetti: i clic valgono per tutta la ripresa (camera ferma) o si seguono da un fotogramma all'altro */
+  segui?: boolean;
+  /** restringe (−1) o allarga (+1) il bordo */
+  bordo: number;
+  /** quanto è morbido il bordo 0..1 */
+  morbido: number;
+  /** tiene lo sfondo e toglie il soggetto */
+  inverti?: boolean;
+  /** precisione: 0 veloce · 1 buona · 2 alta (più fotogrammi al secondo e immagini più grandi) */
+  qualita: number;
+  /** la firma dei parametri con cui sono state fatte le maschere (src/core/sfondo.ts): se non torna, vanno rifatte */
+  firma?: string;
+}
+
 export interface VideoFx {
   /** livello del nero / luminosità -1..1 */
   bright: number;
@@ -130,6 +158,16 @@ export interface VideoFx {
   keyLevel: number;
   keySoft: number;
   keyInvert: boolean;
+  /** altri colori da togliere oltre a keyColor (fino a 2): il verde e il blu insieme, o due verdi di luce diversa */
+  keyColori?: string[];
+  /** quanto colore della chiave si toglie dai bordi del soggetto (il riflesso del fondale) 0..1 (niente = 0,5) */
+  keySpill?: number;
+  /** restringe (−1) o allarga (+1) il soggetto sul bordo */
+  keyBordo?: number;
+  /** sfuma il bordo del soggetto 0..1 */
+  keySfuma?: number;
+  /** pulisce la maschera: toglie i puntini e riempie i buchi 0..1 */
+  keyPulisci?: number;
   /** colore automatico della clip: undefined = come dice il Finale, true/false = scelto a mano */
   auto?: boolean;
   /** temperatura -1 (freddo) .. 1 (caldo) */
@@ -213,7 +251,15 @@ export interface TitleSpec {
   peso?: number;
 }
 
+/** un'animazione del catalogo (src/core/animazioni.ts): quale e i valori dei suoi campi (testi, colori, numeri) */
+export interface AnimSpec {
+  id: string;
+  v: Record<string, string | number | boolean>;
+}
+
 export interface GenSpec {
+  /** un'animazione pronta: sottopancia, testo che si muove, grafico, fondo, effetto da cerimonia… (la clip è un titolo) */
+  anim?: AnimSpec;
   color?: string;
   /** colore pieno sfumato: il secondo colore (in basso a destra) */
   color2?: string;
@@ -268,6 +314,8 @@ export interface Clip {
   traccia?: Traccia;
   /** la clip segue l'oggetto tracciato su un'altra clip (l'id): la sua posizione è lo scarto dall'oggetto */
   segue?: string;
+  /** lo sfondo tolto dall'AI (maschere in src/media/maschere.ts) */
+  ritaglio?: Ritaglio;
   /** la ripresa si tiene ferma sull'oggetto tracciato (stabilizza) */
   stabilizza?: boolean;
   fx: VideoFx;

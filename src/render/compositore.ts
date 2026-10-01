@@ -14,9 +14,12 @@ import { mediaRT } from '../media/libreria';
 import { gradeDi, gradeNeutro } from './colore';
 import { CAMPI_FX, statoEffetti, type StatoFx } from '../core/blocchi';
 import { fxEffettivo } from '../core/effettiClip';
+import { coloriChiave, SPILL0 } from '../core/sfondo';
+import { maschereAl } from '../media/maschere';
 import { disegnaSovr, firmaSovr } from './sovrimpressione';
 import { nuovaTela } from './grafica';
 import { disegnaCountdown, motoTitolo, specAlTempo, telaTitolo } from './grafica';
+import { disegnaAnimazione, firmaAnim } from './animazioni';
 import { TITLE0 } from '../core/progetto';
 
 const VS_LAYER = `#version 300 es
@@ -48,10 +51,19 @@ uniform float u_bright, u_contrast, u_sat, u_hue;
 uniform int u_look;         // bit: 1 vhs, 2 pellicola, 4 b/n, 8 seppia, 16 crt (si sommano)
 uniform float u_time;
 uniform vec2 u_texel;
-uniform int u_key;          // 0 no, 1 luma, 2 chroma
-uniform vec3 u_keyColor;
+uniform int u_key;          // 0 no, 1 luma, 2 colori (green screen), 3 maschera dell'AI
+uniform vec3 u_keyColor;    // il colore principale della chiave
+uniform vec3 u_keyExtra[2]; // gli altri colori da togliere
+uniform int u_keyN;         // quanti altri
 uniform float u_keyLevel, u_keySoft;
 uniform bool u_keyInv;
+uniform float u_keySpill;   // quanto colore del fondale si toglie dai bordi
+uniform float u_keyBordo;   // restringe (−) o allarga (+) il soggetto
+uniform float u_keySfuma;   // sfuma il bordo
+uniform float u_keyPulisci; // toglie puntini e buchi
+uniform sampler2D u_matte, u_matte2;  // le maschere dell'AI (prima e dopo l'istante) e quanto verso la seconda
+uniform float u_matteK;
+uniform int u_vista;        // 0 normale, 1 si vede la maschera, 2 il soggetto sugli scacchi
 uniform bool u_mirror;
 uniform float u_temp, u_vignette;
 uniform bool u_auto;          // colore automatico: livelli, bianco e luce misurati sulla ripresa
@@ -103,11 +115,38 @@ vec4 src(vec2 uv) {
   return texture(u_tex, orient(uv));
 }
 
+// colore → (luce, blu-giallo, rosso-verde): la distanza dalla chiave si misura sul colore, poco sulla luce
+vec3 yuv(vec3 c) { return vec3(dot(c, vec3(0.299, 0.587, 0.114)), dot(c, vec3(-0.169, -0.331, 0.5)), dot(c, vec3(0.5, -0.419, -0.081))); }
+float distChiave(vec3 rgb, vec3 kc) {
+  vec3 a = yuv(rgb), k = yuv(kc);
+  return distance(a.yz, k.yz) * 2.2 + abs(a.x - k.x) * 0.15;
+}
+// quanto un colore è "soggetto" (1) o "fondale" (0): il più vicino fra i colori scelti
+float matteColori(vec3 rgb) {
+  float d = distChiave(rgb, u_keyColor);
+  if (u_keyN > 0) d = min(d, distChiave(rgb, u_keyExtra[0]));
+  if (u_keyN > 1) d = min(d, distChiave(rgb, u_keyExtra[1]));
+  float lo = max(0.0, u_keyLevel * 0.5 - u_keyBordo * 0.25);
+  return smoothstep(lo, lo + u_keySoft + 0.001, d);
+}
+vec3 senzaRiflesso(vec3 rgb) {
+  // toglie dai bordi il colore del fondale che rimbalza sul soggetto: la parte di colore che punta verso la chiave
+  vec3 y = yuv(rgb), k = yuv(u_keyColor);
+  vec2 kd = normalize(k.yz + vec2(1e-5));
+  float len = length(y.yz);
+  float ang = len > 1e-4 ? dot(y.yz / len, kd) : 0.0;
+  float sp = max(0.0, dot(y.yz, kd));
+  vec2 q = y.yz - kd * sp * smoothstep(0.35, 0.95, ang) * u_keySpill;
+  return vec3(y.x + 1.402 * q.y, y.x - 0.344 * q.x - 0.714 * q.y, y.x + 1.772 * q.x);
+}
+
 void main() {
   vec2 uv0 = u_mirror ? vec2(1.0 - v_uv.x, v_uv.y) : v_uv;
   vec4 c = src(uv0);
   vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
+  vec3 rgbGrezzo = rgb;      // il colore com'è nella ripresa, prima di ogni ritocco: la chiave guarda questo
   float a = c.a;
+  float aChiave = 1.0;
   if (u_auto) {
     vec3 lv = clamp((rgb - u_autoLo) / max(u_autoHi - u_autoLo, vec3(0.05)), 0.0, 1.0);
     lv = pow(lv * u_autoWb, vec3(u_autoGamma));
@@ -165,19 +204,31 @@ void main() {
   // chiave
   if (u_key == 1) {
     float k = smoothstep(u_keyLevel - u_keySoft, u_keyLevel + u_keySoft, Y);
-    a *= u_keyInv ? 1.0 - k : k;
+    aChiave = u_keyInv ? 1.0 - k : k;
   } else if (u_key == 2) {
-    vec3 kc = u_keyColor;
-    float kY = dot(kc, vec3(0.299, 0.587, 0.114));
-    vec2 kUV = vec2(dot(kc, vec3(-0.169, -0.331, 0.5)), dot(kc, vec3(0.5, -0.419, -0.081)));
-    vec2 cUV = vec2(dot(rgb, vec3(-0.169, -0.331, 0.5)), dot(rgb, vec3(0.5, -0.419, -0.081)));
-    float d = distance(cUV, kUV) * 2.2 + abs(Y - kY) * 0.15;
-    float k = smoothstep(u_keyLevel * 0.5, u_keyLevel * 0.5 + u_keySoft + 0.001, d);
-    a *= u_keyInv ? 1.0 - k : k;
-    // toglie il colore della chiave che rimbalza sui bordi (spill)
-    if (kc.g > kc.r && kc.g > kc.b) rgb.g = min(rgb.g, max(rgb.r, rgb.b) + 0.05);
-    else if (kc.b > kc.r && kc.b > kc.g) rgb.b = min(rgb.b, max(rgb.r, rgb.g) + 0.05);
+    float k = matteColori(rgbGrezzo);
+    if (u_keySfuma > 0.0) {
+      // sfuma il bordo: la media della maschera su un anello attorno al punto
+      float r = 1.0 + u_keySfuma * 5.0;
+      float somma = k;
+      for (int i = 0; i < 8; i++) {
+        float an = float(i) * 0.785398;
+        vec4 s = src(uv0 + vec2(cos(an), sin(an)) * u_texel * r);
+        somma += matteColori(s.a > 0.0 ? s.rgb / s.a : vec3(0.0));
+      }
+      k = somma / 9.0;
+    }
+    if (u_keyPulisci > 0.0) k = clamp((k - u_keyPulisci * 0.4) / (1.0 - u_keyPulisci * 0.8), 0.0, 1.0);
+    aChiave = u_keyInv ? 1.0 - k : k;
+    if (u_keySpill > 0.0 && !u_keyInv) rgb = clamp(senzaRiflesso(rgb), 0.0, 1.0);
+  } else if (u_key == 3) {
+    float m = mix(texture(u_matte, uv0).r, texture(u_matte2, uv0).r, u_matteK);
+    float soglia = 0.5 - u_keyBordo * 0.35;
+    float mor = 0.03 + u_keySoft * 0.45;
+    float k = smoothstep(soglia - mor, soglia + mor, m);
+    aChiave = u_keyInv ? 1.0 - k : k;
   }
+  a *= aChiave;
   // angoli tondi (e l'ombra, che è lo stesso rettangolo sfumato): distanza dal rettangolo arrotondato, in pixel
   if (u_round > 0.0 || u_feather > 0.0) {
     vec2 lo = u_box.xy * u_boxPx, hi = (vec2(1.0) - u_box.zw) * u_boxPx;
@@ -186,6 +237,13 @@ void main() {
     a *= 1.0 - smoothstep(-u_feather, u_feather, d);
   }
   a *= u_alpha;
+  if (u_vista == 1 && u_key != 0) { o = vec4(vec3(aChiave), 1.0); return; }
+  if (u_vista == 2 && u_key != 0) {
+    vec2 g = floor(gl_FragCoord.xy / 14.0);
+    vec3 fondo = mix(vec3(0.16), vec3(0.30), mod(g.x + g.y, 2.0));
+    o = vec4(rgb * a + fondo * (1.0 - a), 1.0);
+    return;
+  }
   o = vec4(rgb * a, a);
 }`;
 
@@ -1455,6 +1513,8 @@ export class Compositore {
   /** il buffer con l'ultima uscita (2 = il mix, 4 = con gli effetti a tempo, 3 = col colore finale) */
   private uscita = 2;
   perso = false;
+  /** per vedere la chiave: 0 immagine, 1 la maschera in bianco e nero, 2 il soggetto sugli scacchi (solo i monitor, mai l'export) */
+  vistaChiave = 0;
 
   constructor(public canvas: HTMLCanvasElement | OffscreenCanvas, preserve = false) {
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: preserve, desynchronized: false, powerPreference: 'high-performance' }) as WebGL2RenderingContext | null;
@@ -1466,7 +1526,7 @@ export class Compositore {
     this.pFx = this.prog(VS_FULL, FS_FX);
     for (const n of ['u_src', 'u_res', 'u_off', 'u_zoom', 'u_rot', 'u_blur', 'u_pixel', 'u_rgb', 'u_glitch', 'u_seme', 'u_desat', 'u_invert', 'u_flash', 'u_fade', 'u_luce', 'u_lucePh', 'u_bande', 'u_vhs', 'u_time', 'u_flashCol', 'u_fadeCol', 'u_bagliore', 'u_flare', 'u_flarePh', 'u_arco', 'u_arcoPh', 'u_espo', 'u_neon', 'u_onda', 'u_bolla', 'u_vortice', 'u_caleido', 'u_calore', 'u_zblur', 'u_centro', 'u_sole', 'u_tinta', ...CAMPI_FX.map((k) => 'u_' + k)])
       this.uF[n] = gl.getUniformLocation(this.pFx, n);
-    for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyLevel', 'u_keySoft', 'u_keyInv',
+    for (const n of ['u_res', 'u_size', 'u_crop', 'u_off', 'u_scale', 'u_rot', 'u_tex', 'u_src', 'u_orient', 'u_color', 'u_bright', 'u_contrast', 'u_sat', 'u_hue', 'u_look', 'u_time', 'u_texel', 'u_key', 'u_keyColor', 'u_keyExtra', 'u_keyN', 'u_keyLevel', 'u_keySoft', 'u_keyInv', 'u_keySpill', 'u_keyBordo', 'u_keySfuma', 'u_keyPulisci', 'u_matte', 'u_matte2', 'u_matteK', 'u_vista',
       'u_mirror', 'u_temp', 'u_vignette', 'u_alpha', 'u_color2', 'u_grad', 'u_box', 'u_boxPx', 'u_round', 'u_feather', 'u_auto', 'u_autoLo', 'u_autoHi', 'u_autoWb', 'u_autoK', 'u_autoGamma'])
       this.uL[n] = gl.getUniformLocation(this.pLayer, n);
     for (const n of ['u_src', 'u_lift', 'u_gamma', 'u_gain', 'u_shadow', 'u_high', 'u_sat', 'u_contrast', 'u_vignette', 'u_grain', 'u_time', 'u_split'])
@@ -1520,6 +1580,27 @@ export class Compositore {
     }
     this.fbW = w;
     this.fbH = h;
+  }
+
+  /** la maschera dell'AI su un canale solo (R8): si carica una volta e resta finché serve */
+  private matte(key: string, w: number, h: number, dati: Uint8Array): WebGLTexture {
+    const gl = this.gl;
+    let t = this.texs.get(key);
+    if (!t) {
+      t = { tex: this.newTex(), src: null, w: 0, h: 0 };
+      this.texs.set(key, t);
+    }
+    this.used.add(key);
+    if (t.src !== dati) {
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, dati);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      t.src = dati;
+      t.w = w;
+      t.h = h;
+    }
+    return t.tex;
   }
 
   /** carica sulla GPU un'immagine (fotogramma, tela, bitmap) solo se è cambiata */
@@ -1797,6 +1878,13 @@ export class Compositore {
       const t = this.upload('cd:' + c.id + ':' + i, tela as TexImageSource, tela.width, tela.height, frame + ':' + s.lf);
       tex = t.tex;
       sw = W; sh = H;
+    } else if (c.kind === 'title' && c.gen?.anim) {
+      // un'animazione del catalogo: disegnata a ogni fotogramma su una tela grande quanto il progetto
+      const tela = disegnaAnimazione(c.gen.anim, W, H, s.local, c.len * p.rate.den / p.rate.num);
+      const t = this.upload('an:' + c.id + ':' + i, tela as TexImageSource, W, H, frame + ':' + s.lf + ':' + firmaAnim(c.gen.anim));
+      tex = t.tex;
+      sw = W; sh = H;
+      fit = false;
     } else if (c.kind === 'title') {
       const spec = specAlTempo(c.gen?.title ?? TITLE0, s.local);
       const tt = telaTitolo(spec, W, H);
@@ -1891,12 +1979,43 @@ export class Compositore {
     gl.uniform1i(u.u_look, fe.looks);
     gl.uniform1f(u.u_time, (frame % 10000) / 25);
     gl.uniform2f(u.u_texel, 1 / Math.max(1, dw), 1 / Math.max(1, dh));
-    gl.uniform1i(u.u_key, fx.key === 'luma' ? 1 : fx.key === 'chroma' ? 2 : 0);
-    const kc = hex(fx.keyColor);
+    // lo sfondo tolto: con l'AI (la maschera di questo istante, se c'è) o con i colori / la luce
+    const rit = c.ritaglio;
+    const mk = rit && c.media ? maschereAl(rit.firma, s.t) : null;
+    const colori = coloriChiave(fx);
+    gl.uniform1i(u.u_key, mk ? 3 : fx.key === 'luma' ? 1 : fx.key === 'chroma' ? 2 : 0);
+    const kc = hex(colori[0]);
     gl.uniform3f(u.u_keyColor, kc[0], kc[1], kc[2]);
-    gl.uniform1f(u.u_keyLevel, fx.keyLevel);
-    gl.uniform1f(u.u_keySoft, fx.keySoft);
-    gl.uniform1i(u.u_keyInv, fx.keyInvert ? 1 : 0);
+    const extra = new Float32Array(6);
+    for (let q = 1; q < colori.length; q++) extra.set(hex(colori[q]), (q - 1) * 3);
+    gl.uniform3fv(u.u_keyExtra, extra);
+    gl.uniform1i(u.u_keyN, Math.max(0, colori.length - 1));
+    gl.uniform1i(u.u_vista, this.vistaChiave);
+    gl.uniform1i(u.u_matte, 2);
+    gl.uniform1i(u.u_matte2, 3);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, mk ? this.matte(`mk:${rit!.firma}:${mk.i}`, mk.w, mk.h, mk.a) : this.blank);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, mk ? this.matte(`mk:${rit!.firma}:${mk.i + (mk.b === mk.a ? 0 : 1)}`, mk.w, mk.h, mk.b) : this.blank);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1f(u.u_matteK, mk?.k ?? 0);
+    if (mk && rit) {
+      gl.uniform1f(u.u_keyLevel, 0);
+      gl.uniform1f(u.u_keySoft, rit.morbido);
+      gl.uniform1f(u.u_keyBordo, rit.bordo);
+      gl.uniform1i(u.u_keyInv, rit.inverti ? 1 : 0);
+      gl.uniform1f(u.u_keySpill, 0);
+      gl.uniform1f(u.u_keySfuma, 0);
+      gl.uniform1f(u.u_keyPulisci, 0);
+    } else {
+      gl.uniform1f(u.u_keyLevel, fx.keyLevel);
+      gl.uniform1f(u.u_keySoft, fx.keySoft);
+      gl.uniform1i(u.u_keyInv, fx.keyInvert ? 1 : 0);
+      gl.uniform1f(u.u_keySpill, fx.keySpill ?? SPILL0);
+      gl.uniform1f(u.u_keyBordo, fx.keyBordo ?? 0);
+      gl.uniform1f(u.u_keySfuma, fx.keySfuma ?? 0);
+      gl.uniform1f(u.u_keyPulisci, fx.keyPulisci ?? 0);
+    }
     gl.uniform1i(u.u_mirror, fe.mirror ? 1 : 0);
     gl.uniform1f(u.u_temp, fe.temp);
     gl.uniform1f(u.u_vignette, fe.vignette);

@@ -8,6 +8,7 @@ import { store } from '../core/store';
 import { MASTER0, TITLE0, isVideoClip, newClip, newTrack } from '../core/progetto';
 import { durataBlocco, nuovoBlocco, posaBlocco } from '../core/blocchi';
 import { applicaPresetTitolo, presetTitolo } from '../core/generatori';
+import { animazione, nuovaAnim } from '../core/animazioni';
 import { fps } from '../core/timecode';
 import type { Fotogramma } from '../media/fotogrammi';
 import { Lettori } from '../export/esporta';
@@ -213,6 +214,17 @@ export function scenaTitolo(id: string): Costruttore {
     const t = newClip('title', v2, 0, L, { name: 'Titolo', gen: { title: { ...TITLE0 } } });
     applicaPresetTitolo(t, id);
     p.clips.push(t);
+    return { p, da: 0, a: L };
+  };
+}
+
+/** un'animazione del catalogo sopra il fotogramma al cursore (al massimo 5 secondi: il provino è breve) */
+export function scenaAnimazione(id: string): Costruttore {
+  return (a, b) => {
+    const { p, v1, v2, r } = base(a, b);
+    const L = Math.round(r * Math.min(5, animazione(id)?.durata ?? 5));
+    p.clips.push(foto(v1, 0, L));
+    p.clips.push(newClip('title', v2, 0, L, { name: 'Animazione', gen: { anim: nuovaAnim(id) } }));
     return { p, da: 0, a: L };
   };
 }

@@ -2015,6 +2015,21 @@ try {
   await tel.screenshot({ path: path.join(OUT, 'telefono.png') });
   await tel.close();
 
+  // le prove della 1.1.4 (togliere lo sfondo, animazioni, DaProdMontage): su un banco pulito, in una pagina a parte
+  {
+    const pn = await browser.newPage({ viewport: { width: 1600, height: 950 }, acceptDownloads: true });
+    const errN = [];
+    pn.on('pageerror', (e) => errN.push(e.message));
+    pn.on('console', (m) => { if (m.type() === 'error') errN.push(m.text()); });
+    await pn.goto(srv.url + '/app/');
+    await pn.waitForSelector('.pulsantiera');
+    await pn.waitForTimeout(1200);
+    const { proveNuove } = await import('./prove-nuove.mjs');
+    await proveNuove({ page: pn, prova, OUT });
+    prova('nessun errore nelle prove nuove (sfondo, animazioni, DaProdMontage)', errN.length === 0, errN.slice(0, 5).join(' | '));
+    await pn.close();
+  }
+
   console.log('▶ Home');
   const home = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await home.goto(srv.url + '/');

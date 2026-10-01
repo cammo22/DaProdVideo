@@ -31,6 +31,7 @@ export class PannelloMonitor {
   private shuttleLbl: HTMLElement;
   private mini: MiniTimeline;
   private primaDopo: HTMLElement;
+  private vistaSfondo: HTMLElement;
   qualita = 1;
 
   constructor() {
@@ -51,6 +52,7 @@ export class PannelloMonitor {
     this.playBtn = h('button', { class: 'tasto-trasporto play', title: 'Play / Stop (Spazio)', on: { pointerdown: (e: PointerEvent) => { if (e.button === 0) { e.preventDefault(); motore.toggle(); } } } }, icona('play', 20));
     this.shuttleLbl = h('span', { class: 'shuttle-vel' }, '');
     this.primaDopo = h('button', { class: 'btn-mini prima-dopo', title: 'Prima e dopo il colore finale, fianco a fianco', on: { click: () => this.alternaPrimaDopo() } }, 'PRIMA | DOPO');
+    this.vistaSfondo = h('button', { class: 'btn-mini vista-sfondo', title: 'Guarda lo sfondo tolto: l\'immagine, la maschera in bianco e nero, il soggetto sugli scacchi', on: { click: () => this.alternaVistaSfondo() } }, 'SFONDO');
     const t = (ic: string, title: string, fn: () => void, cls = '') => h('button', { class: 'tasto-trasporto ' + cls, title, on: { click: fn } }, icona(ic, 17));
     const jog = new JogShuttle();
     this.el = h('section', { class: 'monitor' },
@@ -59,6 +61,7 @@ export class PannelloMonitor {
         h('button', { class: 'btn-mini torna', title: 'Torna a vedere il montaggio (Tab)', on: { click: () => motore.setMonitor('recorder') } }, '⟵ MONTAGGIO'),
         h('span', { class: 'mon-spazio' }),
         this.primaDopo,
+        this.vistaSfondo,
         h('button', { class: 'btn-mini foto', title: 'Istantanea del fotogramma nel contenitore (P) · Shift+P fermo immagine', on: { click: () => esegui('istantanea') } }, icona('foto', 13), 'FOTO'),
         h('button', { class: 'btn-mini', title: 'Zone di sicurezza e croce (G)', on: { click: () => { modi.zoneSicure = !modi.zoneSicure; this.disegnaSopra(); } } }, 'ZONE'),
         h('select', {
@@ -158,6 +161,15 @@ export class PannelloMonitor {
     this.primaDopo.classList.toggle('acceso', motore.rec.prima > 0);
     motore.ridisegna();
     avviso(motore.rec.prima > 0 ? 'A sinistra com\'era, a destra con il colore finale' : 'Tutto con il colore finale', 'info', 1600);
+  }
+
+  /** 0 = l'immagine · 1 = la maschera (bianco = resta) · 2 = il soggetto sugli scacchi */
+  private alternaVistaSfondo() {
+    if (!motore.rec) return;
+    motore.rec.vistaChiave = (motore.rec.vistaChiave + 1) % 3;
+    this.vistaSfondo.classList.toggle('acceso', motore.rec.vistaChiave > 0);
+    this.vistaSfondo.textContent = ['SFONDO', 'MASCHERA', 'SCACCHI'][motore.rec.vistaChiave];
+    motore.ridisegna();
   }
 
   private apriInserimento(prima: string) {
