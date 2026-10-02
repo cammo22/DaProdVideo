@@ -144,7 +144,12 @@ export class Contenitore {
     store.on('doc', () => { this.disegnaAlbero(); this.disegnaDestra(); });
     store.on('status', () => this.evidenzia());
     store.on('sel', () => { if (this.nodo.startsWith('fx') || this.nodo === 'effetti') this.aggiornaEffetti(); });
-    quandoPicchi(() => { this.firma = ''; this.disegnaDestra(); });
+    // la forma d'onda cresce mentre si calcola: si rinfresca solo la tela di quella scheda (se si ridisegnasse tutta la
+    // griglia a ogni passo, la pagina salterebbe e il programma andrebbe a scatti)
+    quandoPicchi((id) => {
+      this.picchiSporchi.add(id);
+      if (!this.picchiRaf) this.picchiRaf = requestAnimationFrame(() => { this.picchiRaf = 0; for (const x of this.picchiSporchi) this.ridisegnaCarta(x); this.picchiSporchi.clear(); });
+    });
     quandoAnalisi(() => {});
     quandoFotogramma(() => { if (this.scorre) this.disegnaScorre(); });
     if (this.nodo.startsWith('dir:') && !cartelleDi().some((c) => 'dir:' + c.id === this.nodo)) this.nodo = 'tutto';
@@ -305,6 +310,10 @@ export class Contenitore {
 
   // ——— la parte destra ———
   private firma = '';
+  /** com'è messa ogni scheda (stato del file e locandina): se cambia solo questo, le schede si aggiornano al loro posto */
+  private firmaVis = '';
+  private picchiSporchi = new Set<string>();
+  private picchiRaf = 0;
   private disegnaDestra(forza = false) {
     const n = this.nodo;
     if (n === 'transizioni' || n.startsWith('tr:')) { if (forza || this.firma !== n + this.filtro) { this.firma = n + this.filtro; this.paginaTransizioni(); } return; }
@@ -325,9 +334,16 @@ export class Contenitore {
     const n = this.nodo;
     const usi = new Map<string, number>();
     for (const c of p.clips) if (c.media) usi.set(c.media, (usi.get(c.media) ?? 0) + 1);
-    const firma = n + '|' + this.filtro + '|' + JSON.stringify(p.cartelle ?? []) + '|' + p.media.map((m) => [m.id, m.name, m.cartella, m.markIn, m.markOut, usi.get(m.id) ?? 0, mediaRT(m.id)?.stato, !!mediaRT(m.id)?.poster].join(',')).join(';');
-    if (!forza && firma === this.firma) return;
+    const firma = n + '|' + this.filtro + '|' + JSON.stringify(p.cartelle ?? []) + '|' + p.media.map((m) => [m.id, m.name, m.cartella, m.markIn, m.markOut, usi.get(m.id) ?? 0].join(',')).join(';');
+    const vis = p.media.map((m) => { const r = mediaRT(m.id); return (r?.stato ?? '-') + (r?.poster ? 'p' : ''); }).join(',');
+    if (!forza && firma === this.firma) {
+      // sono arrivati file riaperti o locandine: si ritoccano le schede senza rifare la griglia (e senza far saltare la pagina)
+      if (vis !== this.firmaVis) { this.firmaVis = vis; this.aggiornaSchede(); }
+      return;
+    }
     this.firma = firma;
+    this.firmaVis = vis;
+    const scorrimento = this.corpo.scrollTop;
     this.scorre = null;
     const cart = n.startsWith('dir:') ? cartelleDi().find((c) => c.id === n.slice(4)) : undefined;
     // dove sei: Progetto › cartella › sottocartella
@@ -369,7 +385,35 @@ export class Contenitore {
       }
     }
     this.corpo.replaceChildren(...out);
+    this.corpo.scrollTop = scorrimento;
     this.evidenzia();
+  }
+
+  /** stato e locandina di ogni scheda, al loro posto */
+  private aggiornaSchede() {
+    for (const el of this.corpo.querySelectorAll<HTMLElement>('.carta[data-id]')) {
+      const m = store.doc.media.find((x) => x.id === el.dataset.id);
+      if (!m) continue;
+      el.classList.toggle('offline', mediaRT(m.id)?.stato !== 'ok');
+      const info = el.querySelector('.carta-info');
+      if (info) info.textContent = this.infoCarta(m);
+      const cv = el.querySelector('canvas');
+      if (cv && this.scorre?.cv !== cv) this.locandina(cv, m);
+    }
+  }
+
+  /** la forma d'onda di un audio (o la locandina) si rinfresca nella sua tela */
+  private ridisegnaCarta(id: string) {
+    const m = store.doc.media.find((x) => x.id === id);
+    if (!m) return;
+    const cv = this.corpo.querySelector<HTMLCanvasElement>(`.carta[data-id="${CSS.escape(id)}"] canvas`);
+    if (cv && this.scorre?.cv !== cv) this.locandina(cv, m);
+  }
+
+  private infoCarta(m: MediaItem): string {
+    const rt = mediaRT(m.id);
+    if (rt?.stato !== 'ok') return rt?.stato === 'caricamento' ? 'apro…' : 'OFFLINE · da ricollegare';
+    return m.type === 'audio' ? `${m.acodec.toUpperCase()} · ${m.sampleRate / 1000} kHz` : `${m.width}×${m.height}${m.fps ? ' · ' + Math.round(m.fps * 100) / 100 + ' fps' : ''}${m.hasAudio && m.type === 'video' ? ' · audio' : ''}`;
   }
 
   private cartaCartella(c: Cartella): HTMLElement {
@@ -431,8 +475,7 @@ export class Contenitore {
   }
 
   private carta(m: MediaItem, usi: number): HTMLElement {
-    const rt = mediaRT(m.id);
-    const ok = rt?.stato === 'ok';
+    const ok = mediaRT(m.id)?.stato === 'ok';
     const cv = h('canvas', { width: 192, height: 108 });
     this.locandina(cv, m);
     const linea = h('i', { class: 'carta-linea' });
@@ -445,10 +488,10 @@ export class Contenitore {
       usi ? h('span', { class: 'carta-usi', title: 'Clip nella timeline' }, '×' + usi) : null,
       m.markIn != null || m.markOut != null ? h('span', { class: 'carta-io', title: 'Attacco e stacco segnati' }, 'I/O') : null,
       h('button', { class: 'carta-piu', title: 'Metti al cursore (e il cursore va alla fine)', on: { click: (e: MouseEvent) => { e.stopPropagation(); mettiAlCursore(m); }, pointerdown: (e: PointerEvent) => e.stopPropagation() } }, icona('piu', 14)));
-    // passaggio del mouse: il video scorre avanti e indietro seguendo il puntatore
-    if (ok && m.type !== 'image') {
+    // passaggio del mouse: il video scorre avanti e indietro seguendo il puntatore (se il file è aperto)
+    if (m.type !== 'image') {
       img.addEventListener('pointermove', (e) => {
-        if (e.pointerType === 'touch') return;
+        if (e.pointerType === 'touch' || mediaRT(m.id)?.stato !== 'ok') return;
         const r = img.getBoundingClientRect();
         const k = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
         linea.style.left = k * 100 + '%';
@@ -490,7 +533,7 @@ export class Contenitore {
             { sep: true },
             { nome: 'Sposta in una cartella', sotto: this.menuCartelle(m) },
             { nome: 'Rinomina…', fn: async () => { const n = await chiedi('Rinomina', 'Nome', m.name); if (n) store.edit('Rinomina', () => { m.name = n; }); } },
-            { nome: 'Ricollega file mancanti…', disattiva: ok, fn: () => ricollega() },
+            { nome: 'Ricollega file mancanti…', disattiva: mediaRT(m.id)?.stato === 'ok', fn: () => ricollega() },
             { nome: 'Togli dal contenitore', fn: () => togliMedia(m.id) },
           ]);
         },
@@ -498,9 +541,7 @@ export class Contenitore {
     },
       img,
       h('div', { class: 'carta-nome' }, m.name),
-      h('div', { class: 'carta-info' }, ok
-        ? (m.type === 'audio' ? `${m.acodec.toUpperCase()} · ${m.sampleRate / 1000} kHz` : `${m.width}×${m.height}${m.fps ? ' · ' + Math.round(m.fps * 100) / 100 + ' fps' : ''}${m.hasAudio && m.type === 'video' ? ' · audio' : ''}`)
-        : (rt?.stato === 'caricamento' ? 'apro…' : 'OFFLINE · da ricollegare')));
+      h('div', { class: 'carta-info' }, this.infoCarta(m)));
     // trascinando un file scelto si portano dietro tutti i file scelti; trascinandone uno non scelto, resta solo quello
     trascinabile(el, () => this.datoTrascina(m.id), () => (this.scelti.size > 1 && this.scelti.has(m.id) ? `🎞 ${this.scelti.size} file` : (m.type === 'audio' ? '🎵 ' : m.type === 'image' ? '🖼 ' : '🎞 ') + m.name));
     return el;

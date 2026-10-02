@@ -4,6 +4,28 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.2.0] — 2026-10-03 · La prima release ufficiale: più veloce, più chiaro, la barra delle attività ⚡
+
+Questa versione non aggiunge strumenti: rende **più fluido e più chiaro quello che c'è già**.
+
+### La barra delle attività (in basso a destra)
+- Tutto quello che il programma fa dietro le quinte — **riaprire i file di un progetto, forme d'onda, colore automatico, copie leggere (proxy), conversioni a velocità costante, sottotitoli, voce e traduzione con l'AI, togliere lo sfondo, import e pacchetti** — ha **una riga sola nel centro attività**. In basso a destra c'è sempre **una barra** con cosa sta facendo, la percentuale e il tempo che manca; se le cose da fare sono più di una compare **+N**.
+- **Un clic sulla barra apre il pannello**: per ogni attività la barra di avanzamento, **quanto è passato, quanto manca**, e per i gruppi "12 fatti · 2 al lavoro · 26 in coda"; sotto, **le finite da poco** (con quanto ci hanno messo). **✕** ferma una riga, **⏸ Pausa** non fa partire lavori nuovi, **Pulisci** toglie le finite, Esc chiude. Sul telefono la barra sta sopra i pulsanti in basso.
+- Le barre del Finale, di DaProdMontage e del ritaglio con l'AI (e quelle che comparivano in un riquadro sopra l'interfaccia) ora **stanno tutte qui**.
+
+### Riaprire un progetto con tante clip (era lento e a scatti)
+- **I file si riaprono quattro alla volta, e prima quelli che stanno in timeline** (prima uno per volta, nell'ordine del contenitore). Con file nuovi: 3 volte più veloce; **riaprendo un progetto già visto: da 12 secondi a 0,2** (14 riprese).
+- **Le misure già fatte si ricordano** (forma d'onda, colore automatico e locandina di ogni file, in un deposito a parte del browser/app: Vista → svuota copie leggere non lo tocca). Se il file è lo stesso, non si rifanno.
+- **I lavori di fondo vanno a turno**, non tutti insieme: due leggeri alla volta (forme d'onda, colore) e **una sola copia pesante alla volta** (ferma finché il montaggio suona), e passa avanti chi sta in timeline. Prima, riaprendo un progetto con 90 riprese, partivano decine di decodifiche insieme e il programma scendeva a 5 fotogrammi al secondo.
+- **La copia leggera (proxy) si fa solo per le riprese che stanno in timeline**: quelle che stanno solo nel contenitore aspettano (prima se ne facevano 96 per niente). Se ne metti una in timeline parte da sola; se la copia c'è già sul disco si usa subito.
+- **Il contenitore non salta più**: mentre i file si riaprono e le forme d'onda crescono, le schede si aggiornano **al loro posto** (prima si rifaceva tutta la griglia a ogni passo e la pagina tornava in cima).
+
+### File a velocità costante, dietro le quinte
+- Un file a frame rate o bitrate variabile **entra subito** com'è e si lavora subito; **la copia a velocità costante si fa dietro le quinte** (una alla volta, col suo avanzamento, in pausa mentre il montaggio suona) e **prende il posto dell'originale** da sola quando è pronta: clip, segni e proprietà restano dove sono, e Annulla non rimette i dati vecchi. L'originale non si tocca. Prima l'import aspettava la conversione.
+
+### Altro
+- Sistemata la lettura dei pixel per il colore e la locandina (fuori dal thread principale dove si può), meno attese all'interfaccia.
+
 ## [1.1.6] — 2026-10-02 · Pagina iniziale, scelta multipla nel contenitore, voce in altre lingue (anche cinese), file a velocità costante 🗂
 
 ### Pagina iniziale: i tuoi progetti

@@ -249,6 +249,14 @@ export async function proveSeguito({ page: paginaDi, prova, OUT }) {
     const a = await importaFile([{ name: vfr.name, file: vfr }], { chiediFormato: false });
     const b = await importaFile([{ name: vbr.name, file: vbr }], { chiediFormato: false });
     const c = await importaFile([{ name: cfr.name, file: cfr }], { chiediFormato: false });
+    // dalla 1.2.0 la copia si fa dietro le quinte: si aspetta che il controllo e le conversioni siano finiti
+    const AT = window.__dpvTest.AT;
+    for (let i = 0; i < 600; i++) {
+      if (!AT.attivitaInCorso().some((r) => /velocità/.test(r.titolo))) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const doc = (x) => window.__dpv.doc.media.find((m) => m.id === x.id);
+    a[0] = doc(a[0]); b[0] = doc(b[0]); c[0] = doc(c[0]);
     // il video importato è davvero a frame rate costante?
     const rt = window.__dpvTest.mediaRT(a[0].id);
     const fr = await rt.v.computeFrameRateMetrics({ targetPacketCount: 300 });

@@ -69,7 +69,7 @@ export class Montage {
   private conta: HTMLElement;
   private carte = new Map<string, HTMLElement>();
   private riepilogo: HTMLElement;
-  private lavoro = new BarraLavoro();
+  private lavoro = new BarraLavoro('DaProdMontage: preparo il montaggio', 'altro');
   private bCrea: HTMLButtonElement;
   private selMusica: HTMLSelectElement;
   private campiTesto: HTMLElement;

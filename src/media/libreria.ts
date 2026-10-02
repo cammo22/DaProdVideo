@@ -7,7 +7,9 @@ import {
 import type { MediaItem } from '../core/tipi';
 import { uid } from '../core/progetto';
 import { invoke, isTauri, type FileScelto } from '../platform';
-import { accodaProxy, type Proxy } from './proxy';
+import { accodaProxy, modoProxy, proxyEsistente, type Proxy } from './proxy';
+import { inCoda as lavoraInCoda, type Lavoro } from './attivita';
+import { chiaveMedia, comprimiPicchi, espandiPicchi, leggiCache, scriviCache } from './cache';
 
 export type StatoMedia = 'caricamento' | 'ok' | 'offline' | 'errore';
 
@@ -34,7 +36,8 @@ export interface MediaRT {
   colore?: Analisi;
   /** la copia leggera per i monitor (src/media/proxy.ts) */
   proxy?: Proxy;
-  proxyStato?: 'coda' | 'lavoro' | 'pronto' | 'no' | 'errore';
+  /** 'attesa' = il proxy si farà quando la ripresa entra in timeline */
+  proxyStato?: 'attesa' | 'coda' | 'lavoro' | 'pronto' | 'no' | 'errore';
   proxyProg?: number;
 }
 
@@ -49,6 +52,13 @@ export interface Analisi {
 const rt = new Map<string, MediaRT>();
 export const mediaRT = (id: string) => rt.get(id);
 export const PEAKS_PER_SEC = 100;
+
+/** quante clip della timeline usano un file: chi sta in timeline passa avanti nelle code dei lavori di fondo */
+let usoMedia: (id: string) => number = () => 0;
+export const impostaUsoMedia = (fn: (id: string) => number) => { usoMedia = fn; };
+const prioritaDi = (id: string) => () => { const n = usoMedia(id); return n > 0 ? 100 + Math.min(50, n) : 0; };
+/** per chi mette in coda lavori su un file: chi sta in timeline passa avanti */
+export const prioritaMedia = prioritaDi;
 
 const IMMAGINI = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 let ac3Pronto: Promise<void> | null = null;
@@ -106,15 +116,9 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
     r.vDecodable = r.v ? await r.v.canDecode() : false;
     r.aDecodable = r.a ? await r.a.canDecode() : false;
     r.stato = 'ok';
-    if (r.v && r.vDecodable) {
-      const dur = item.duration || 1;
-      const cs = new CanvasSink(r.v, { width: 320, fit: 'contain' });
-      const w = await cs.getCanvas(Math.min(dur * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
-      if (w) r.poster = w.canvas;
-      void misuraColore(r, dur);
-      void accodaProxy(item, r, () => sorgente(r));
-    }
-    if (r.a && r.aDecodable) void calcolaPicchi(r, item.duration);
+    const chiave = chiaveMedia(item);
+    if (r.v && r.vDecodable) await locandina(item, r, r.v, chiave);
+    preparaLavori(item, r, chiave);
   } catch (e) {
     r.stato = 'errore';
     r.errore = e instanceof Error ? e.message : String(e);
@@ -122,8 +126,86 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
   return r;
 }
 
+/** la locandina: dalla memoria se c'è già, se no un fotogramma vero (e poi si ricorda) */
+async function locandina(item: MediaItem, r: MediaRT, v: InputVideoTrack, chiave: string) {
+  const salvata = await leggiCache<Blob>('poster', chiave);
+  if (salvata) {
+    try { r.poster = await createImageBitmap(salvata); return; } catch { /* locandina rovinata: si rifà */ }
+  }
+  const dur = item.duration || 1;
+  const cs = new CanvasSink(v, { width: 320, fit: 'contain' });
+  const w = await cs.getCanvas(Math.min(dur * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
+  if (!w) return;
+  r.poster = w.canvas;
+  void aBlob(w.canvas).then((b) => { if (b) void scriviCache('poster', chiave, b); });
+}
+
+/** la locandina in JPEG, senza fermare l'interfaccia: la lettura dei pixel si fa fuori dal thread principale */
+async function aBlob(c: HTMLCanvasElement | OffscreenCanvas): Promise<Blob | null> {
+  try {
+    const bmp = await createImageBitmap(c);
+    const o = new OffscreenCanvas(bmp.width, bmp.height);
+    o.getContext('2d')!.drawImage(bmp, 0, 0);
+    bmp.close();
+    return await o.convertToBlob({ type: 'image/jpeg', quality: 0.82 });
+  } catch { return null; }
+}
+
+/** colore, forma d'onda e copia leggera: dietro le quinte, a turno, prima i file che stanno in timeline */
+function preparaLavori(item: MediaItem, r: MediaRT, chiave: string) {
+  const priorita = prioritaDi(item.id);
+  if (r.v && r.vDecodable) {
+    void (async () => {
+      const salvato = await leggiCache<Analisi>('colore', chiave);
+      if (salvato) { r.colore = salvato; for (const fn of onAnalisi) fn(); return; }
+      await lavoraInCoda({ corsia: 'leggero', titolo: 'Colore automatico', categoria: 'analisi', gruppo: 'colore', priorita }, async (l) => {
+        l.imposta(0, item.name);
+        await misuraColore(r, item.duration || 1, chiave);
+      });
+    })();
+    void preparaProxy(item, r);
+  }
+  if (r.a && r.aDecodable) {
+    void (async () => {
+      const n = Math.max(1, Math.ceil(item.duration * PEAKS_PER_SEC));
+      const salvati = await leggiCache<Uint8Array>('picchi', chiave);
+      if (salvati && salvati.length === n && rt.get(r.id) === r) {
+        r.peaks = espandiPicchi(salvati);
+        r.peaksDone = n;
+        for (const fn of onPicchi) fn(r.id);
+        return;
+      }
+      await lavoraInCoda({ corsia: 'leggero', titolo: 'Forme d\'onda', categoria: 'analisi', gruppo: 'picchi', priorita }, async (l) => {
+        l.imposta(0, item.name);
+        await calcolaPicchi(r, item.duration, chiave, l);
+      });
+    })();
+  }
+}
+
+/** la copia leggera serve a chi sta in timeline: per gli altri file si aspetta che qualcuno li usi */
+async function preparaProxy(item: MediaItem, r: MediaRT) {
+  const fonte = () => sorgente(r);
+  if (usoMedia(item.id) > 0 || modoProxy() === 'sempre') { await accodaProxy(item, r, fonte, prioritaDi(item.id)); return; }
+  // un proxy già fatto si usa subito (costa poco); gli altri si fanno quando serve
+  if (await proxyEsistente(item, r)) return;
+  r.proxyStato = 'attesa';
+}
+
+/** un file è entrato in timeline: se aspettava la sua copia leggera, adesso si fa */
+export function risvegliaProxy(media: MediaItem[]) {
+  for (const m of media) {
+    const r = rt.get(m.id);
+    if (r?.proxyStato === 'attesa' && r.v && usoMedia(m.id) > 0) {
+      r.proxyStato = undefined;
+      void accodaProxy(m, r, () => sorgente(r), prioritaDi(m.id));
+    }
+  }
+}
+
 /** legge un file nuovo e crea la sua scheda per il contenitore */
-export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: MediaRT } | { errore: string; nome: string }> {
+/** soloDescrizione: legge com'è fatto il file e basta (niente locandina né lavori di fondo): serve a chi sostituisce un file con la sua copia convertita */
+export async function importa(sel: FileScelto, opz: { soloDescrizione?: boolean } = {}): Promise<{ item: MediaItem; rt: MediaRT } | { errore: string; nome: string }> {
   const id = uid('m');
   const nome = sel.name;
   const base: MediaItem = {
@@ -157,7 +239,7 @@ export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: M
         const img = await createImageBitmap(await leggiTutto(r));
         img.close();
         rt.delete(id);
-        return importa({ ...sel, name: /\.[a-z0-9]{2,4}$/i.test(nome) ? nome : nome + '.jpg' });
+        return importa({ ...sel, name: /\.[a-z0-9]{2,4}$/i.test(nome) ? nome : nome + '.jpg' }, opz);
       } catch { /* non è nemmeno un'immagine */ }
       rt.delete(id);
       return { errore: 'formato non riconosciuto', nome };
@@ -193,14 +275,10 @@ export async function importa(sel: FileScelto): Promise<{ item: MediaItem; rt: M
       return { errore: `il video ${base.vcodec.toUpperCase()} non si decodifica su questo sistema`, nome };
     }
     r.stato = 'ok';
-    if (v && r.vDecodable) {
-      const cs = new CanvasSink(v, { width: 320, fit: 'contain' });
-      const w = await cs.getCanvas(Math.min(base.duration * 0.1, 2)).catch(() => null) ?? await cs.getCanvas(0).catch(() => null);
-      if (w) r.poster = w.canvas;
-      void misuraColore(r, base.duration);
-      void accodaProxy(base, r, () => sorgente(r));
-    }
-    if (a && r.aDecodable) void calcolaPicchi(r, base.duration);
+    if (opz.soloDescrizione) { input.dispose(); rt.delete(id); return { item: base, rt: r }; }
+    const chiave = chiaveMedia(base);
+    if (v && r.vDecodable) await locandina(base, r, v, chiave);
+    preparaLavori(base, r, chiave);
     return { item: base, rt: r };
   } catch (e) {
     rt.delete(id);
@@ -251,7 +329,7 @@ export function analizza(immagini: CanvasImageSource[]): Analisi {
   return { lo, hi, wb, gamma };
 }
 
-async function misuraColore(r: MediaRT, durata: number) {
+async function misuraColore(r: MediaRT, durata: number, chiave: string) {
   if (!r.v) return;
   try {
     // prima il monitor: la misura aspetta che il decoder sia libero
@@ -260,8 +338,14 @@ async function misuraColore(r: MediaRT, durata: number) {
     const d = Math.max(0.1, durata);
     const ts = [0.08, 0.3, 0.5, 0.7, 0.92].map((k) => (r.v ? k * d : 0));
     const tele: CanvasImageSource[] = [];
-    for await (const w of cs.canvasesAtTimestamps(ts)) if (w) tele.push(w.canvas);
-    if (tele.length) r.colore = analizza(tele);
+    // ogni fotogramma si rimpicciolisce con createImageBitmap (lavora fuori dal thread principale): leggere i pixel
+    // direttamente dalla tela della scheda video farebbe aspettare l'interfaccia
+    for await (const w of cs.canvasesAtTimestamps(ts)) {
+      if (!w) continue;
+      try { tele.push(await createImageBitmap(w.canvas, { resizeWidth: 64, resizeHeight: 36, resizeQuality: 'low' })); } catch { tele.push(w.canvas); }
+    }
+    if (tele.length) { r.colore = analizza(tele); void scriviCache('colore', chiave, r.colore); }
+    for (const t of tele) if (t instanceof ImageBitmap) t.close();
     for (const fn of onAnalisi) fn();
   } catch { /* niente colore automatico per questa ripresa */ }
 }
@@ -271,13 +355,14 @@ type Ascoltatore = (id: string) => void;
 const onPicchi = new Set<Ascoltatore>();
 export const quandoPicchi = (fn: Ascoltatore) => { onPicchi.add(fn); return () => onPicchi.delete(fn); };
 
-async function calcolaPicchi(r: MediaRT, durata: number) {
+async function calcolaPicchi(r: MediaRT, durata: number, chiave: string, lavoro?: Lavoro) {
   if (!r.a) return;
   const n = Math.max(1, Math.ceil(durata * PEAKS_PER_SEC));
   const peaks = new Float32Array(n);
   r.peaks = peaks;
   r.peaksDone = 0;
   const sink = new AudioBufferSink(r.a);
+  let completa = true;
   let ultimo = performance.now();
   let fetta = performance.now();
   try {
@@ -298,6 +383,7 @@ async function calcolaPicchi(r: MediaRT, durata: number) {
       r.peaksDone = Math.min(n, first + Math.ceil(len / per));
       if (performance.now() - ultimo > 250) {
         ultimo = performance.now();
+        lavoro?.imposta(r.peaksDone / n);
         for (const fn of onPicchi) fn(r.id);
       }
       // a fette brevi: la forma d'onda si calcola senza bloccare l'interfaccia
@@ -305,10 +391,11 @@ async function calcolaPicchi(r: MediaRT, durata: number) {
         await new Promise((ok) => setTimeout(ok, 0));
         fetta = performance.now();
       }
-      if (rt.get(r.id) !== r) return;
+      if (rt.get(r.id) !== r || lavoro?.fermato) return;
     }
-  } catch { /* forma d'onda incompleta: pazienza */ }
+  } catch { completa = false; /* forma d'onda incompleta: pazienza (e non si ricorda) */ }
   r.peaksDone = n;
+  if (completa) void scriviCache('picchi', chiave, comprimiPicchi(peaks));
   for (const fn of onPicchi) fn(r.id);
 }
 

@@ -280,7 +280,7 @@ export class Finale {
       this.aggiornaAI.push(() => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === get())));
       return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
     };
-    const lavoro = new BarraLavoro();
+    const lavoro = new BarraLavoro('Sottotitoli con l\'AI', 'ai', () => { this.lavoroAI?.abort(); fermaVoce(); });
     const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.scriviConAI(lavoro, vai, ferma) } }, '✨ Scrivi i sottotitoli con l\'AI');
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroAI?.abort(); fermaVoce(); } } }, '■ Ferma');
     const nemotron = () => this.motoreAI() === 'nemotron';
@@ -382,7 +382,7 @@ export class Finale {
       sinc.push(() => bott.forEach((b) => b.classList.toggle('acceso', b.dataset.v === get())));
       return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
     };
-    const lavoro = new BarraLavoro();
+    const lavoro = new BarraLavoro('Voce AI dai sottotitoli', 'ai', () => this.lavoroVoce?.abort());
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => this.lavoroVoce?.abort() } }, '■ Ferma');
     const vai = h('button', { class: 'btn primario ai-vai', title: 'Legge i sottotitoli con la voce scelta e mette il risultato su una traccia audio nuova', on: { click: () => void this.faiParlare(lavoro, vai, ferma) } }, '🗣 Fai parlare i sottotitoli');
     const silenzia = h('input', { type: 'checkbox' }) as HTMLInputElement;
@@ -617,7 +617,7 @@ export class Finale {
     lingua.addEventListener('change', () => this.cambiaSott('Lingua dei sottotitoli', (x) => { x.lingua = lingua.value; }));
     const aTrad = h('select', { class: 'mini-select largo' }, LINGUE_TRADUZIONE.map(([v, , t]) => h('option', { value: v }, t))) as HTMLSelectElement;
     aTrad.addEventListener('change', () => { this.trad.a = aTrad.value; try { localStorage.setItem('dpv-trad', JSON.stringify(this.trad)); } catch { /* niente */ } this.campi.forEach((c) => c.aggiorna()); });
-    const lavoro = new BarraLavoro();
+    const lavoro = new BarraLavoro('Traduzione dei sottotitoli', 'ai', () => { this.lavoroTrad?.abort(); fermaTraduzione(); });
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroTrad?.abort(); fermaTraduzione(); } } }, '■ Ferma');
     const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.traduciSottotitoli(lavoro, vai, ferma) } }, '🌍 Traduci i sottotitoli');
     const nota = h('p', { class: 'nota' });

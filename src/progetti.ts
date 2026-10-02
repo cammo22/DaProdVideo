@@ -6,7 +6,8 @@ import type { MediaItem, Project } from './core/tipi';
 import { FORMATI } from './core/tipi';
 import { ALTEZZA, MASTER0, newProject } from './core/progetto';
 import { migraBlocchi } from './core/blocchi';
-import { apri as apriMedia, chiudi as chiudiMedia, importa, mediaRT } from './media/libreria';
+import { apri as apriMedia, chiudi as chiudiMedia, importa, mediaRT, prioritaMedia } from './media/libreria';
+import { inCoda, nuova } from './media/attivita';
 import { dimenticaMedia } from './media/fotogrammi';
 import { converti, esamina, normalizzaAttivo } from './media/normalizza';
 import { dialogoApri, ESTENSIONI_DI, invoke, isTauri, nomeDaPercorso, salvaTesto, scegliFileBrowser, scegliMedia, type FileScelto, type TipoMedia } from './platform';
@@ -47,38 +48,28 @@ async function idb<T>(store: 'kv' | 'maniglie' | 'file', op: 'get' | 'put' | 'de
 type Maniglia = FileSystemFileHandle & { queryPermission?: (o: object) => Promise<string>; requestPermission?: (o: object) => Promise<string> };
 
 // ——— importazione ———
+const IMMAGINE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+
 export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[], opzioni: { chiediFormato?: boolean; cartella?: string } = {}): Promise<MediaItem[]> {
   if (!lista.length) return [];
   const nuovi: MediaItem[] = [];
   const errori: string[] = [];
-  const barra = avvisoLungo(`Importo ${lista.length} file…`);
+  const lav = nuova({ titolo: lista.length === 1 ? 'Importo un file' : `Importo ${lista.length} file`, categoria: 'file' });
   let i = 0;
   for (const f of lista) {
-    barra.testo(`Importo ${++i}/${lista.length}: ${f.name}`);
-    // frame rate o bitrate variabili: il file si rifà a velocità costante (se no in montaggio audio e video slittano)
-    let sel: FileScelto & { maniglia?: Maniglia } = f;
-    if (normalizzaAttivo() && !/\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name)) {
-      try {
-        const v = await esamina(f);
-        if (v) {
-          const nome = f.name;
-          barra.testo(`Converto ${nome}: ${v.motivo}…`);
-          const conv = await converti(f, v, (k) => barra.testo(`Converto ${nome} (${v.motivo}): ${Math.round(k * 100)}%`));
-          sel = conv;
-          avviso(`🔧 ${nome}: ${v.motivo} (l'originale non è stato toccato)`, 'info', 3600);
-        }
-      } catch { sel = f; /* se la conversione non riesce si importa il file com'è */ }
-    }
-    const r = await importa(sel);
+    if (lav.fermato) break;
+    lav.imposta(i / lista.length, `${++i} di ${lista.length} · ${f.name}`);
+    const r = await importa(f);
     if ('errore' in r) { errori.push(`${r.nome}: ${r.errore}`); continue; }
     if (opzioni.cartella) r.item.cartella = opzioni.cartella;
     nuovi.push(r.item);
-    if (f.maniglia && sel === f) void idb('maniglie', 'put', r.item.id, f.maniglia);
+    if (f.maniglia) void idb('maniglie', 'put', r.item.id, f.maniglia);
     // nel browser, senza "maniglia" (Firefox, Safari, file trascinati, istantanee) i file piccoli si tengono
     // dentro il browser: così il progetto li ritrova alla prossima apertura senza ricollegarli
-    else if (!isTauri && sel.file && sel.file.size <= FILE_LOCALE_MAX) void idb('file', 'put', r.item.id, sel.file);
+    else if (!isTauri && f.file && f.file.size <= FILE_LOCALE_MAX) void idb('file', 'put', r.item.id, f.file);
+    controllaVelocita(r.item, f);
   }
-  barra.chiudi();
+  lav.fine(nuovi.length === 1 ? '1 file' : `${nuovi.length} file`);
   if (nuovi.length) {
     store.edit(`Importa ${nuovi.length} file`, (p) => { p.media.push(...nuovi); });
     // il primo video decide il formato del progetto se il montaggio è ancora vuoto
@@ -94,6 +85,54 @@ export async function importaFile(lista: (FileScelto & { maniglia?: Maniglia })[
     d.piede.append(h('button', { class: 'btn primario', on: { click: d.chiudi } }, 'OK'));
   }
   return nuovi;
+}
+
+/**
+ * Frame rate o bitrate variabili: il file si rifà a velocità costante (se no in montaggio audio e video slittano).
+ * Si lavora subito col file com'è; la copia si fa dietro le quinte (una alla volta, ferma mentre il montaggio suona)
+ * e, quando è pronta, prende il posto dell'originale. L'originale non si tocca.
+ */
+function controllaVelocita(m: MediaItem, sel: FileScelto) {
+  if (!normalizzaAttivo() || m.type === 'image' || IMMAGINE.test(sel.name)) return;
+  const priorita = prioritaMedia(m.id);
+  void inCoda({ corsia: 'leggero', titolo: 'Controllo la velocità dei file', categoria: 'analisi', gruppo: 'esame', priorita }, async (l) => {
+    l.imposta(0, m.name);
+    const v = await esamina(sel);
+    if (!v) return;
+    // la conversione ha la sua riga (e il suo posto in coda): qui non si aspetta
+    void inCoda({ corsia: 'pesante', titolo: 'Conversione a velocità costante', categoria: 'conversione', gruppo: 'converti', priorita }, async (c) => {
+      c.imposta(0, `${m.name} · ${v.motivo}`);
+      const copia = await converti(sel, v, (k) => c.imposta(k), c.segnale);
+      c.imposta(1, `${m.name} · metto la copia al suo posto`);
+      if (await mettiCopia(m.id, copia)) avviso(`🔧 ${m.name}: ${v.motivo} (l'originale non è stato toccato)`, 'info', 3600);
+    });
+  });
+}
+
+/** la copia a velocità costante prende il posto del file nel progetto (clip, segni e proprietà restano dove sono) */
+async function mettiCopia(id: string, copia: FileScelto): Promise<boolean> {
+  if (!store.doc.media.some((x) => x.id === id)) return false;
+  const d = await importa(copia, { soloDescrizione: true });
+  if ('errore' in d) throw new Error(d.errore);
+  // il file non si cambia sotto i piedi di chi sta guardando
+  while (motore.playing) await new Promise((ok) => setTimeout(ok, 400));
+  const m = store.doc.media.find((x) => x.id === id);
+  if (!m) return false;
+  const n = d.item;
+  store.aggiornaMedia(id, {
+    duration: n.duration, t0: n.t0, width: n.width, height: n.height, fps: n.fps, rotation: n.rotation, hasVideo: n.hasVideo, hasAudio: n.hasAudio,
+    channels: n.channels, sampleRate: n.sampleRate, vcodec: n.vcodec, acodec: n.acodec, container: n.container, size: n.size, lastModified: n.lastModified, path: copia.path,
+  }, (n.t0 || 0) - (m.t0 || 0));
+  dimenticaMedia(id);
+  await apriMedia(store.doc.media.find((x) => x.id === id)!, { file: copia.file, path: copia.path });
+  // nel browser la copia sta in memoria: per ritrovarla alla prossima apertura si tiene dentro il browser (se non è enorme)
+  if (!isTauri && copia.file) {
+    void idb('maniglie', 'delete', id);
+    if (copia.file.size <= FILE_LOCALE_MAX) void idb('file', 'put', id, copia.file);
+  }
+  store.emit('doc');
+  motore.ridisegna();
+  return true;
 }
 
 async function propostaFormato(m: MediaItem) {
@@ -299,7 +338,7 @@ async function apriPacchetto(s: Sorgente) {
     let mancano = 0;
     let i = 0;
     for (const m of p.media) {
-      barra.testo(`Apro il pacchetto: ${++i}/${p.media.length} ${m.name}`);
+      barra.testo(`Apro il pacchetto: ${++i}/${p.media.length} ${m.name}`, (i - 1) / p.media.length);
       if (!m.dentro) { mancano++; continue; }
       if (s.path) { const r = await apriMedia(m, { path: s.path }); if (r.stato !== 'ok') mancano++; continue; }
       const file = new File([s.file!.slice(m.dentro.off, m.dentro.off + m.dentro.len)], m.name, { lastModified: m.lastModified || Date.now() });
@@ -382,39 +421,64 @@ export async function carica(p: Project) {
   await riapriMedia(false);
 }
 
-/** riapre i media del progetto: dai percorsi (app) o dalle maniglie ricordate (browser) */
+/** riapre un media: dal percorso (app), dalla maniglia ricordata o dal file tenuto nel browser */
+async function riapriUno(m: MediaItem, conGesto: boolean): Promise<boolean> {
+  if (mediaRT(m.id)?.stato === 'ok') return true;
+  if (isTauri && m.path) return (await apriMedia(m, { path: m.path })).stato === 'ok';
+  const hh = await idb<Maniglia>('maniglie', 'get', m.id);
+  if (hh) {
+    try {
+      let perm = (await hh.queryPermission?.({ mode: 'read' })) ?? 'granted';
+      if (perm !== 'granted' && conGesto) perm = (await hh.requestPermission?.({ mode: 'read' })) ?? 'denied';
+      if (perm === 'granted') {
+        const file = await hh.getFile();
+        if ((await apriMedia(m, { file })).stato === 'ok') return true;
+      }
+    } catch { /* file spostato */ }
+  }
+  const tenuto = await idb<Blob>('file', 'get', m.id);
+  if (tenuto) {
+    const file = tenuto instanceof File ? tenuto : new File([tenuto], m.name, { type: tenuto.type });
+    if ((await apriMedia(m, { file })).stato === 'ok') return true;
+  }
+  return false;
+}
+
+/**
+ * Riapre i media del progetto. Prima quelli che stanno in timeline, quattro alla volta (col permesso da chiedere,
+ * uno alla volta), e a mano a mano che sono pronti l'interfaccia si aggiorna. Il centro attività mostra a che punto è.
+ */
 export async function riapriMedia(conGesto: boolean): Promise<number> {
   const p = store.doc;
-  let mancano = 0;
-  for (const m of p.media) {
-    if (mediaRT(m.id)?.stato === 'ok') continue;
-    if (isTauri && m.path) {
-      const r = await apriMedia(m, { path: m.path });
-      if (r.stato !== 'ok') mancano++;
-      continue;
+  const da = p.media.filter((m) => mediaRT(m.id)?.stato !== 'ok');
+  if (!da.length) { store.emit('doc'); motore.ridisegna(); return 0; }
+  const usi = new Map<string, number>();
+  for (const c of p.clips) if (c.media) usi.set(c.media, (usi.get(c.media) ?? 0) + 1);
+  da.sort((a, b) => (usi.get(b.id) ?? 0) - (usi.get(a.id) ?? 0));
+  const lav = nuova({ titolo: 'Riapro i file del progetto', categoria: 'file' });
+  let fatti = 0, mancano = 0, prossimo = 0, sporco = false, timer = 0;
+  const mostra = () => { timer = 0; if (!sporco) return; sporco = false; store.emit('doc'); motore.ridisegna(); };
+  const operaio = async () => {
+    for (;;) {
+      if (lav.fermato) return;
+      const m = da[prossimo++];
+      if (!m) return;
+      lav.imposta(fatti / da.length, `${fatti + 1} di ${da.length} · ${m.name}`);
+      let ok = false;
+      try { ok = await riapriUno(m, conGesto); } catch { ok = false; }
+      if (!ok) mancano++;
+      fatti++;
+      lav.imposta(fatti / da.length, `${fatti} di ${da.length}`);
+      sporco = true;
+      if (!timer) timer = window.setTimeout(mostra, 600);
     }
-    const hh = await idb<Maniglia>('maniglie', 'get', m.id);
-    if (hh) {
-      try {
-        let perm = (await hh.queryPermission?.({ mode: 'read' })) ?? 'granted';
-        if (perm !== 'granted' && conGesto) perm = (await hh.requestPermission?.({ mode: 'read' })) ?? 'denied';
-        if (perm === 'granted') {
-          const file = await hh.getFile();
-          const r = await apriMedia(m, { file });
-          if (r.stato === 'ok') continue;
-        }
-      } catch { /* file spostato */ }
-    }
-    const tenuto = await idb<Blob>('file', 'get', m.id);
-    if (tenuto) {
-      const file = tenuto instanceof File ? tenuto : new File([tenuto], m.name, { type: tenuto.type });
-      const r = await apriMedia(m, { file });
-      if (r.stato === 'ok') continue;
-    }
-    mancano++;
-  }
-  store.emit('doc');
-  motore.ridisegna();
+  };
+  await Promise.all(Array.from({ length: conGesto ? 1 : Math.min(4, da.length) }, operaio));
+  clearTimeout(timer);
+  sporco = true;
+  mostra();
+  if (lav.fermato) { lav.annullata(); return mancano + (da.length - fatti); }
+  lav.fine(mancano ? `${da.length - mancano} file aperti, ${mancano} mancano` : `${da.length} file`);
   return mancano;
 }
 
@@ -468,14 +532,13 @@ export async function togliMedia(id: string) {
   void idb('file', 'delete', id);
 }
 
-/** barra d'avanzamento in basso per le operazioni lunghe (con annulla, se serve) */
+/** un'operazione lunga (con annulla, se serve): sta nel centro attività, la barra in basso a destra */
 export function avvisoLungo(t: string, annulla?: () => void) {
-  const el = h('div', { class: 'avviso-lungo' }, h('span', { class: 'led acceso lampeggia' }), h('span', { class: 'testo' }, t),
-    annulla ? h('button', { class: 'btn piccolo', on: { click: annulla } }, 'Annulla') : null);
-  document.body.appendChild(el);
+  const l = nuova({ titolo: t, categoria: 'file', alAnnulla: annulla, annullabile: !!annulla });
   return {
-    testo: (x: string) => { el.querySelector('.testo')!.textContent = x; },
-    chiudi: () => el.remove(),
+    /** il testo di cosa sta facendo; se c'è una percentuale ("45%") o k (0..1) la barra avanza */
+    testo: (x: string, k?: number) => { const m = /(\d{1,3})\s*%/.exec(x); l.imposta(k ?? (m ? Number(m[1]) / 100 : l.k), x); },
+    chiudi: () => { if (l.attivo) l.fine(); },
   };
 }
 

@@ -186,7 +186,7 @@ export function lavoroDi(id: string) { return lavori.get(id); }
 export async function elaboraClip(id: string) {
   const c = clipById(store.doc, id);
   if (!c?.ritaglio || lavori.get(id)?.finito === false) return;
-  const lav: Lavoro = { barra: new BarraLavoro(), ferma: false, finito: false };
+  const lav: Lavoro = { barra: new BarraLavoro('Tolgo lo sfondo', 'ai', () => { lav.ferma = true; }), ferma: false, finito: false };
   lavori.set(id, lav);
   lav.barra.avvia('Preparo…');
   avvisaLavoro();
