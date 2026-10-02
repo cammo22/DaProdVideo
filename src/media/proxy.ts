@@ -9,6 +9,7 @@ import {
 } from 'mediabunny';
 import type { MediaItem } from '../core/tipi';
 import type { MediaRT } from './libreria';
+import { inCoda, pausaPerRiproduzione, type Lavoro } from './attivita';
 
 export interface Proxy { input: Input; v: NonNullable<MediaRT['v']>; w: number; h: number }
 
@@ -81,9 +82,7 @@ function metti(r: MediaRT, p: Proxy) {
   avvisa();
 }
 
-// ——— la coda: un proxy alla volta, in pausa mentre si suona ———
-const coda: { m: MediaItem; r: MediaRT; fonte: () => Source }[] = [];
-let lavorando = false;
+// ——— la coda: un proxy alla volta (nel centro attività), in pausa mentre si suona ———
 let fermo = false;
 let pausa: AbortController | null = null;
 let riprendi: (() => void) | null = null;
@@ -91,50 +90,50 @@ let riprendi: (() => void) | null = null;
 /** il montaggio suona (true) o si è fermato (false): i proxy aspettano */
 export function pausaProxy(on: boolean) {
   fermo = on;
+  pausaPerRiproduzione(on);
   if (on) pausa?.abort();
   else { const f = riprendi; riprendi = null; f?.(); }
 }
 
-/** la ripresa è entrata nel contenitore: se il proxy c'è già sul disco si usa, se serve si fa.
- *  fonte = una lettura nuova del file originale (il proxy lo legge per conto suo, senza disturbare il monitor) */
-export async function accodaProxy(m: MediaItem, r: MediaRT, fonte: () => Source) {
-  if (r.proxy || r.proxyStato === 'coda' || r.proxyStato === 'lavoro') return;
+/** il proxy di questo file è già sul disco? Se sì lo si apre e si usa subito */
+export async function proxyEsistente(m: MediaItem, r: MediaRT): Promise<boolean> {
+  if (r.proxy) return true;
   const dir = await cartella();
-  if (dir) {
-    try {
-      const fh = await dir.getFileHandle(nomeProxy(m));
-      const p = await apriProxy(await fh.getFile());
-      if (p) { metti(r, p); return; }
-    } catch { /* non c'è ancora */ }
-  }
+  if (!dir) return false;
+  try {
+    const fh = await dir.getFileHandle(nomeProxy(m));
+    const p = await apriProxy(await fh.getFile());
+    if (p) { metti(r, p); return true; }
+  } catch { /* non c'è ancora */ }
+  return false;
+}
+
+/** la ripresa deve avere la sua copia leggera: se c'è già sul disco si usa, se serve si mette in coda.
+ *  fonte = una lettura nuova del file originale (il proxy lo legge per conto suo, senza disturbare il monitor);
+ *  priorita = chi è in timeline passa avanti */
+export async function accodaProxy(m: MediaItem, r: MediaRT, fonte: () => Source, priorita: number | (() => number) = 0) {
+  if (r.proxy || r.proxyStato === 'coda' || r.proxyStato === 'lavoro') return;
+  if (await proxyEsistente(m, r)) return;
   if (!(await serve(m, r))) { r.proxyStato = 'no'; return; }
   r.proxyStato = 'coda';
   r.proxyProg = 0;
-  coda.push({ m, r, fonte });
   avvisa();
-  if (!lavorando) void lavora();
-}
-
-
-async function lavora() {
-  lavorando = true;
-  while (coda.length) {
-    const { m, r, fonte } = coda.shift()!;
-    if (r.proxy || !r.input) continue;
+  void inCoda({ corsia: 'pesante', titolo: 'Copie leggere per il monitor', categoria: 'proxy', gruppo: 'proxy', dettaglio: m.name, priorita }, async (l) => {
+    if (r.proxy || !r.input) return;
     r.proxyStato = 'lavoro';
     avvisa();
+    l.imposta(0, m.name);
     try {
-      const p = await creaProxy(m, r, fonte);
-      if (p) metti(r, p); else r.proxyStato = 'errore';
+      const p = await creaProxy(m, r, fonte, l);
+      if (p) metti(r, p); else r.proxyStato = l.fermato ? 'no' : 'errore';
     } catch {
       r.proxyStato = 'errore';
     }
     avvisa();
-  }
-  lavorando = false;
+  }).then(() => { if (r.proxyStato === 'coda') { r.proxyStato = 'no'; avvisa(); } });
 }
 
-async function creaProxy(m: MediaItem, r: MediaRT, fonte: () => Source): Promise<Proxy | null> {
+async function creaProxy(m: MediaItem, r: MediaRT, fonte: () => Source, l: Lavoro): Promise<Proxy | null> {
   const k = Math.min(1, LATO / Math.max(m.width, m.height, 1));
   const w = Math.max(2, Math.round((m.width * k) / 2) * 2), h = Math.max(2, Math.round((m.height * k) / 2) * 2);
   const codec = await getFirstEncodableVideoCodec(['avc', 'vp9', 'vp8'], { width: w, height: h });
@@ -149,8 +148,10 @@ async function creaProxy(m: MediaItem, r: MediaRT, fonte: () => Source): Promise
     });
     if (!conv.isValid) return null;
     // l'avanzamento si segna e basta: avvisare a ogni fotogramma farebbe ridisegnare il monitor per niente
-    conv.onProgress = (p) => { r.proxyProg = p; };
+    conv.onProgress = (p) => { r.proxyProg = p; l.imposta(p); };
+    l.segnale.addEventListener('abort', () => { void conv.cancel(); });
     for (;;) {
+      if (l.fermato) return null;
       if (fermo) await new Promise<void>((ok) => { riprendi = ok; });
       pausa = new AbortController();
       await conv.execute({ pauseSignal: pausa.signal });
@@ -178,12 +179,13 @@ async function creaProxy(m: MediaItem, r: MediaRT, fonte: () => Source): Promise
 
 /** quanti proxy sono pronti, in lavorazione o in coda (per la barra di stato) */
 export function statoProxy(lista: MediaRT[]) {
-  let pronti = 0, lavoro = 0, prog = 0;
+  let pronti = 0, lavoro = 0, prog = 0, attesa = 0;
   for (const r of lista) {
     if (r.proxyStato === 'pronto') pronti++;
+    else if (r.proxyStato === 'attesa') attesa++;
     else if (r.proxyStato === 'lavoro' || r.proxyStato === 'coda') { lavoro++; if (r.proxyStato === 'lavoro') prog = r.proxyProg ?? 0; }
   }
-  return { pronti, lavoro, prog };
+  return { pronti, lavoro, prog, attesa };
 }
 
 /** svuota i proxy salvati (menu Vista): si rifanno quando servono */

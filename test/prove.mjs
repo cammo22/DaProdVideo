@@ -25,7 +25,7 @@ const exe = process.env.CHROME || (fs.existsSync('/opt/pw-browsers/chromium') ? 
 const browser = await chromium.launch({ executablePath: exe, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 }, acceptDownloads: true });
 const errori = [];
-page.on('pageerror', (e) => errori.push(e.message));
+page.on('pageerror', (e) => errori.push(e.message + ' @ ' + String(e.stack ?? '').split('\n').slice(1, 5).join(' | ')));
 page.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
 
 const doc = () => page.evaluate(() => window.__dpv.doc);
@@ -1924,10 +1924,10 @@ try {
       const inizio = performance.now();
       m.play(1);
       // il play aspetta i decoder al massimo 0,9 s (poi parte comunque); nel banco di prova appena importato il
-      // proxy si sta facendo e il disegno è lento, quindi si danno 2 s. Quello che conta è che poi il video si
+      // proxy si sta facendo e il disegno è lento (il primo play, a decoder freddo, qui impiega anche 2-3 s: lo stesso con la versione di prima), quindi si danno 4 s. Quello che conta è che poi il video si
       // muova senza ripartire (nati): prima l'orologio tornava indietro di 60 ms e il flusso si buttava
       const partito = await new Promise((ok) => {
-        const scade = setTimeout(() => ok(false), 2000);
+        const scade = setTimeout(() => ok(false), 4000);
         const controlla = () => {
           if (window.__dpv.head > testa) { clearTimeout(scade); ok(true); }
           else requestAnimationFrame(controlla);

@@ -25,8 +25,8 @@ import { finestraAggiornamenti, finestraNovita, novitaDopoAggiornamento, tastoAg
 import { montaggioDimostrativo } from '../demo';
 import { FORMATI } from '../core/tipi';
 import { statoDecoder } from '../media/fotogrammi';
-import { statoProxy } from '../media/proxy';
-import { mediaRT } from '../media/libreria';
+import { CentroAttivita } from './attivita';
+import { impostaUsoMedia, risvegliaProxy } from '../media/libreria';
 import { banco } from '../media/audio';
 
 export function avvia(radice: HTMLElement) {
@@ -218,14 +218,24 @@ export function avvia(radice: HTMLElement) {
   // ——— barra di stato ———
   const msg = h('span', { class: 'stato-msg' }, 'Pronto. 1 taglia · 2 elimina · S separa/unisci · rotella = un fotogramma · Q/W scarto a sinistra/destra · F9 Finale · F1 tutti i tasti');
   const dec = h('span', { class: 'stato-dec' });
-  const statoBar = h('footer', { class: 'stato' }, msg, dec, h('span', { class: 'stato-ver' }, `DaProd Video ${VERSIONE}`));
+  const centro = new CentroAttivita();
+  const statoBar = h('footer', { class: 'stato' }, msg, dec, centro.el, h('span', { class: 'stato-ver' }, `DaProd Video ${VERSIONE}`));
   motore.ogniGiro(() => {
     if (Math.random() > 0.05) return;
     const s = statoDecoder();
-    const px = statoProxy(store.doc.media.map((m) => mediaRT(m.id)).filter((r): r is NonNullable<typeof r> => !!r));
-    const proxy = px.lavoro ? ` · proxy ${px.pronti}/${px.pronti + px.lavoro} (${Math.round(px.prog * 100)}%)` : px.pronti ? ` · proxy ${px.pronti} pronti` : '';
-    dec.textContent = `${motore.fpsMisurati} fps · decoder ${s.flussi + s.ricerche}${proxy}`;
+    dec.textContent = `${motore.fpsMisurati} fps · decoder ${s.flussi + s.ricerche}`;
   });
+  // chi sta in timeline passa avanti nelle code dei lavori di fondo; una ripresa appena messa in timeline si prende la sua copia leggera
+  impostaUsoMedia((id) => {
+    let n = 0;
+    for (const c of store.doc.clips) if (c.media === id) n++;
+    for (const q of store.doc.sequenze ?? []) for (const c of q.clips ?? []) if (c.media === id) n++;
+    return n;
+  });
+  let svegliaProxy = 0;
+  // si aspetta un attimo di calma (2 s dall'ultima modifica): appena messa una ripresa in timeline quasi sempre la si guarda, e la copia
+  // leggera che parte subito ruberebbe il decoder proprio al primo play
+  store.on('doc', () => { clearTimeout(svegliaProxy); svegliaProxy = window.setTimeout(() => { svegliaProxy = 0; risvegliaProxy(store.doc.media); }, 2000); });
 
   // ——— fogli per il telefono ———
   const apriFoglio = (f: 'bin' | 'lato' | 'finale' | 'nessuno') => {

@@ -1,6 +1,6 @@
 // Lo stato dell'editor: il progetto, la selezione, il cursore e l'annulla/ripeti.
 // Ogni modifica passa da edit(): prima si fa la fotografia, poi si cambia, poi si avvisa chi disegna.
-import type { Project } from './tipi';
+import type { Clip, MediaItem, Project, Sequenza } from './tipi';
 import { newProject, progettoAperto } from './progetto';
 import { FORMATI } from './tipi';
 
@@ -73,6 +73,28 @@ class Store {
     for (const id of [...this.sel]) if (!ids.has(id)) this.sel.delete(id);
     this.emit('doc', 'sel');
     return r;
+  }
+
+  /**
+   * Cambia i dati di un file "da fuori" (per esempio quando arriva la copia a velocità costante): vale nel progetto
+   * e in tutta la cronologia (se no un Annulla rimetterebbe i dati vecchi) e non è una modifica da annullare.
+   * spostaSrc = di quanti secondi si è mosso l'inizio del file: le clip e i segni lo seguono.
+   */
+  aggiornaMedia(id: string, campi: Partial<MediaItem>, spostaSrc = 0) {
+    const tocca = (d: { media: MediaItem[]; clips: Clip[]; sequenze?: Sequenza[] }) => {
+      const m = d.media.find((x) => x.id === id);
+      if (m) {
+        Object.assign(m, campi);
+        if (spostaSrc) { if (m.markIn != null) m.markIn += spostaSrc; if (m.markOut != null) m.markOut += spostaSrc; }
+      }
+      if (!spostaSrc) return;
+      for (const c of d.clips) if (c.media === id) c.srcIn += spostaSrc;
+      for (const s of d.sequenze ?? []) for (const c of s.clips ?? []) if (c.media === id) c.srcIn += spostaSrc;
+    };
+    tocca(this.doc);
+    for (const s of [...this.undo, ...this.redo, ...(this.live ? [this.live] : [])]) tocca(s);
+    this.dirty = true;
+    this.emit('doc');
   }
 
   /** modifica "dal vivo" (trascinamenti): la fotografia la prende begin(), la chiude commit() */

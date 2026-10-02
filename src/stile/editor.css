@@ -638,6 +638,45 @@ button svg { pointer-events: none; }
 .stato-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .stato-ver { color: var(--testo3); }
 
+/* ——— la barra delle attività (in basso a destra) e il suo pannello ——— */
+.att { display: flex; align-items: center; gap: 8px; height: 100%; min-width: 0; max-width: 52%; padding: 0 8px; margin: 0; background: none; border: 0; border-radius: 4px; color: inherit; font: inherit; cursor: pointer; }
+.att:hover, .att:focus-visible { background: rgba(255, 255, 255, 0.06); color: var(--testo); }
+.att-led { width: 8px; height: 8px; border-radius: 50%; flex: none; background: radial-gradient(circle at 35% 35%, #fff4cf, var(--oro) 60%); box-shadow: 0 0 7px var(--oro); animation: lampeggia 0.9s infinite; }
+.att-ferma .att-led { background: #2b2f2c; box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.6); animation: none; }
+.att-fatto .att-led { background: radial-gradient(circle at 35% 35%, #d8ffe9, var(--verde) 60%); box-shadow: 0 0 7px var(--verde); animation: none; }
+.att-pausa .att-led { animation: none; }
+.att-testo { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.att-tempo { flex: none; color: var(--testo2); font-variant-numeric: tabular-nums; }
+.att-altre { flex: none; padding: 0 5px; border-radius: 8px; background: #2a2833; color: var(--testo2); font-size: 10.5px; }
+.att-altre:empty { display: none; }
+.att-pista { position: relative; width: 130px; height: 7px; flex: none; border-radius: 4px; background: #000; box-shadow: inset 0 1px 2px #000; overflow: hidden; }
+.att-pista i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--mag), var(--oro)); transition: width 0.25s; }
+.att-fatto .att-pista i { background: var(--verde); }
+.att-ferma .att-pista { opacity: 0.35; }
+.indeterminata .att-pista i { width: 35%; animation: att-scorre 1.3s linear infinite; transition: none; }
+@keyframes att-scorre { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.att-pannello { position: fixed; z-index: 1200; width: min(480px, calc(100vw - 12px)); max-height: min(72vh, 660px); overflow-y: auto; overscroll-behavior: contain; background: #1d1c24; border: 1px solid #000; border-radius: 10px; box-shadow: var(--ombra), inset 0 0 0 1px var(--bordo); font-size: 12.5px; color: var(--testo); }
+.att-p-testa { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #23212b; border-bottom: 1px solid #000; }
+.att-p-testa b { font-size: 13px; }
+.att-p-sotto { flex: 1; color: var(--testo3); font-size: 11.5px; }
+.att-nota { margin: 0; padding: 7px 12px; background: #2a2412; color: var(--oro); font-size: 11.5px; }
+.att-riga { display: grid; gap: 4px; padding: 9px 12px; border-bottom: 1px solid #0d0c12; }
+.att-riga.in-coda { opacity: 0.62; }
+.att-r-testa { display: flex; align-items: center; gap: 7px; }
+.att-r-titolo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-r-pct { color: var(--testo2); font-variant-numeric: tabular-nums; }
+.att-r-dett { color: var(--testo2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 1.2em; }
+.att-r-info { color: var(--testo3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.att-riga .att-pista { width: 100%; }
+.att-r-stop { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: #2a2833; color: var(--testo2); cursor: pointer; }
+.att-r-stop:hover { background: var(--rosso); color: #fff; }
+.att-p-titolo { margin: 0; padding: 8px 12px 4px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--testo3); }
+.att-f { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; gap: 8px; padding: 3px 12px; color: var(--testo2); }
+.att-f.errore { color: var(--rosso); }
+.att-f-nome, .att-f-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-f-msg, .att-f-quando { color: var(--testo3); font-variant-numeric: tabular-nums; }
+.att-vuoto { margin: 0; padding: 10px 12px; color: var(--testo3); }
+
 /* ——— menu e dialoghi ——— */
 .menu-contesto { position: fixed; z-index: 1000; min-width: 230px; background: #1d1c24; border: 1px solid #000; border-radius: 8px; padding: 4px; box-shadow: var(--ombra), inset 0 0 0 1px var(--bordo); }
 .menu-contesto { overflow-y: auto; overscroll-behavior: contain; }
@@ -710,7 +749,12 @@ button svg { pointer-events: none; }
 #app.stretto .finale { display: flex; }
 .stretto .menu { display: none; }
 .stretto .scritta i, .stretto .nome-progetto, .stretto .formato, .stretto .badge.edizione { display: none; }
-.stretto .stato { display: none; }
+/* sul telefono la barra di stato sparisce, resta solo quella delle attività, sopra i pulsanti */
+.stretto .stato { position: fixed; left: 0; right: 0; bottom: 56px; height: 26px; z-index: 60; padding: 0; background: #0b0a0f; }
+.stretto .stato > :not(.att) { display: none; }
+.stretto .att { flex: 1; max-width: none; }
+.stretto .att-pista { width: 70px; }
+.stretto .stato:has(.att-ferma) { display: none; }
 .stretto .barra-tel { grid-area: tel; display: flex; background: #121118; border-top: 1px solid #000; }
 .barra-tel button { flex: 1; background: none; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--testo2); font-size: 11px; }
 .stretto .contenitore, .stretto .lato, .stretto .finale { grid-area: auto; position: fixed; left: 0; right: 0; bottom: 56px; height: 62vh; z-index: 50; transform: translateY(110%); transition: transform 0.22s; border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6); }
