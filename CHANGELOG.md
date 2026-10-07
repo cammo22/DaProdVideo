@@ -4,6 +4,19 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.3.1] — 2026-10-07 · Il play non si ferma più sui computer lenti ▶️
+
+Una versione piccola, con due correzioni trovate guardando le prove automatiche dopo l'uscita della 1.3.0.
+
+### Sistemato
+- **Sui computer lenti il play poteva restare fermo per secondi, o andare nero**, soprattutto con le registrazioni LIVE e le riprese con pochi fotogrammi chiave. Se un giro di disegno durava più di un secondo e mezzo (un computer lento, la scheda video che arranca, la pagina ferma un attimo), il programma credeva che il flusso del video non servisse più e lo buttava: quello nuovo doveva ripartire dal fotogramma chiave, anche 20 secondi prima, e intanto il monitor restava sull'immagine di partenza. Dopo 8 secondi spariva anche quella, e il monitor andava nero. Ora un flusso si butta solo se intanto si sono disegnate *altre* cose senza di lui (la clip è finita), e chi presta l'immagine di ripiego resta vivo finché serve. Col processore rallentato 6 volte: prima 4 play su 6 restavano fermi (uno andava nero), ora 6 su 6 si muovono da subito.
+- **La versione prova su GitHub Pages non si aggiornava**: GitHub scambiava il nome di una classe dentro la libreria AI (`Mistral3ForConditionalGeneration`) per una chiave segreta e bloccava la pubblicazione. Sul sito di prova la libreria AI arriva dalla CDN, come prima della 1.3.0; le app per Windows e Mac la tengono dentro.
+
+### Per chi ha curiosità
+- `src/media/fotogrammi.ts`: `ultimaRichiesta` (l'ultima volta che si è chiesto un fotogramma) è l'orologio di `pulisci()`; tetto di 6 s per i flussi e 20 s per le ricerche. Prova nuova: la pagina ferma 1,8 s non fa buttare il flusso che si guarda, e uno che non serve più si chiude ancora.
+- `.github/workflows/pages.yml`: toglie `dist/ai` prima del push su `gh-pages`.
+- Le prove registrano lo stack degli errori anche dalle pagine aperte a parte.
+
 ## [1.3.0] — 2026-10-07 · Tutto si trova, l'AI non si ferma 🔍✨
 
 La versione per chi usa DaProd Video tutti i giorni: le funzioni AI che davano errore ora partono (e se una strada non va ne prendono un'altra da sole), e ogni strumento si trova in un attimo, con la spiegazione di come si usa.

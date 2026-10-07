@@ -216,6 +216,17 @@ const ricerche = new Map<string, Ricerca>();
 /** dove sta chiedendo ogni voce e da quando: il fotogramma nitido si chiede solo quando ci si ferma */
 const fermo = new Map<string, { t: number; da: number }>();
 /**
+ * L'ultima volta che qualcuno ha chiesto un fotogramma. "Non usato da un po'" si conta da qui e non dall'orologio: un
+ * flusso è vecchio se dopo di lui si sono chiesti altri fotogrammi per un po', non se il disegno è lento (un computer
+ * lento, la scheda video che arranca, una lettura dei pixel, la memoria che si libera). Prima, dopo un giro più lungo
+ * di 1,5 s, pulisci() lo chiudeva subito prima del disegno e quello nuovo ripartiva dal fotogramma chiave (con le
+ * registrazioni LIVE anche 20 s prima): immagine ferma, poi nero.
+ */
+let ultimaRichiesta = performance.now();
+/** oltre questi si chiude comunque, anche se nessuno chiede più niente (un vuoto in timeline, la pagina ferma a lungo) */
+const ETA_MAX_FLUSSO = 6000, ETA_MAX_RICERCA = 20000;
+
+/**
  * L'ultimo fotogramma di un flusso buttato a metà play (ripartito più avanti, tornato indietro): si mostra finché il
  * flusso nuovo non ha il suo. Prima in quel momento il monitor faceva un lampo nero, o tornava al fotogramma fermo di
  * quando si era premuto play.
@@ -301,6 +312,7 @@ function flussoDi(k: string, l: Lettore, t: number): Flusso | null {
  * larghezza = quanti pixel servono (0 = va bene anche il proxy).
  */
 export function fotogramma(key: string, mediaId: string, t: number, flusso: boolean, larghezza = 0): Fotogramma | null {
+  ultimaRichiesta = performance.now();
   const r = mediaRT(mediaId);
   if (!r) return null;
   if (r.image) return r.image;
@@ -317,7 +329,12 @@ export function fotogramma(key: string, mediaId: string, t: number, flusso: bool
     // mentre il flusso parte si mostra l'ultimo fotogramma vero: quello del flusso appena buttato, quello dell'altra
     // qualità (la copia leggera è diventata pronta a metà play), o quello che la ricerca aveva già
     const altra = base + (q === 'p' ? 'o' : 'p');
-    return ponti.get(k) ?? flussi.get(altra)?.current ?? ricerche.get(k)?.current ?? ricerche.get(altra)?.current ?? f?.current ?? null;
+    const fa = flussi.get(altra), rk = ricerche.get(k), ra = ricerche.get(altra);
+    const ripiego = ponti.get(k) ?? fa?.current ?? rk?.current ?? ra?.current ?? f?.current ?? null;
+    // chi presta il fotogramma resta vivo finché serve: se no, col flusso nuovo ancora lontano (fotogrammi chiave radi),
+    // pulisci() chiudeva la ricerca dopo 8 s "senza uso" e il monitor andava nero
+    if (ripiego) for (const x of [fa, rk, ra]) if (x && x.current === ripiego) x.lastUse = ultimaRichiesta;
+    return ripiego;
   }
   const fl = flussi.get(k);
   const veloce = ricerca(k, l).at(t);
@@ -370,10 +387,11 @@ export function prepara(key: string, mediaId: string, t: number) {
 /** chiude i flussi non usati da un po' (libera i decoder e la memoria video) */
 export function pulisci(maxEta = 1500) {
   const now = performance.now();
-  for (const [k, f] of flussi) if (now - f.lastUse > maxEta) { f.close(); flussi.delete(k); togliPonte(k); }
+  const vecchio = (uso: number, eta: number, max: number) => ultimaRichiesta - uso > eta || now - uso > max;
+  for (const [k, f] of flussi) if (vecchio(f.lastUse, maxEta, ETA_MAX_FLUSSO)) { f.close(); flussi.delete(k); togliPonte(k); }
   for (const k of [...ponti.keys()]) if (!flussi.has(k)) togliPonte(k);
   for (const [k, r] of ricerche) {
-    if (now - r.lastUse > 8000) { r.close(); ricerche.delete(k); }
+    if (vecchio(r.lastUse, 8000, ETA_MAX_RICERCA)) { r.close(); ricerche.delete(k); }
     else if (now - r.lastUse > 2000) r.riposa();
   }
 }

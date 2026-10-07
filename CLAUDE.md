@@ -170,6 +170,9 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   dentro l'app) e `src-tauri/src/aggiorna.rs` (scarica col `curl` di sistema e apre setup/portatile/DMG).
 - **La riproduzione non deve mai bloccarsi**: `src/media/fotogrammi.ts` non butta un flusso che non ha ancora il primo
   fotogramma, e i proxy (`src/media/proxy.ts`) si fanno da soli per le riprese pesanti. L'export legge gli originali.
+  **`pulisci()` conta dall'ultima richiesta di un fotogramma (`ultimaRichiesta`), non dall'orologio** (1.3.1): un disegno lento non deve
+  far buttare il flusso che si guarda (col GOP lungo il nuovo ripartirebbe dal fotogramma chiave: immagine ferma, poi nera). Chi presta
+  il fotogramma di ripiego (ricerca, altra qualità) si tiene vivo. Nelle prove `__dpvTest.FT` = il modulo dei fotogrammi.
 - **Il montaggio non copre mai niente** da solo: spostare, lasciare, incollare e i generatori usano il modo `libero`
   (`src/core/montaggio.ts`: si fermano contro le vicine o vanno su una traccia libera). Copre solo SOVR dal monitor.
   Le transizioni non cambiano la durata delle clip. Il taglio tocca solo le tracce accese (se ce ne sono).

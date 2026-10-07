@@ -1974,6 +1974,36 @@ try {
     // Il proxy ha un GOP di mezzo secondo: si limita la frequenza alle ripartenze necessarie per raggiungere il GOP successivo.
     const limiteFlussi = Math.ceil(b.durataMs / 500) + 2;
     prova('col proxy il play parte subito anche dal mezzo (e non riparte a raffica)', b.partito && siMuove(b) && b.nati <= limiteFlussi, JSON.stringify({ ...b, limiteFlussi }));
+    // un disegno lento (un computer lento, una lettura dei pixel, la pagina ferma un attimo) non deve far buttare il flusso
+    // che si sta guardando: prima pulisci() lo chiudeva dopo 1,5 s e il nuovo ripartiva dal fotogramma chiave (immagine
+    // ferma, poi nera). Uno che davvero non serve più (si disegna un'altra clip) invece si chiude ancora.
+    const lento = await pg.evaluate(async () => {
+      const { FT } = window.__dpvTest;
+      const id = window.__dpv.doc.media[0].id;
+      const aspetta = (ms) => new Promise((ok) => setTimeout(ok, ms));
+      FT.fermaFlussi();
+      let primo = null;
+      for (let i = 0; i < 200 && !primo; i++) { primo = FT.fotogramma('lenta', id, 3, true); await aspetta(30); }
+      const n0 = FT.statoDecoder().nati;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 1800) { /* la pagina è ferma */ }
+      FT.pulisci();
+      const dopo = FT.fotogramma('lenta', id, 3.04, true);
+      const nati = FT.statoDecoder().nati - n0;
+      // un'altra voce disegna per 1,7 s, la prima no: la prima si chiude (lo fa anche il pulisci() di ogni secondo), l'altra resta
+      const t1 = performance.now();
+      while (performance.now() - t1 < 1700) { FT.fotogramma('altra', id, 5 + (performance.now() - t1) / 1000, true); await aspetta(40); }
+      FT.pulisci();
+      const rimasti = FT.statoDecoder().flussi;
+      const n1 = FT.statoDecoder().nati;
+      FT.fotogramma('altra', id, 5 + (performance.now() - t1) / 1000, true);
+      const altraViva = FT.statoDecoder().nati === n1;
+      FT.fotogramma('lenta', id, 3.1, true);
+      const lentaChiusa = FT.statoDecoder().nati === n1 + 1;
+      FT.fermaFlussi();
+      return { primo: !!primo, dopo: !!dopo, nati, rimasti, altraViva, lentaChiusa };
+    });
+    prova('la pagina ferma 1,8 s non fa buttare il flusso che si guarda (e uno che non serve più si chiude ancora)', lento.primo && lento.dopo && lento.nati === 0 && lento.rimasti === 1 && lento.altraViva && lento.lentaChiusa, JSON.stringify(lento));
     await pg.close();
   }
 
