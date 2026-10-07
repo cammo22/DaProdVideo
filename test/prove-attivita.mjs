@@ -73,7 +73,8 @@ export async function proveAttivita({ page: paginaDi, prova, OUT }) {
 
   // ——— la barra e il pannello ———
   console.log('▶ Centro attività: la barra in basso a destra e il pannello');
-  const ferma0 = await page.evaluate(() => ({ testo: document.querySelector('.stato .att-testo')?.textContent, ferma: document.querySelector('.stato .att')?.classList.contains('att-ferma') }));
+  // la barra si aggiorna con un attimo di ritardo (150 ms): la si fa aggiornare subito, se no si legge quella di prima dell'azzeramento
+  const ferma0 = await page.evaluate(() => (window.__dpvTest.AT.avvisaOra(), { testo: document.querySelector('.stato .att-testo')?.textContent, ferma: document.querySelector('.stato .att')?.classList.contains('att-ferma') }));
   prova('a riposo la barra dice "Nessuna attività"', ferma0.ferma && ferma0.testo === 'Nessuna attività', JSON.stringify(ferma0));
   await page.evaluate(() => {
     const { AT } = window.__dpvTest;

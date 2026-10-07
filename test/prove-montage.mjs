@@ -241,8 +241,10 @@ export async function proveMontage({ page, prova, OUT }) {
     const m = window.__motore; const rec = m.rec;
     const d = window.__dpv.doc; const fps = d.rate.num / d.rate.den;
     const punti = [];
+    // la variante è a caso: se lì sopra c'è un blocchetto FX (un lampo bianco, un passaggio al nero) ci si sposta subito dopo
+    const libero = (f) => { for (let g = 0; g < 40; g++) { const b = d.clips.find((c) => c.kind === 'fx' && c.start <= f && c.start + c.len > f); if (!b) return f; f = b.start + b.len + 1; } return f; };
     for (const s of [3, 8, 14]) {
-      m.vaiA(Math.round(s * fps));
+      m.vaiA(libero(Math.round(s * fps)));
       await new Promise((r) => setTimeout(r, 700));
       const px = new Uint8Array(64 * 36 * 4); rec.leggiPiccolo(64, 36, px);
       let somma = 0, vari = new Set(); for (let i = 0; i < px.length; i += 4) { somma += px[i] + px[i + 1] + px[i + 2]; vari.add((px[i] >> 5) * 64 + (px[i + 1] >> 5) * 8 + (px[i + 2] >> 5)); }
