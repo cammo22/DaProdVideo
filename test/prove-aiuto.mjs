@@ -199,6 +199,17 @@ export async function proveAiuto({ page: paginaDi, prova }) {
         } catch (e) { return { errore: e.message, fasi }; } finally { NM.impostaMotoreNemo(null); V.impostaTrascrittore(null); }
       });
       prova('motore NVIDIA rotto: le righe arrivano lo stesso (da Whisper) e la barra lo dice', ripiego.righe?.[0] === 'Buongiorno a tutti' && ripiego.passato, JSON.stringify(ripiego));
+      // nel browser il motore NVIDIA non c'è proprio: stessa strada, e la barra dice che è solo nell'app
+      const browser = await page.evaluate(async () => {
+        const { V } = window.__dpvTest;
+        const fasi = [];
+        V.impostaTrascrittore({ carica: async () => 'wasm', trascrivi: async () => [{ da: 0.1, a: 1.5, testo: 'Buongiorno a tutti' }] });
+        try {
+          const righe = await V.sottotitoliAI(window.__dpv.doc, { lingua: 'it', traduci: false, modello: 'onnx-community/whisper-base', motore: 'nemotron' }, (f) => fasi.push(f));
+          return { righe: righe.map((r) => r.testo), avvisa: fasi.some((f) => /solo nell'app: carico Whisper/.test(f)) };
+        } catch (e) { return { errore: e.message, fasi }; } finally { V.impostaTrascrittore(null); }
+      });
+      prova('nel browser, chiedendo Nemotron: le righe arrivano da Whisper e la barra dice che il motore NVIDIA è solo nell\'app', browser.righe?.[0] === 'Buongiorno a tutti' && browser.avvisa, JSON.stringify(browser));
 
       console.log('▶ AI: i worker veri, con una libreria finta che non ha il tipo "q8"');
       const finta = (r) => r.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: LIB });

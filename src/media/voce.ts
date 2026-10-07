@@ -206,7 +206,8 @@ export async function sottotitoliAI(p: Project, o: OpzioniVoce, stato: (fase: st
   for (let i = 0; i < audio.length; i += 64) picco = Math.max(picco, Math.abs(audio[i]));
   if (picco < 0.003) throw new Error('muto');
   const tagli = puntiDiTaglio(audio);
-  let ripiego = '';
+  // nel browser il motore NVIDIA non c'è: si va con Whisper, e lo si dice
+  let ripiego = o.motore === 'nemotron' && !motoreNemo() ? 'c\'è solo nell\'app per Windows e Mac' : '';
   if (o.motore === 'nemotron' && motoreNemo()) {
     // Nemotron 3.5 di NVIDIA, col motore dell'app: prima si prepara (motore e modello, solo la prima volta), poi si ascolta
     const nem = motoreNemo()!;
@@ -227,7 +228,7 @@ export async function sottotitoliAI(p: Project, o: OpzioniVoce, stato: (fase: st
       stato(`Il motore NVIDIA non è partito (${msg}): passo a Whisper…`, 0.1);
     }
   }
-  stato(ripiego ? `Il motore NVIDIA non è partito: carico Whisper…` : 'Carico il modello…', 0.1);
+  stato(ripiego ? `Il motore NVIDIA ${motoreNemo() ? 'non è partito' : 'c\'è solo nell\'app'}: carico Whisper…` : 'Carico il modello…', 0.1);
   let dove: string;
   try {
     dove = await trascrittore.carica(o.modello || MODELLI[1].id, (fase, x) => stato(fase, 0.1 + x * 0.3));

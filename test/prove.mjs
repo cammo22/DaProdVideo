@@ -1253,16 +1253,22 @@ try {
       const doc = structuredClone(window.__dpv.doc);
       const righe = await V.sottotitoliAI(doc, { lingua: 'auto', traduci: false, modello: 'x', motore: 'nemotron' }, (t, k) => prog.push(k));
       NM.impostaMotoreNemo(null);
-      // senza motore (nel browser) Nemotron dice che serve l'app
+      // senza motore (nel browser) Nemotron passa a Whisper e dice che il motore NVIDIA c'è solo nell'app
       let errore = '';
-      try { await V.sottotitoliAI(doc, { lingua: 'it', traduci: false, modello: 'x', motore: 'nemotron' }, () => {}); } catch (e) { errore = e.message; }
+      const fasiBrowser = [];
+      V.impostaTrascrittore({ carica: async () => 'wasm', trascrivi: async () => [{ da: 0.2, a: 1.4, testo: 'Ciao da Whisper' }] });
+      try {
+        const r = await V.sottotitoliAI(doc, { lingua: 'it', traduci: false, modello: 'x', motore: 'nemotron' }, (t) => fasiBrowser.push(t));
+        if (!r.some((x) => x.testo === 'Ciao da Whisper')) errore = 'Whisper non ha scritto';
+        else errore = fasiBrowser.find((t) => /solo nell'app/.test(t)) ?? 'nessun avviso';
+      } catch (e) { errore = 'errore: ' + e.message; } finally { V.impostaTrascrittore(null); }
       let cresce = true; for (let i = 1; i < prog.length; i++) if (prog[i] < prog[i - 1] - 1e-9) cresce = false;
       return { chiamate, righe: righe.map((x) => x.testo), secondi: window.__secondi, fine: window.__dpvTest.P.projectEnd(window.__dpv.doc) / 25, cresce, ultimo: prog[prog.length - 1], errore };
     });
     prova('Nemotron: prima installa il motore, poi il modello, poi ascolta (lingua automatica)', sn.chiamate[0] === 'installa' && sn.chiamate[1] === 'modello:asr' && /^trascrivi:\d+:auto$/.test(sn.chiamate[2]), JSON.stringify(sn.chiamate));
     prova('Nemotron ascolta tutto il montaggio (audio a 16 kHz) e le frasi diventano righe', Math.abs(sn.secondi - sn.fine) < 0.6 && sn.righe.length >= 2 && sn.righe[0] === 'Buonasera Napoli' && !sn.righe.some((t) => /musica/i.test(t)), JSON.stringify(sn));
     prova('la barra dei sottotitoli non torna mai indietro e arriva a 100%', sn.cresce && sn.ultimo === 1, JSON.stringify({ c: sn.cresce, u: sn.ultimo }));
-    prova('nel browser (senza motore) Nemotron avvisa che serve l\'app', /app/.test(sn.errore), sn.errore);
+    prova('nel browser (senza motore) Nemotron passa a Whisper e avvisa che il motore NVIDIA è solo nell\'app', /solo nell'app/.test(sn.errore) && !/^errore/.test(sn.errore), sn.errore);
 
     // la voce AI dalla pagina Finale, col motore finto
     await pa.evaluate(() => {
