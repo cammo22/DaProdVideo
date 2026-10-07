@@ -1,7 +1,7 @@
 {
   "name": "daprod-video",
   "productName": "DaProd Video",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "DaProd Video: il montaggio video vecchio stile, moderno dentro. Timeline, due monitor, pulsantiera e VU a lancetta.",
   "author": "DaProd",
   "license": "MIT",
@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/ai-locale.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 4173",

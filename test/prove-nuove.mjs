@@ -12,13 +12,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { leggi, vicino, apriGruppi } from './aiuti.mjs';
 export { leggi, vicino };
 
-export async function proveNuove(ctx, quali = ['sfondo', 'animazioni', 'montage', 'pannello', 'seguito', 'attivita', 'rifiniture']) {
+export async function proveNuove(ctx, quali = ['sfondo', 'animazioni', 'montage', 'pannello', 'seguito', 'attivita', 'rifiniture', 'aiuto']) {
   const { page, prova, OUT } = ctx;
   if (quali.includes('sfondo')) await proveSfondo({ page, prova, OUT });
   if (quali.includes('animazioni')) { const m = await import('./prove-animazioni.mjs').catch(() => null); if (m) await m.proveAnimazioni({ page, prova, OUT }); }
   if (quali.includes('seguito')) { const m = await import('./prove-seguito.mjs').catch((e) => { console.log('  ✗ prove-seguito:', e.message); return null; }); if (m) await m.proveSeguito({ page, prova, OUT }); }
   if (quali.includes('pannello')) { const m = await import('./prove-pannello.mjs').catch((e) => { console.log('  ✗ prove-pannello:', e.message); return null; }); if (m) await m.provePannello({ page, prova, OUT }); }
   if (quali.includes('attivita')) { const m = await import('./prove-attivita.mjs').catch((e) => { console.log('  ✗ prove-attivita:', e.message); return null; }); if (m) await m.proveAttivita({ page, prova, OUT }); }
+  if (quali.includes('aiuto')) { const m = await import('./prove-aiuto.mjs').catch((e) => { console.log('  ✗ prove-aiuto:', e.message); return null; }); if (m) await m.proveAiuto({ page, prova, OUT }); }
   if (quali.includes('rifiniture')) { const m = await import('./prove-rifiniture.mjs').catch((e) => { console.log('  ✗ prove-rifiniture:', e.message); return null; }); if (m) await m.proveRifiniture({ page, prova, OUT }); }
   if (quali.includes('montage')) { const m = await import('./prove-montage.mjs').catch(() => null); if (m) await m.proveMontage({ page, prova, OUT }); }
 }
@@ -372,7 +373,10 @@ export class SamModel { static async from_pretrained(repo, opz) {
   return async () => ({ pred_masks: 'x', iou_scores: { dims: [1, 1, 3], data: [0.1, 0.95, 0.4] } });
 } }
 `;
-  await page.context().route('https://cdn.jsdelivr.net/npm/@huggingface/transformers@*/dist/transformers.min.js', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: LIB }));
+  // la libreria ora sta dentro l'app (dist/ai/), con la CDN di riserva: si sostituiscono tutte e due
+  const finta = (r) => r.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: LIB });
+  await page.context().route('https://cdn.jsdelivr.net/npm/@huggingface/transformers@*/dist/transformers.min.js', finta);
+  await page.context().route('**/ai/transformers.min.js', finta);
   const vero = await page.evaluate(async () => {
     const { RT, MK } = window.__dpvTest;
     RT.impostaSegmentatore(null);
@@ -400,8 +404,9 @@ export class SamModel { static async from_pretrained(repo, opz) {
   });
   prova('il worker: BEN2 (pipeline background-removal) dà la maschera, con l\'immagine data in RGB', vero.sfondo.ok && vero.sfondo.angolo === 0 && vero.sfondo.centro === 255 && vero.sfondo.w === 640 && /BEN2/i.test(vero.sfondo.disp), JSON.stringify(vero.sfondo));
   prova('il worker: SAM 2.1 non c\'è, si ripiega su SlimSAM; il clic diventa la maschera dell\'oggetto', vero.sam.ok && vero.sam.sulPunto === 255 && vero.sam.lontano === 0 && /slimsam/i.test(vero.sam.disp), JSON.stringify(vero.sam));
-  prova('il worker: se nessun indirizzo risponde, l\'errore è chiaro', !vero.manca.ok && /Non riesco a caricare il modello/.test(vero.manca.motivo) && /404/.test(vero.manca.motivo), JSON.stringify(vero.manca));
+  prova('il worker: se nessun indirizzo risponde, l\'errore è chiaro (detto in parole: il modello non si trova)', !vero.manca.ok && /Non riesco a caricare il modello/.test(vero.manca.motivo) && /non si trova su Hugging Face/.test(vero.manca.motivo), JSON.stringify(vero.manca));
   await page.context().unroute('https://cdn.jsdelivr.net/npm/@huggingface/transformers@*/dist/transformers.min.js');
+  await page.context().unroute('**/ai/transformers.min.js');
 }
 
 // ——————————————————————————————————————————————————————————————————————

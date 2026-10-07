@@ -34,6 +34,12 @@ ed elimini. Gira su **Windows, Mac e Android** e, in versione prova, **nel brows
 
 ## ▶ Come si monta
 
+> **Non sai dove sta una cosa?** Premi **`Ctrl+K`** (o 🔍 **Cerca** in alto) e scrivi quello che vuoi fare: *rallenta*,
+> *sottotitoli*, *togli lo sfondo*, *dissolvenza*, *titolo neon*… e la fai da lì, col suo tasto accanto. **`F1`** apre
+> **Come si fa**: una guida corta per ogni lavoro, col pulsante **Fallo adesso** che ti porta proprio al punto giusto.
+> Tutte le funzioni AI (sottotitoli, traduzione, voce, sfondo, tracking, montaggio automatico, colore) stanno insieme nel
+> **Centro AI** (pulsante ✨ **AI** in alto o menu **AI**), con **Controlla l'AI** che prova sul tuo computer se tutto è a posto.
+
 0. All'apertura trovi la **pagina iniziale**: i progetti recenti (con la miniatura), Nuovo, Apri e DaProdMontage. Torni quando vuoi dal tasto **Progetti** in alto.
 1. **Importa** i video (pulsante *Importa*, `Ctrl+I`, o trascinali nel contenitore). Il primo video decide il formato del progetto. Nel contenitore a sinistra c'è l'albero: **Video, Musica, Immagini** e **le tue cartelle** (*Nuova cartella*, trascina i file dentro); importando da una cartella il file entra lì, da Musica la finestra mostra solo gli audio.
 2. Nel **contenitore** passa il mouse su un video: scorre avanti e indietro col puntatore. **Trascinalo** nella timeline, o premi **+** per metterlo al cursore (e il cursore va alla fine: +, +, + e hai la scaletta). Se lì è occupato va su una traccia libera: **niente viene coperto**.
@@ -50,10 +56,10 @@ ed elimini. Gira su **Windows, Mac e Android** e, in versione prova, **nel brows
 13. **`P`** fa un'**istantanea** del fotogramma nel contenitore, da allungare quanto vuoi (**`Shift+P`**: fermo immagine al cursore).
 14. **Sull'immagine del monitor**: clic su quello che vedi e lo scegli; trascina per spostarlo, tira un angolo per ingrandirlo, il pallino in alto lo gira. tira un lato per stirare (Maiusc sugli angoli, Ctrl dal centro, **✂** per ritagliare) e Ctrl+clic sceglie quella sotto. **↝ Movimento** gli dà una posizione d'inizio e una di fine e tutte le **tappe** che vuoi (**＋**, o fermo fra due tappe muovi) e ci passa dentro piano piano; **🎯** segue un oggetto (tracking) e titoli, immagini ed effetti lo inseguono; nelle proprietà ci sono i movimenti pronti (entra da sinistra, sale dal basso, si avvicina…). Gli effetti come **bolla**, **vortice** e **zoom** hanno un mirino: mettilo dove vuoi, anche in movimento. Più **transizioni sullo stesso taglio si sommano**.
 15. **File → Salva il pacchetto .daprod**: il progetto **con dentro tutti i suoi file** (uno zip vero, i file restano identici). Lo apri su un altro computer e ritrovi tutto. Il **.dpv** invece è il progetto leggero: tiene il montaggio, i file restano dove sono.
-17. **`F8`** apre **DaProdMontage**, la quarta pagina: butta dentro **foto e video alla rinfusa** (anche solo foto), scegli **cosa festeggi** (28 stili: matrimonio, battesimo, comunione, cresima, laurea, compleanno, Natale, viaggio, reel verticale…), quanto deve durare e, se vuoi, il brano. **✨ CREA IL MONTAGGIO** e il programma ordina le foto (per data di scatto), le tiene il tempo giusto, le muove, mette transizioni, titoli e quello che cade sopra, appoggia i tagli ai battiti. Lo vedi **in anteprima nel monitor in alto**: se non ti piace **🎲 Rigenera** (ogni volta cambia, anche con le stesse scelte), se ti piace **✅ Importa nella timeline** e lo ritocchi.
-18. **Togliere lo sfondo**: sulla clip, **Proprietà → Sfondo** (o il tasto **SFONDO** sul monitor). **Colore** (green screen con fino a 3 colori, contagocce, via il riflesso), **Luce** o **AI** (soggetto, persona, oggetti coi clic). **Generatori → Animazioni**: 49 animazioni personalizzabili (sottopancia, testi, grafici, social, fondi, cerimonie).
-19. **La barra delle attività** (in basso a destra) mostra sempre cosa fa il programma dietro le quinte — riaprire i file, forme d'onda, colore, copie leggere, conversioni, sottotitoli e voce con l'AI — con la percentuale e il tempo che manca. **Un clic** apre il pannello con tutte le righe (passati, mancano, in coda, finite da poco): **✕** ferma una riga, **⏸ Pausa** ferma i lavori in coda. I lavori pesanti vanno uno alla volta e aspettano mentre il montaggio suona; riaprendo un progetto con tante clip si riaprono prima i file che stanno in timeline, e le misure già fatte (forme d'onda, colore, locandine) si ricordano.
-16. A **schermo pieno** le tracce crescono da sole; **`Ctrl+Shift`+rotella** le alza e le abbassa. Nell'app **`Ctrl +`** e **`Ctrl −`** ingrandiscono tutta l'interfaccia.
+16. **`F8`** apre **DaProdMontage**, la quarta pagina: butta dentro **foto e video alla rinfusa** (anche solo foto), scegli **cosa festeggi** (28 stili: matrimonio, battesimo, comunione, cresima, laurea, compleanno, Natale, viaggio, reel verticale…), quanto deve durare e, se vuoi, il brano. **✨ CREA IL MONTAGGIO** e il programma ordina le foto (per data di scatto), le tiene il tempo giusto, le muove, mette transizioni, titoli e quello che cade sopra, appoggia i tagli ai battiti. Lo vedi **in anteprima nel monitor in alto**: se non ti piace **🎲 Rigenera** (ogni volta cambia, anche con le stesse scelte), se ti piace **✅ Importa nella timeline** e lo ritocchi.
+17. **Togliere lo sfondo**: sulla clip, **Proprietà → Sfondo** (o il tasto **SFONDO** sul monitor). **Colore** (green screen con fino a 3 colori, contagocce, via il riflesso), **Luce** o **AI** (soggetto, persona, oggetti coi clic). **Generatori → Animazioni**: 49 animazioni personalizzabili (sottopancia, testi, grafici, social, fondi, cerimonie).
+18. **La barra delle attività** (in basso a destra) mostra sempre cosa fa il programma dietro le quinte — riaprire i file, forme d'onda, colore, copie leggere, conversioni, sottotitoli e voce con l'AI — con la percentuale e il tempo che manca. **Un clic** apre il pannello con tutte le righe (passati, mancano, in coda, finite da poco): **✕** ferma una riga, **⏸ Pausa** ferma i lavori in coda. I lavori pesanti vanno uno alla volta e aspettano mentre il montaggio suona; riaprendo un progetto con tante clip si riaprono prima i file che stanno in timeline, e le misure già fatte (forme d'onda, colore, locandine) si ricordano.
+19. A **schermo pieno** le tracce crescono da sole; **`Ctrl+Shift`+rotella** le alza e le abbassa. Nell'app **`Ctrl +`** e **`Ctrl −`** ingrandiscono tutta l'interfaccia.
 
 ### 🎛 La pulsantiera
 
@@ -151,7 +157,7 @@ Se il sito non si accende da solo, una volta sola: *Settings → Pages → Deplo
 | Togliere lo sfondo | chiave a colori nel piano del colore (YUV) dello shader; ritaglio AI con [transformers.js](https://github.com/huggingface/transformers.js) in un Worker: **BEN2** e **BiRefNet** (MIT), **MODNet** (Apache-2.0), **SAM 2.1** / SlimSAM (Apache-2.0); le maschere si mescolano nel tempo e stanno in una cache sul computer |
 | Animazioni | funzioni pure del tempo disegnate su **Canvas 2D** (`src/render/anim/`), ispirate al catalogo di [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0); caratteri **@fontsource** (OFL) |
 | DaProdMontage | `src/core/montage.ts` (piano: ordine, doppioni, tempo esatto, battiti, Ken Burns) + 28 stili in `montagePreset.ts`; data EXIF, qualità e ritmo del brano calcolati sul posto, senza AI |
-| Sottotitoli AI | **Nemotron 3.5** di NVIDIA con [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) (programma a parte che l'app scarica da sola: CUDA, Metal o CPU; modelli GGUF che scarica lui) oppure **Whisper** (tiny, base o small) con [transformers.js](https://huggingface.co/docs/transformers.js) in un worker, su WebGPU se c'è (se no WASM): la libreria arriva dalla CDN e il modello da Hugging Face **una volta sola**, poi restano in cache. L'audio della presa diretta si prende a 16 kHz, si taglia nei silenzi a pezzi di un minuto e **non esce mai dal computer** |
+| AI (sottotitoli, traduzione, voce, sfondo) | **Nemotron 3.5** di NVIDIA con [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) 0.2.0 (programma a parte che l'app scarica da sola: CUDA, Metal o CPU, e se la scheda non ce la fa riprova sul processore; modelli GGUF che scarica lui) oppure **Whisper** (tiny, base o small), **NLLB-200** per tradurre e i modelli per lo sfondo con [transformers.js](https://huggingface.co/docs/transformers.js) in un worker. **La libreria e ONNX Runtime viaggiano dentro l'app** (`public/ai/`, li prepara `scripts/ai-locale.mjs` prima della build, con il controllo dell'impronta): da Internet arrivano solo i modelli, da Hugging Face, **una volta sola**. Su WebGPU se c'è e funziona davvero, se no WASM; ogni modello prova più pesi (q8, fp16, fp32) prima di arrendersi, e gli errori si spiegano in italiano (`src/media/erroriAI.ts`). L'audio della presa diretta si prende a 16 kHz, si taglia nei silenzi a pezzi di un minuto e **non esce mai dal computer** |
 | App | **Tauri 2 / Rust**: `src-tauri/src/lib.rs` legge i media a pezzi, scrive l'export in streaming (anche `content://` su Android), salva progetti e autosalvataggio; `aggiorna.rs` scarica e apre la versione nuova |
 
 ```bash
@@ -162,9 +168,10 @@ npm run tauri dev      # l'app desktop in sviluppo (serve Rust)
 npm run tauri build    # l'app desktop di rilascio
 ```
 
-### 🙏 Crediti e licenze (1.1.4)
+### 🙏 Crediti e licenze
 
 - **Animazioni**: il catalogo si ispira a [HyperFrames](https://github.com/heygen-com/hyperframes) di HeyGen (Apache-2.0); i disegni sono riscritti da zero per il nostro motore, nessun codice è copiato. I caratteri vengono da [Fontsource](https://fontsource.org) (SIL Open Font License).
+- **AI nell'app (1.3.0)**: [transformers.js](https://github.com/huggingface/transformers.js) 4.3.1 (Apache-2.0) e [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) (MIT) sono copiati dentro l'app con le loro licenze (`ai/LICENSE-*.txt`).
 - **Togliere lo sfondo**: i modelli non stanno nell'app, si scaricano al primo uso da Hugging Face e restano sul computer: [BEN2](https://huggingface.co/PramaLLC/BEN2) e [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) (MIT), [MODNet](https://github.com/ZHKKKe/MODNet) (Apache-2.0), [SAM 2.1](https://github.com/facebookresearch/sam2) e [SlimSAM](https://github.com/czg1225/SlimSAM) (Apache-2.0), tutti via [transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0). Per la chiave a colori e il ritaglio ho letto come li fa [OpenReel](https://github.com/Augani/openreel-video) per confrontare le idee; il codice è nostro.
 
 ### ✅ Controlli automatici
@@ -172,7 +179,7 @@ npm run tauri build    # l'app desktop di rilascio
 ```bash
 npm run build
 npx playwright install chromium
-node test/prove.mjs    # oltre 300 prove (più `node test/prove-nuove.mjs [sfondo|animazioni|montage]` da sole): timecode, 1 taglia (e sceglie il pezzo corto), 2 elimina (e passa alla
+node test/prove.mjs    # oltre 300 prove (più `node test/prove-nuove.mjs [sfondo|animazioni|montage|aiuto]` da sole): timecode, 1 taglia (e sceglie il pezzo corto), 2 elimina (e passa alla
                        # dopo), S separa/unisce, Q e W, tracce accese, rotella, niente viene coperto, volume
                        # trascinato, FX sulle clip (si attaccano ai bordi, seguono la clip, suoni accesi/spenti
                        # e nel mixaggio), Alt+Shift, maniglie delle dissolvenze, navigatore, pagina Finale
@@ -191,5 +198,6 @@ node test/foto.mjs     # foto del banco (computer, Finale, contenitore, timeline
 - `src/media/` Mediabunny: contenitore, fotogrammi (flusso e ricerca), proxy automatici, banco audio.
 - `src/render/` il piano di ogni fotogramma e il mixer WebGL2 (effetti a tempo, colore automatico e colore finale, logo e sottotitoli), titolatrice e countdown, le anteprime del contenitore coi fotogrammi del cursore (`provino.ts`).
 - `src/ui/` timeline, monitor, pulsantiera, contenitore, proprietà, pagina Finale, pagina LIVE (`live.ts`), pagina DaProdMontage (`montage.ts`), togliere lo sfondo (`sfondo.ts`), mixer e VU, strumenti, finestre.
+- Per ritrovare le cose: `src/ui/cerca.ts` (Ctrl+K) con quello che si trova in `fontiCerca.ts`, `src/ui/guida.ts` (F1, Come si fa), `src/ui/centroAI.ts` (Centro AI) e, sotto, `src/media/libreriaAI.ts` (la libreria AI dentro l'app e i ripieghi), `erroriAI.ts` (gli errori spiegati), `diagnosiAI.ts` (Controlla l'AI).
 - `src/azioni.ts` tutti i comandi con i loro tasti · `src/effetti.ts` gli effetti al volo · `src/export/` export ed EDL · `src/demo.ts` il montaggio dimostrativo.
 - `src-tauri/` l'app Rust, con `gen/android` per l'APK · `test/` le prove.

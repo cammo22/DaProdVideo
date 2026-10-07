@@ -24,6 +24,9 @@ export function nomeTasto(e: KeyboardEvent): string {
   return [...mods, k].join('+');
 }
 
+/** i comandi che vanno anche con la pagina iniziale aperta */
+const SOPRA_HOME = new Set(['apri', 'schermoIntero', 'cerca', 'guida']);
+
 let tcInserimento: ((cifra: string) => void) | null = null;
 /** il monitor attivo registra qui chi riceve le cifre del tastierino */
 export function suTastierino(fn: (cifra: string) => void) { tcInserimento = fn; }
@@ -37,8 +40,8 @@ export function installaTastiera() {
       return;
     }
     if (document.querySelector('.velo')) return; // dialogo aperto
-    if (document.documentElement.classList.contains('home-aperta')) return; // la pagina iniziale copre il banco
-    if (/^Numpad\d$/.test(e.code) && !e.ctrlKey && !e.altKey) {
+    const home = document.documentElement.classList.contains('home-aperta'); // la pagina iniziale copre il banco
+    if (/^Numpad\d$/.test(e.code) && !e.ctrlKey && !e.altKey && !home) {
       e.preventDefault();
       tcInserimento?.(e.code.slice(6));
       return;
@@ -47,6 +50,8 @@ export function installaTastiera() {
     const nome = nomeTasto(e).toLowerCase();
     const id = mappa!.get(nome);
     if (!id) return;
+    // sopra la pagina iniziale valgono solo i comandi che non toccano il montaggio nascosto
+    if (home && !SOPRA_HOME.has(id)) return;
     // [ e ] solo se il tasto scritto è davvero una parentesi (sulla tastiera italiana quei tasti sono è e +)
     if ((nome === '[' || nome === ']') && e.key !== '[' && e.key !== ']') return;
     e.preventDefault();

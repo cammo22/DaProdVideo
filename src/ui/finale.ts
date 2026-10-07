@@ -11,6 +11,7 @@ import { MODELLI, fermaVoce, sottotitoliAI, type OpzioniVoce } from '../media/vo
 import { LINGUE_MOTORE, LINGUE_PARLATE, LINGUE_VOCE, VOCI_MAGPIE, motoreNemo } from '../media/nemo';
 import { LINGUE_TRADUZIONE, fermaTraduzione, sappiamoTradurre, traduciTesti } from '../media/traduci';
 import { doppia, linguaVoce, posaVoce } from '../media/doppiaggio';
+import { spiegaErroreAI } from '../media/erroriAI';
 import { codificaWav } from '../media/wav';
 import { salvaMediaSulDisco, salvaTesto } from '../platform';
 import { importaDialogo, importaFile } from '../progetti';
@@ -281,7 +282,7 @@ export class Finale {
       return h('div', { class: 'fin-scelte' }, h('span', null, nome), h('div', { class: 'isp-chips' }, bott));
     };
     const lavoro = new BarraLavoro('Sottotitoli con l\'AI', 'ai', () => { this.lavoroAI?.abort(); fermaVoce(); });
-    const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.scriviConAI(lavoro, vai, ferma) } }, '✨ Scrivi i sottotitoli con l\'AI');
+    const vai = h('button', { class: 'btn primario ai-vai', 'data-ai': 'sottotitoli', on: { click: () => void this.scriviConAI(lavoro, vai, ferma) } }, '✨ Scrivi i sottotitoli con l\'AI');
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroAI?.abort(); fermaVoce(); } } }, '■ Ferma');
     const nemotron = () => this.motoreAI() === 'nemotron';
     const motore = scelta('Ascolta con', [
@@ -357,8 +358,9 @@ export class Finale {
       if (msg === 'fermato') lavoro.ferma('Fermato');
       else if (msg === 'muto') { lavoro.ferma('L\'audio dei dialoghi è muto'); avviso('L\'audio dei dialoghi è muto: niente da scrivere', 'info', 2600); }
       else {
-        lavoro.ferma('Non ci sono riuscito: ' + msg);
-        avviso(o.motore === 'nemotron' ? 'L\'AI non è partita: ' + msg : 'L\'AI non è partita: serve internet la prima volta (per scaricare il modello). ' + msg, 'errore', 5000);
+        const chiaro = spiegaErroreAI(msg);
+        lavoro.ferma('Non ci sono riuscito: ' + chiaro);
+        avviso('I sottotitoli con l\'AI non sono partiti: ' + chiaro, 'errore', 6000);
       }
     } finally {
       this.lavoroAI = null;
@@ -384,7 +386,7 @@ export class Finale {
     };
     const lavoro = new BarraLavoro('Voce AI dai sottotitoli', 'ai', () => this.lavoroVoce?.abort());
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => this.lavoroVoce?.abort() } }, '■ Ferma');
-    const vai = h('button', { class: 'btn primario ai-vai', title: 'Legge i sottotitoli con la voce scelta e mette il risultato su una traccia audio nuova', on: { click: () => void this.faiParlare(lavoro, vai, ferma) } }, '🗣 Fai parlare i sottotitoli');
+    const vai = h('button', { class: 'btn primario ai-vai', 'data-ai': 'voce', title: 'Legge i sottotitoli con la voce scelta e mette il risultato su una traccia audio nuova', on: { click: () => void this.faiParlare(lavoro, vai, ferma) } }, '🗣 Fai parlare i sottotitoli');
     const silenzia = h('input', { type: 'checkbox' }) as HTMLInputElement;
     silenzia.addEventListener('change', () => { this.voce.silenzia = silenzia.checked; salva(); });
     sinc.push(() => { silenzia.checked = this.voce.silenzia; });
@@ -448,8 +450,9 @@ export class Finale {
       else if (msg === 'lingua') lavoro.ferma('Questa lingua la voce non la sa');
       else if (msg === 'traduzione') lavoro.ferma('Questa coppia di lingue non la so tradurre');
       else {
-        lavoro.ferma('Non ci sono riuscito: ' + msg);
-        avviso('La voce AI non è partita: ' + msg, 'errore', 5000);
+        const chiaro = spiegaErroreAI(msg);
+        lavoro.ferma('Non ci sono riuscito: ' + chiaro);
+        avviso('La voce AI non è partita: ' + chiaro, 'errore', 6000);
       }
     } finally {
       this.lavoroVoce = null;
@@ -619,7 +622,7 @@ export class Finale {
     aTrad.addEventListener('change', () => { this.trad.a = aTrad.value; try { localStorage.setItem('dpv-trad', JSON.stringify(this.trad)); } catch { /* niente */ } this.campi.forEach((c) => c.aggiorna()); });
     const lavoro = new BarraLavoro('Traduzione dei sottotitoli', 'ai', () => { this.lavoroTrad?.abort(); fermaTraduzione(); });
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => { this.lavoroTrad?.abort(); fermaTraduzione(); } } }, '■ Ferma');
-    const vai = h('button', { class: 'btn primario ai-vai', on: { click: () => void this.traduciSottotitoli(lavoro, vai, ferma) } }, '🌍 Traduci i sottotitoli');
+    const vai = h('button', { class: 'btn primario ai-vai', 'data-ai': 'traduci', on: { click: () => void this.traduciSottotitoli(lavoro, vai, ferma) } }, '🌍 Traduci i sottotitoli');
     const nota = h('p', { class: 'nota' });
     this.campi.push({ aggiorna: () => {
       const s = sottotitoliDi(store.doc);
@@ -666,7 +669,7 @@ export class Finale {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === 'fermato') lavoro.ferma('Fermato');
-      else { lavoro.ferma('Non ci sono riuscito: ' + msg); avviso('La traduzione non è partita: ' + msg, 'errore', 5000); }
+      else { const chiaro = spiegaErroreAI(msg); lavoro.ferma('Non ci sono riuscito: ' + chiaro); avviso('La traduzione non è partita: ' + chiaro, 'errore', 6000); }
     } finally {
       this.lavoroTrad = null;
       ferma.style.display = 'none';

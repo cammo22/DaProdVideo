@@ -95,6 +95,9 @@ function spiega(righe: string[]): string {
   const utili = righe.filter((r) => !/^\s*\[?(info|debug)/i.test(r));
   const l = (utili.length ? utili : righe).slice(-3).join(' · ');
   if (/curl/i.test(l) && /not found|non trovato|recognized/i.test(l)) return 'manca il programma curl nel sistema (serve per scaricare i modelli)';
+  if (/zh|mandarin|chinese/i.test(l) && /unsupported|not supported|unknown|invalid/i.test(l)) return 'la voce in cinese non c\'è nella versione del motore NVIDIA che si scarica (NVIDIA la include solo se compilata apposta)';
+  if (/out of memory|cudaMalloc|failed to allocate|bad_alloc/i.test(l)) return 'la memoria non basta (della scheda video o del computer): chiudi altri programmi e riprova';
+  if (/could not resolve host|couldn't connect|connection|timed out|SSL/i.test(l)) return 'non riesco a scaricare il modello: controlla la connessione a internet (serve solo la prima volta)';
   return l || 'il motore si è fermato senza dire perché';
 }
 
@@ -145,6 +148,20 @@ async function esegui(args: string[], o: OpzEsegui = {}): Promise<void> {
   } finally {
     o.segnale?.removeEventListener('abort', ferma);
     void invoke('motore_dimentica', { id }).catch(() => {});
+  }
+}
+
+/**
+ * Esegue un comando del motore e, se la versione per la scheda video (CUDA, Vulkan, Metal) si ferma con un errore,
+ * lo rifà una volta sul processore (`--device cpu`): più lento, ma il lavoro arriva in fondo.
+ */
+async function eseguiConRipiego(args: string[], o: OpzEsegui = {}, cambio?: () => void): Promise<void> {
+  try {
+    await esegui(args, o);
+  } catch (e) {
+    if (o.segnale?.aborted || messaggio(e) === 'fermato' || args.includes('--device')) throw e;
+    cambio?.();
+    await esegui([...args, '--device', 'cpu'], o);
   }
 }
 
@@ -217,14 +234,15 @@ const motoreApp: MotoreNemo = {
         await scrivi(`${dIn}/${nome}.wav`, codificaWav(p.audio, 16000));
       }
       const n = pezzi.length;
-      await esegui(['transcribe', dIn, '--model', 'nemotron-3.5', '--language', codiceLingua(o.lingua), '--format', 'srt', '--output-dir', dOut, '--concurrency', '1', '--force'], {
+      let sulProcessore = false;
+      await eseguiConRipiego(['transcribe', dIn, '--model', 'nemotron-3.5', '--language', codiceLingua(o.lingua), '--format', 'srt', '--output-dir', dOut, '--concurrency', '1', '--force'], {
         segnale, intervallo: 500,
         sonda: async () => {
           const f = await invoke<[string, number][]>('motore_elenca', { path: dOut }).catch(() => [] as [string, number][]);
           const fatti = f.filter(([nome]) => nome.endsWith('.srt')).length;
-          avanza(Math.min(0.98, fatti / n), `Ascolto e scrivo con Nemotron: ${Math.min(fatti, n)} di ${n} pezzi`);
+          avanza(Math.min(0.98, fatti / n), `Ascolto e scrivo con Nemotron${sulProcessore ? ' (sul processore)' : ''}: ${Math.min(fatti, n)} di ${n} pezzi`);
         },
-      });
+      }, () => { sulProcessore = true; avanza(0, 'La scheda video non ce l\'ha fatta: riprovo sul processore…'); });
       const out: Pezzo[] = [];
       for (const [i, nome] of nomi.entries()) {
         let testo = '';
@@ -243,13 +261,15 @@ const motoreApp: MotoreNemo = {
     const lavoro = 'tts' + Date.now().toString(36);
     const dir = await invoke<string>('motore_cartella_lavoro', { nome: lavoro });
     const out = new Map<string, Parlato>();
+    // passati una volta al processore, le frasi dopo restano lì (non si riprova la scheda a ogni frase)
+    let dispositivo: string[] = [];
     try {
       for (const [i, v] of voci.entries()) {
         if (segnale?.aborted) throw new Error('fermato');
         avanza(i / voci.length, `Faccio parlare la voce: frase ${i + 1} di ${voci.length}`);
         const t = `${dir}/t${i}.txt`, w = `${dir}/t${i}.wav`;
         await scrivi(t, new TextEncoder().encode(v.testo));
-        await esegui(['synthesize', '-i', t, '-o', w, '--language', codiceLingua(o.lingua), '--speaker', String(o.voce), '--format', 'wav', '--force'], { segnale, intervallo: 250 });
+        await eseguiConRipiego(['synthesize', '-i', t, '-o', w, '--language', codiceLingua(o.lingua), '--speaker', String(o.voce), '--format', 'wav', '--force', ...dispositivo], { segnale, intervallo: 250 }, () => { dispositivo = ['--device', 'cpu']; });
         const { audio, sr } = leggiWav(await leggi(w));
         out.set(v.id, { audio, sr });
       }

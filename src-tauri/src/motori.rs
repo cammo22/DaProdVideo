@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 
-const VERSIONE: &str = "0.1.0";
+/// La versione del motore. La 0.1.0 non aveva i programmi pronti da scaricare (nessun archivio nella release): l'app
+/// chiedeva un file che non c'era e i sottotitoli NVIDIA finivano in "lo scarico non è riuscito". Dalla 0.2.0 ci sono.
+const VERSIONE: &str = "0.2.0";
 const RELEASE: &str = "https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/";
 
 fn senza_finestra(c: &mut Command) -> &mut Command {
@@ -53,7 +55,7 @@ pub fn nome_archivio(backend: &str) -> Option<String> {
         ("windows", "x86_64", "cpu" | "cuda" | "vulkan") => true,
         ("linux", "x86_64", "cpu" | "cuda" | "vulkan") => true,
         ("linux", "aarch64", "cpu") => true,
-        ("macos", "aarch64", "metal") => true,
+        ("macos", "aarch64", "metal" | "cpu") => true,
         ("macos", "x86_64", "cpu") => true,
         _ => false,
     };

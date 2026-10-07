@@ -3,6 +3,11 @@
 //  · "Traduci i sottotitoli": le righe restano ai loro tempi, cambia solo il testo;
 //  · la voce AI: se la voce parla una lingua diversa da quella dei sottotitoli, i testi si traducono prima di leggerli
 //    (altrimenti una voce inglese leggerebbe parole italiane con l'accento sbagliato).
+import { spiegaErroreAI, testoErrore } from './erroriAI';
+import { baseLocaleAI } from './libreriaAI';
+
+/** il modello della traduzione (e quello di riserva), come li prova il worker */
+export const MODELLI_TRADUZIONE = ['Xenova/nllb-200-distilled-600M', 'onnx-community/nllb-200-distilled-600M-ONNX'];
 
 /** le lingue che si traducono: codice nostro, codice di NLLB, nome */
 export const LINGUE_TRADUZIONE: [string, string, string][] = [
@@ -56,6 +61,9 @@ function lavoratore(): Worker {
     caricamento?.no(err); caricamento = null;
     for (const x of attese.values()) x.no(err);
     attese.clear();
+    // un worker fermato non risponde più: la prossima volta se ne fa uno nuovo (prima la traduzione restava appesa)
+    worker?.terminate();
+    worker = null;
   };
   return worker;
 }
@@ -64,7 +72,7 @@ const nllb: Traduttore = {
   carica: (stato) => new Promise((ok, no) => {
     scaricati.clear();
     caricamento = { ok, no, stato };
-    lavoratore().postMessage({ tipo: 'carica' });
+    lavoratore().postMessage({ tipo: 'carica', base: baseLocaleAI() });
   }),
   traduci: (testi, da, a) => new Promise((ok, no) => {
     const id = ++seq;
@@ -96,7 +104,10 @@ export async function traduciTesti(testi: string[], da: string, a: string, stato
   if (codiceNllb(da) === codiceNllb(a)) return testi.slice();
   if (!sappiamoTradurre(da, a)) throw new Error('Questa coppia di lingue non la so tradurre');
   stato('Preparo la traduzione…', 0);
-  await traduttore.carica((fase, x) => stato(fase, x * 0.3));
+  try { await traduttore.carica((fase, x) => stato(fase, x * 0.3)); } catch (e) {
+    if (segnale?.aborted || testoErrore(e) === 'fermato') throw e;
+    throw new Error(spiegaErroreAI(e));
+  }
   fermo();
   const out = testi.slice();
   const dafare = testi.map((t, i) => [t, i] as const).filter(([t]) => t.trim());

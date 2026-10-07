@@ -123,9 +123,27 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   non passano. Nel browser `potaDeposito` (progetti.ts) tiene in IndexedDB solo i file del montaggio aperto e dei recenti. Copia/incolla
   porta i blocchetti FX della clip (`padreDi`). In `fotogrammi.ts` un flusso buttato a metà play lascia il suo ultimo fotogramma in
   `ponti` finché il nuovo non ne ha uno (niente nero). Prove: `test/prove-rifiniture.mjs`; nessun tasto deve stare su due comandi (lo controlla la prova).
+- **Trovare e capire (1.3.0)**: **Ctrl+K** = `src/ui/cerca.ts` (`apriCerca`, `risultati`/`punteggio` con sinonimi, recenti in localStorage
+  `dpv-cerca-recenti`): dentro ci sono **tutti i comandi registrati** in `azioni.ts` più le fonti iscritte con `fonteCerca` (`src/ui/fontiCerca.ts`:
+  pagine, sezioni del Finale, guide, transizioni, effetti, titoli, animazioni, countdown; `manca()` = perché adesso non si può). Il fuoco va
+  all'input **subito** (se no le lettere finiscono al banco come tasti). **F1** = `src/ui/guida.ts` (`ARGOMENTI`, `finestraGuida(id)`, "Fallo adesso"
+  con `vaiPagina/vaiFinale/vaiSezione` + `evidenzia` di `dom.ts`). **Centro AI** = `src/ui/centroAI.ts` (`FUNZIONI_AI`, carte `.ai-carta[data-ai]`,
+  "Controlla l'AI" = `diagnosi()` di `src/media/diagnosiAI.ts`, impostazioni: scheda video sì/no, libera lo spazio, togli il motore). I comandi di
+  `app.ts` (file, pagine, vista, aiuto) ora passano da `registra` (= `reg` di `azioni.ts`): **un tasto, un comando** (lo controlla la prova); con la
+  pagina iniziale aperta passano solo `SOPRA_HOME` in `tastiera.ts`. Eventi: `dpv:cerca`, `dpv:guida`, `dpv:tasti`, `dpv:centro-ai`, `dpv:finale`,
+  `dpv:sezione` (→ `Ispettore.apriSezione`), `dpv:home-nascondi`. Testata: `.testata > *` non si stringe, le scritte spariscono a scalini
+  (1840/1720/1620/1520/1420/1250 px) così **Esporta resta sempre nello schermo** (la prova la misura da 1024 a 1920).
+- **L'AI che non si ferma (1.3.0)**: `src/media/libreriaAI.ts` è la base di tutti i worker AI (voce, traduci, ritaglio, provaAI): la libreria
+  **viaggia dentro l'app** in `public/ai/` (→ `dist/ai/`, la scrive `scripts/ai-locale.mjs` in `prebuild` da registry.npmjs.org col controllo
+  sha512, è in `.gitignore`; se manca si va sulla CDN), `wasmPaths` puntano lì (asyncify). `caricaConRipieghi` prova **WebGPU poi WASM** e per
+  ognuno **più pesi** (q8/fp16/fp32: a MODNet e BiRefNet manca q8); se la scheda si rompe a metà lavoro si ricarica su WASM e si rifà. Scheda video
+  spegnibile (`dpv-ai-scheda`). Un worker morto si butta (`onerror` → `null`). **Errori**: `src/media/erroriAI.ts` (`spiegaErroreAI`: regole
+  regex → frase italiana con cosa fare; le frasi già italiane passano). Nemotron che sbaglia → Whisper da solo (`ripiego` in `sottotitoliAI`), e
+  NeMo riprova con `--device cpu` (`eseguiConRipiego`). Nelle prove la libreria finta si serve anche su `**/ai/transformers.min.js`.
+  Prove: `test/prove-aiuto.mjs`.
 - **Cursore che si aggancia** (`agganciaCursore` in `src/ui/timeline.ts`): sul righello si aggancia sempre (calamita `N`), Alt lo lascia libero.
-- **Motore NVIDIA** (`src-tauri/src/motori.rs` + `src/media/nemo.ts`): NeMo-Speech.cpp v0.1.0 (Apache-2.0), programma a parte che l'app
-  scarica dalla release di NVIDIA (`nemo-speech-0.1.0-{windows,macos,linux}-{x86_64,aarch64}-{cpu,cuda,vulkan,metal}`, `.sha256` a fianco) in
+- **Motore NVIDIA** (`src-tauri/src/motori.rs` + `src/media/nemo.ts`): NeMo-Speech.cpp **0.2.0** (Apache-2.0; la 0.1.0 non aveva gli archivi), programma a parte che l'app
+  scarica dalla release di NVIDIA (`nemo-speech-<versione>-{windows,macos,linux}-{x86_64,aarch64}-{cpu,cuda,vulkan,metal}`, `.sha256` a fianco) in
   `app_local_data_dir/motori/`: **CUDA se `nvidia-smi` risponde, Metal su Apple Silicon, se no CPU**. Il lato Rust fa solo I/O a polling (come
   `aggiorna.rs`): `motore_stato/installa/scarico/lancia/lavoro/ferma/elenca/peso_modelli`; i modelli li scarica lui (`pull`, cartella
   `NEMO_SPEECH_MODEL_DIR` nostra). Il JS (`MotoreNemo`) scrive i WAV a 16 kHz (`wav.ts`), lancia `transcribe <cartella> --format srt
@@ -144,7 +162,7 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
 - TRASPARENZA (tasto B, era ELASTICO) = la linea gialla dell'opacità sui video; IN/OUT si vedono solo se ci sono (Alt+X o ✕).
 - Si parte con **2 tracce video e 2 audio**. **Alt+Shift+trascina** = la clip e tutto quello dopo, su tutte le tracce.
   **V** = timeline stretta (la colonna di destra scende fino in fondo).
-- **Sottotitoli AI**: Whisper via transformers.js in `src/media/voce.worker.ts` (libreria dalla CDN, modello da
+- **Sottotitoli AI**: Whisper via transformers.js in `src/media/voce.worker.ts` (libreria dentro l'app, CDN di ripiego; modello da
   Hugging Face, entrambi al primo uso); `src/media/voce.ts` prende l'audio a 16 kHz e fa le righe. Nelle prove si usa
   un trascrittore finto (`impostaTrascrittore`): dal container non si raggiungono né la CDN né Hugging Face.
 - **Aggiornamenti**: `src/ui/aggiornamenti.ts` (API delle release di GitHub, novità dal CHANGELOG che viaggia
