@@ -19,7 +19,11 @@ export function finestraEsporta(preset: { formato?: string; qualita?: string; mi
   motore.stop();
   const fine = projectEnd(p);
   if (!fine) { avviso('La timeline è vuota: prima monta qualcosa', 'info'); return; }
-  const d = dialogo('Esporta il master', { largo: true });
+  let annulla = false;
+  let lavorando = false;
+  let fatto = false;
+  // mentre esporta la finestra resta aperta (Esc o un clic fuori non la chiudono): si ferma con Annulla
+  const d = dialogo('Esporta il master', { largo: true, chiudibile: () => { if (lavorando) avviso('L\'export è in corso: premi Annulla per fermarlo', 'info', 2200); return !lavorando; } });
   const nome = h('input', { class: 'campo-testo', value: p.name.replace(/[\\/:*?"<>|]/g, '_') }) as HTMLInputElement;
   const formato = h('select', { class: 'mini-select' },
     h('option', { value: 'mp4' }, 'MP4 · H.264 + AAC (va ovunque)'),
@@ -61,11 +65,12 @@ export function finestraEsporta(preset: { formato?: string; qualita?: string; mi
       h('label', null, 'Solo attacco–stacco'), h('span', null, soloInOut, haInOut ? ` ${frameToTc(p.inF!, p.rate, p.drop)} → ${frameToTc(p.outF!, p.rate, p.drop)}` : ' (segna I e O sulla timeline)'),
       h('label', null, 'Codec'), codec),
     stato, barra);
-  let annulla = false;
-  let lavorando = false;
   const vai = h('button', { class: 'btn primario' }, 'Esporta') as HTMLButtonElement;
-  const chiudi = h('button', { class: 'btn', on: { click: () => { if (lavorando) annulla = true; else d.chiudi(); } } }, 'Annulla');
+  const chiudi = h('button', { class: 'btn', on: { click: () => { if (lavorando) { annulla = true; chiudi.textContent = 'Fermo…'; } else d.chiudi(); } } }, 'Annulla') as HTMLButtonElement;
   vai.addEventListener('click', async () => {
+    // a lavoro finito il bottone dice "Fatto" e chiude (prima faceva ripartire l'export da capo)
+    if (fatto) { d.chiudi(); return; }
+    if (lavorando) return;
     const k = Number(misura.value);
     lavorando = true;
     vai.disabled = true;
@@ -88,7 +93,7 @@ export function finestraEsporta(preset: { formato?: string; qualita?: string; mi
         (barra.firstChild as HTMLElement).style.width = '100%';
         vai.textContent = 'Fatto';
         chiudi.textContent = 'Chiudi';
-        vai.onclick = () => d.chiudi();
+        fatto = true;
         vai.disabled = false;
       } else { d.chiudi(); avviso('Export annullato', 'info'); }
     } catch (e) {

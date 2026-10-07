@@ -4,6 +4,42 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.2.1] — 2026-10-07 · Le rifiniture: più sicuro, più preciso, niente sorprese 🔧
+
+Una versione di pulizia: nessuno strumento nuovo, ma tante piccole cose che prima potevano andare storte.
+
+### Salvare senza paura
+- **Il progetto si salva in modo sicuro** (nell'app): si scrive accanto e poi si sostituisce, così se il programma o il computer si fermano a metà il progetto di prima resta intero. Prima il file si svuotava e si riscriveva: un'interruzione poteva lasciarlo rovinato.
+- **Se il salvataggio non riesce lo dice** (disco pieno, cartella protetta, chiavetta tolta), con l'invito a usare *Salva come…*. Prima non compariva niente e sembrava salvato.
+- **Ricollegare i file mancanti ora resta nel progetto**: il percorso nuovo si salva (prima, chiudendo senza altre modifiche, al giro dopo il file risultava di nuovo mancante).
+- **Una modifica che si rompe a metà non lascia il montaggio mezzo cambiato**: si torna a com'era.
+- L'autosalvataggio scrive solo quando è cambiato qualcosa (prima riscriveva tutto il progetto ogni 15 secondi finché non salvavi).
+- Nel browser: **"Nuovo progetto" non butta più i file dei progetti recenti** (riaprendoli dalla pagina iniziale mancavano), e le copie dei progetti usciti dall'elenco si tolgono da sole. Togliere un file dal contenitore e poi Ctrl+Z lo ritrova anche dopo aver riaperto il browser.
+
+### Montaggio più preciso
+- **Tagliare (tasto 1) una clip che si muove** — per esempio una foto col Ken Burns di DaProdMontage, o una clip con le tappe — ora **continua il movimento dov'era**: il pezzo di sinistra fa la prima parte della strada e quello di destra il resto. Prima tutti e due ripartivano da capo e l'immagine "tornava indietro" sul taglio.
+- **Copia e incolla portano anche gli effetti e le transizioni** che stanno sulla clip (e la seguono anche se finisce su un'altra traccia). Prima restavano indietro.
+- **Abbina fotogramma (F)** porta la sorgente al fotogramma giusto anche nelle clip accelerate o rallentate.
+- Dopo il taglio (tasto 1) viene scelto sempre un pezzo di clip, mai un blocchetto FX che finiva lì per caso (premendo 2 spariva l'effetto invece dello scarto).
+- **Loop (Ctrl+L) senza attacco e stacco**: rifà tutto il montaggio da capo (prima si fermava in fondo).
+
+### Riproduzione
+- **Niente più lampi neri durante il play**: quando la lettura del video ripartiva a metà (un salto al fotogramma chiave più avanti, o la copia leggera che diventa pronta mentre suona) per un attimo il monitor diventava nero o tornava al fotogramma di quando avevi premuto play. Ora resta l'ultimo fotogramma vero finché arriva il nuovo.
+
+### Export
+- **L'audio esportato non ha più cuciture ogni 10 secondi**: il mixaggio si fa a pezzi, e a ogni pezzo filtri (voce, radio, ovattato), eco e limitatore ripartivano da zero, con un piccolo scatto e la coda dell'eco tagliata. Ora ogni pezzo parte "già caldo".
+- **La finestra Esporta resta aperta mentre lavora**: Esc o un clic fuori la chiudevano lasciando l'export a girare senza modo di fermarlo. Si ferma col tasto Annulla.
+- **"Fatto" chiude la finestra** a export finito (prima lo faceva ripartire da capo, con la richiesta di dove salvare).
+
+### Tasti e pagine
+- **Ctrl+Alt+A aggiunge di nuovo una traccia audio**: lo stesso tasto era preso anche dall'animazione, che ora sta su **Ctrl+Alt+N**.
+- **Con la pagina iniziale aperta i tasti non toccano il montaggio che sta sotto** (prima Spazio lo faceva suonare e 2 toglieva una clip senza vederla). Valgono Esc, Ctrl+O e F11.
+- Sul telefono gli avvisi stanno sopra la barra delle attività e i pulsanti in basso (prima li coprivano).
+- Le copie leggere (proxy) in pausa perché il montaggio suona ora si fermano subito col ✕ del centro attività.
+
+### Per chi ha curiosità
+- Prove nuove in `test/prove-rifiniture.mjs` (girano dentro `node test/prove.mjs`, o da sole con `node test/prove-nuove.mjs rifiniture`): falliscono sulla 1.2.0 e passano qui.
+
 ## [1.2.0] — 2026-10-03 · La prima release ufficiale: più veloce, più chiaro, la barra delle attività ⚡
 
 Questa versione non aggiunge strumenti: rende **più fluido e più chiaro quello che c'è già**.

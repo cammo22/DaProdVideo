@@ -234,7 +234,8 @@ class Motore {
         const endF = projectEnd(d);
         const limit = this.stopAt ?? endF;
         if (this.speed > 0 && f >= limit) {
-          if (this.loop && this.stopAt === null && d.inF !== null && d.outF !== null) { this.stop(); store.setHead(d.inF); this.play(1); }
+          // il loop senza attacco e stacco rifà tutto il montaggio da capo
+          if (this.loop && this.stopAt === null && endF > 0) { this.stop(); store.setHead(d.inF !== null && d.outF !== null ? d.inF : 0); this.play(1); }
           else { this.stop(); store.setHead(Math.min(limit, Math.max(endF, 0))); }
         } else if (this.speed < 0 && f <= 0) {
           this.stop();

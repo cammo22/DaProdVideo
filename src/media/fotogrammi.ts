@@ -215,6 +215,23 @@ const flussi = new Map<string, Flusso>();
 const ricerche = new Map<string, Ricerca>();
 /** dove sta chiedendo ogni voce e da quando: il fotogramma nitido si chiede solo quando ci si ferma */
 const fermo = new Map<string, { t: number; da: number }>();
+/**
+ * L'ultimo fotogramma di un flusso buttato a metà play (ripartito più avanti, tornato indietro): si mostra finché il
+ * flusso nuovo non ha il suo. Prima in quel momento il monitor faceva un lampo nero, o tornava al fotogramma fermo di
+ * quando si era premuto play.
+ */
+const ponti = new Map<string, VideoSample>();
+function mettiPonte(k: string, f: Flusso) {
+  if (!f.current) return;
+  ponti.get(k)?.close();
+  ponti.set(k, f.current.clone());
+}
+function togliPonte(k: string) {
+  const s = ponti.get(k);
+  if (!s) return;
+  s.close();
+  ponti.delete(k);
+}
 
 // il monitor ha la precedenza sulle miniature della timeline: una ricerca in corso o un flusso in riproduzione
 quandoDecoderOccupato(() => flussi.size > 0 || [...ricerche.values()].some((r) => r.busy));
@@ -270,7 +287,7 @@ function flussoDi(k: string, l: Lettore, t: number): Flusso | null {
   if (f) {
     const indietro = t < f.from - 0.05 || (!!f.current && t < f.current.timestamp - 0.05);
     const finito = f.done && !f.queue.length && !!f.current && t > f.current.timestamp + 1;
-    if (indietro || finito || f.ripartire) { f.close(); flussi.delete(k); f = undefined; }
+    if (indietro || finito || f.ripartire) { mettiPonte(k, f); f.close(); flussi.delete(k); f = undefined; }
     // indietro, ma solo dopo il primo fotogramma: un flusso appena ripartito va lasciato lavorare (se no si
     // ricomincia di continuo e si butta via la decodifica già fatta)
     else if (f.partito && f.ahead(t) < -0.6) f.valuta(t);
@@ -296,9 +313,11 @@ export function fotogramma(key: string, mediaId: string, t: number, flusso: bool
   if (flusso) {
     const f = flussoDi(k, l, t);
     const s = f?.at(t);
-    if (s) return s;
-    // mentre il flusso parte si mostra quello che la ricerca aveva già (di una qualità o dell'altra)
-    return ricerche.get(k)?.current ?? ricerche.get(base + (q === 'p' ? 'o' : 'p'))?.current ?? f?.current ?? null;
+    if (s) { togliPonte(k); return s; }
+    // mentre il flusso parte si mostra l'ultimo fotogramma vero: quello del flusso appena buttato, quello dell'altra
+    // qualità (la copia leggera è diventata pronta a metà play), o quello che la ricerca aveva già
+    const altra = base + (q === 'p' ? 'o' : 'p');
+    return ponti.get(k) ?? flussi.get(altra)?.current ?? ricerche.get(k)?.current ?? ricerche.get(altra)?.current ?? f?.current ?? null;
   }
   const fl = flussi.get(k);
   const veloce = ricerca(k, l).at(t);
@@ -351,7 +370,8 @@ export function prepara(key: string, mediaId: string, t: number) {
 /** chiude i flussi non usati da un po' (libera i decoder e la memoria video) */
 export function pulisci(maxEta = 1500) {
   const now = performance.now();
-  for (const [k, f] of flussi) if (now - f.lastUse > maxEta) { f.close(); flussi.delete(k); }
+  for (const [k, f] of flussi) if (now - f.lastUse > maxEta) { f.close(); flussi.delete(k); togliPonte(k); }
+  for (const k of [...ponti.keys()]) if (!flussi.has(k)) togliPonte(k);
   for (const [k, r] of ricerche) {
     if (now - r.lastUse > 8000) { r.close(); ricerche.delete(k); }
     else if (now - r.lastUse > 2000) r.riposa();
@@ -372,6 +392,7 @@ export function fermaFlussi() {
     f.close();
   }
   flussi.clear();
+  for (const k of [...ponti.keys()]) togliPonte(k);
 }
 
 /** chi ha finito di guardare (l'anteprima del contenitore) libera il suo fotogramma */
@@ -388,6 +409,7 @@ export function dimenticaMedia(mediaId: string, soloProxy = false) {
   const tocca = (k: string) => k.includes('|' + mediaId + '|') && (!soloProxy || k.endsWith('|p'));
   for (const k of [...lettori.keys()]) if ((k + '|').startsWith(mediaId + '|') && (!soloProxy || k.endsWith('|p'))) lettori.delete(k);
   for (const [k, f] of flussi) if (tocca(k)) { f.close(); flussi.delete(k); }
+  for (const k of [...ponti.keys()]) if (tocca(k)) togliPonte(k);
   for (const [k, r] of ricerche) if (tocca(k)) { r.close(); ricerche.delete(k); }
   avvisa();
 }

@@ -124,7 +124,8 @@ export class Mixer {
       if (!video) this.misure.set(t.id, mis);
       const pan = video ? null : h('input', { type: 'range', class: 'pan', min: -100, max: 100, step: 1, value: String(Math.round(t.pan * 100)), title: 'Panorama (doppio clic = centro)' }) as HTMLInputElement;
       if (pan) {
-        pan.addEventListener('input', () => { const tr = store.doc.tracks.find((x) => x.id === t.id)!; tr.pan = Number(pan.value) / 100; store.liveChange(); });
+        // anche con le frecce della tastiera (senza pointerdown) il panorama si può annullare
+        pan.addEventListener('input', () => { if (!this.trascinando) { this.trascinando = true; store.begin('Panorama'); } const tr = store.doc.tracks.find((x) => x.id === t.id)!; tr.pan = Number(pan.value) / 100; store.liveChange(); });
         pan.addEventListener('pointerdown', () => { this.trascinando = true; store.begin('Panorama'); });
         pan.addEventListener('change', () => { this.trascinando = false; store.commit(true); });
         pan.addEventListener('dblclick', () => store.edit('Panorama al centro', (pp) => { pp.tracks.find((x) => x.id === t.id)!.pan = 0; }));

@@ -45,6 +45,41 @@ async function idb<T>(store: 'kv' | 'maniglie' | 'file', op: 'get' | 'put' | 'de
   } catch { return undefined; }
 }
 
+/** tutte le chiavi di un deposito (per fare pulizia) */
+async function chiaviIdb(store: 'kv' | 'maniglie' | 'file'): Promise<string[]> {
+  try {
+    const d = await db();
+    return await new Promise((ok, ko) => {
+      const r = d.transaction(store, 'readonly').objectStore(store).getAllKeys();
+      r.onsuccess = () => ok((r.result as IDBValidKey[]).map(String));
+      r.onerror = () => ko(r.error);
+    });
+  } catch { return []; }
+}
+
+/**
+ * Pulizia del deposito del browser: si tengono i file (e le maniglie) dei media del montaggio aperto e di quelli
+ * dei progetti recenti, il resto si toglie. Prima "Nuovo progetto" buttava i file del montaggio di prima anche se
+ * era fra i recenti, e riaprendolo dalla pagina iniziale i file mancavano; e le copie dei progetti usciti
+ * dall'elenco restavano lì per sempre.
+ */
+async function potaDeposito() {
+  if (isTauri) return;
+  const lista = recenti();
+  const chiavi = new Set(lista.map((r) => 'rec:' + r.chiave));
+  const tieni = new Set(store.doc.media.map((m) => m.id));
+  for (const k of await chiaviIdb('kv')) {
+    if (!k.startsWith('rec:')) continue;
+    if (!chiavi.has(k)) { void idb('kv', 'delete', k); continue; }
+    try {
+      const p = JSON.parse((await idb<string>('kv', 'get', k)) ?? 'null') as Project | null;
+      for (const m of p?.media ?? []) tieni.add(m.id);
+      for (const s of p?.sequenze ?? []) for (const c of s.clips ?? []) if (c.media) tieni.add(c.media);
+    } catch { /* copia rovinata */ }
+  }
+  for (const dep of ['file', 'maniglie'] as const) for (const k of await chiaviIdb(dep)) if (!tieni.has(k)) void idb(dep, 'delete', k);
+}
+
 type Maniglia = FileSystemFileHandle & { queryPermission?: (o: object) => Promise<string>; requestPermission?: (o: object) => Promise<string> };
 
 // ——— importazione ———
@@ -251,7 +286,14 @@ function serializza(): string {
 export async function salva(come = false) {
   const p = store.doc;
   const nome = (p.name || 'montaggio').replace(/[\\/:*?"<>|]/g, '_') + '.dpv';
-  const r = await salvaTesto(nome, serializza(), 'dpv', come ? undefined : percorsoProgetto ?? undefined);
+  let r: string | null;
+  try {
+    r = await salvaTesto(nome, serializza(), 'dpv', come ? undefined : percorsoProgetto ?? undefined);
+  } catch (e) {
+    // disco pieno, cartella protetta, chiavetta tolta: lo si dice (prima non compariva niente e sembrava salvato)
+    avviso('⚠ Il progetto NON è stato salvato: ' + (e instanceof Error ? e.message : String(e)) + ' · prova Salva come…', 'errore', 7000);
+    return;
+  }
   if (!r) return;
   if (isTauri) percorsoProgetto = r;
   store.dirty = false;
@@ -260,12 +302,19 @@ export async function salva(come = false) {
   store.emit('status');
 }
 
+/** la revisione del documento già scritta dall'autosalvataggio (-1 = niente ancora) */
+let autosalvata = -1;
+
 export async function autosalva() {
   if (!store.dirty && store.doc.saved) return;
+  // niente di nuovo dall'ultima volta: non si riscrive tutto il progetto ogni 15 secondi
+  const rev = store.revisione;
+  if (rev === autosalvata) return;
   const testo = serializza();
   try {
     if (isTauri) await invoke('autosalva', { text: testo });
     else await idb('kv', 'put', 'autosalvataggio', testo);
+    autosalvata = rev;
   } catch { /* spazio pieno o permessi: si riprova al prossimo giro */ }
 }
 
@@ -405,12 +454,13 @@ const mb = (b: number) => (b >= 1 << 30 ? (b / (1 << 30)).toFixed(2).replace('.'
 
 export async function nuovo(fmt: { w: number; h: number; rate: { num: number; den: number }; drop: boolean } = FORMATI[0]) {
   if (store.dirty && store.doc.clips.length && !(await conferma('Nuovo progetto', 'Il montaggio attuale ha modifiche non salvate. Ricominciare?', 'Nuovo', 'Annulla'))) return;
-  // i file tenuti nel browser per il montaggio vecchio non servono più: si libera lo spazio
-  for (const m of store.doc.media) { chiudiMedia(m.id); dimenticaMedia(m.id); void idb('file', 'delete', m.id); }
+  for (const m of store.doc.media) { chiudiMedia(m.id); dimenticaMedia(m.id); }
   percorsoProgetto = null;
   motore.caricaPlayer(null);
   store.load(newProject(fmt));
   store.doc.saved = 0;
+  // i file tenuti nel browser che non servono più a nessun progetto recente: si libera lo spazio
+  void potaDeposito();
 }
 
 /** carica un progetto e riapre i suoi media */
@@ -419,6 +469,7 @@ export async function carica(p: Project) {
   motore.caricaPlayer(null);
   store.load(p);
   await riapriMedia(false);
+  void potaDeposito();
 }
 
 /** riapre un media: dal percorso (app), dalla maniglia ricordata o dal file tenuto nel browser */
@@ -495,7 +546,8 @@ export async function ricollega() {
     const f = scelti.find((s) => s.name === m.name && (!s.file || !m.size || s.file.size === m.size)) ?? scelti.find((s) => s.name === m.name);
     if (!f) continue;
     const r = await apriMedia(m, { file: f.file, path: f.path });
-    if (r.stato === 'ok') { ok++; if (f.path) m.path = f.path; }
+    // il percorso nuovo va nel progetto (e lo segna da salvare): prima si perdeva alla chiusura
+    if (r.stato === 'ok') { ok++; if (f.path && f.path !== m.path) store.aggiornaMedia(m.id, { path: f.path }); }
   }
   store.emit('doc');
   motore.ridisegna();
@@ -528,8 +580,7 @@ export async function togliMedia(id: string) {
   if (usi && !(await conferma('Togli dal contenitore', `Il file è usato da ${usi} clip nella timeline. Togliere anche quelle?`, 'Togli tutto', 'Annulla'))) return;
   store.edit('Togli media', (p) => { p.media = p.media.filter((m) => m.id !== id); p.clips = p.clips.filter((c) => c.media !== id); });
   if (motore.playerMedia === id) motore.caricaPlayer(null);
-  void idb('maniglie', 'delete', id);
-  void idb('file', 'delete', id);
+  // il file tenuto nel browser resta finché non si cambia progetto: con Ctrl+Z il media torna e lo ritrova
 }
 
 /** un'operazione lunga (con annulla, se serve): sta nel centro attività, la barra in basso a destra */

@@ -19,6 +19,8 @@ class Store {
   /** traccia su cui si è cliccato per ultimo */
   focusTrack: string | null = null;
   dirty = false;
+  /** sale a ogni modifica del documento: l'autosalvataggio scrive solo se è cambiato qualcosa dall'ultima volta */
+  revisione = 0;
   private undo: Snap[] = [];
   private redo: Snap[] = [];
   private subs = new Map<StoreEvent, Set<() => void>>();
@@ -64,11 +66,14 @@ class Store {
   /** esegue una modifica annullabile */
   edit<T>(label: string, fn: (p: Project) => T): T {
     const before = this.snap(label);
-    const r = fn(this.doc);
+    let r: T;
+    // una modifica che si rompe a metà non lascia il progetto mezzo cambiato: si torna a com'era
+    try { r = fn(this.doc); } catch (e) { this.restore(before); this.emit('doc', 'sel'); throw e; }
     this.undo.push(before);
     if (this.undo.length > LIMITE_ANNULLA) this.undo.shift();
     this.redo.length = 0;
     this.dirty = true;
+    this.revisione++;
     const ids = new Set(this.doc.clips.map((c) => c.id));
     for (const id of [...this.sel]) if (!ids.has(id)) this.sel.delete(id);
     this.emit('doc', 'sel');
@@ -94,6 +99,7 @@ class Store {
     tocca(this.doc);
     for (const s of [...this.undo, ...this.redo, ...(this.live ? [this.live] : [])]) tocca(s);
     this.dirty = true;
+    this.revisione++;
     this.emit('doc');
   }
 
@@ -104,12 +110,16 @@ class Store {
   }
   liveChange() {
     this.dirty = true;
+    this.revisione++;
     this.emit('doc');
   }
   commit(changed = true) {
     if (this.live && changed) {
       this.undo.push(this.live);
+      if (this.undo.length > LIMITE_ANNULLA) this.undo.shift();
       this.redo.length = 0;
+      this.dirty = true;
+    this.revisione++;
     } else if (this.live && !changed) {
       this.restore(this.live);
     }
@@ -133,6 +143,7 @@ class Store {
     this.redo.push(this.snap(s.label));
     this.restore(s);
     this.dirty = true;
+    this.revisione++;
     this.emit('doc', 'sel', 'view');
     return s.label;
   }
@@ -143,6 +154,7 @@ class Store {
     this.undo.push(this.snap(s.label));
     this.restore(s);
     this.dirty = true;
+    this.revisione++;
     this.emit('doc', 'sel', 'view');
     return s.label;
   }
@@ -155,6 +167,7 @@ class Store {
     this.redo = [];
     this.head = 0;
     this.dirty = false;
+    this.revisione++;
     this.emit('doc', 'sel', 'head', 'view');
   }
 

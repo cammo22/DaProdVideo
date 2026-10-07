@@ -3,7 +3,7 @@
 import { store } from './core/store';
 import { motore } from './motore';
 import * as M from './core/montaggio';
-import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEnd, TITLE0, trackOf, uid } from './core/progetto';
+import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEnd, srcTimeAt, TITLE0, trackOf, uid } from './core/progetto';
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
 import { finestraVelocita } from './ui/velocita';
@@ -12,7 +12,7 @@ import { STILI_CONTO, type StileConto } from './render/grafica';
 import { applicaPresetTitolo, presetTitolo } from './core/generatori';
 import { suonoTitolo } from './core/suoni';
 import { ANIMAZIONI, animazione, nuovaAnim } from './core/animazioni';
-import { durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioniSul } from './core/blocchi';
+import { blocchiDi, durataBlocco, nomeBlocco, nuovoBlocco, posaBlocco, postoBlocco, taglioVicino, tracciaPerBlocco, transizioniSul } from './core/blocchi';
 
 export interface Azione {
   id: string;
@@ -109,7 +109,7 @@ reg({
     const p = store.doc;
     const peso = (c: Clip) => (isVideoClip(c) ? (c.kind === 'media' ? 0 : 1000) : 2000) + p.tracks.findIndex((t) => t.id === c.track);
     const dx = destre.map((id) => clipById(p, id)!).filter(Boolean).sort((a, b) => peso(a) - peso(b))[0];
-    const sx = p.clips.find((c) => c.track === dx.track && end(c) === f && c.id !== dx.id);
+    const sx = p.clips.find((c) => c.track === dx.track && end(c) === f && c.id !== dx.id && M.solida(c));
     const corto = sx && f - sx.start < dx.len ? sx : dx;
     store.select(M.withLinked(p, [corto.id]));
     avviso(`✂ Taglio a ${frameToTc(f, p.rate, p.drop)} · selezionato il pezzo ${corto === dx ? 'di destra' : 'di sinistra'} (più corto): 2 per toglierlo`, 'tasto', 1800);
@@ -258,9 +258,20 @@ reg({ id: 'annulla', nome: 'Annulla', gruppo: 'Modifica', tasti: ['Ctrl+Z'], fn:
 reg({ id: 'ripeti', nome: 'Ripeti', gruppo: 'Modifica', tasti: ['Ctrl+Y', 'Ctrl+Shift+Z'], fn: () => { const l = store.doRedo(); avviso(l ? `↷ Ripetuto: ${l}` : 'Niente da ripetere', 'info', 1200); } });
 
 let appunti: Clip[] = [];
+/** per ogni blocchetto FX copiato, la clip su cui stava: incollando la segue (anche se finisce su un'altra traccia) */
+let padreDi = new Map<string, string>();
 reg({
   id: 'copia', nome: 'Copia clip', gruppo: 'Modifica', tasti: ['Ctrl+C'],
-  fn: () => { const ids = M.withLinked(store.doc, store.sel); appunti = structuredClone(store.doc.clips.filter((c) => ids.has(c.id))); if (appunti.length) avviso(`${appunti.length} clip copiate`, 'info', 1000); },
+  fn: () => {
+    const p = store.doc;
+    const ids = M.withLinked(p, store.sel);
+    // gli effetti e le transizioni che stanno sulle clip copiate vanno con loro (prima restavano indietro)
+    padreDi = new Map();
+    for (const c of p.clips) if (ids.has(c.id) && M.solida(c)) for (const b of blocchiDi(p, c)) { ids.add(b.id); padreDi.set(b.id, c.id); }
+    appunti = structuredClone(p.clips.filter((c) => ids.has(c.id)));
+    const n = appunti.filter(M.solida).length || appunti.length;
+    if (appunti.length) avviso(`${n} clip copiat${n === 1 ? 'a' : 'e'}`, 'info', 1000);
+  },
 });
 reg({
   id: 'tagliaAppunti', nome: 'Taglia clip negli appunti', gruppo: 'Modifica', tasti: ['Ctrl+X'],
@@ -274,12 +285,14 @@ reg({
     const min = Math.min(...appunti.map((c) => c.start));
     const ids = store.edit('Incolla', (p) => {
       const links = new Map<string, string>();
+      const daVecchio = new Map<string, Clip>();
       const nuove = appunti.map((c) => {
         const n = structuredClone(c);
         n.id = uid('c');
         n.start = c.start - min + f;
         if (c.link) { if (!links.has(c.link)) links.set(c.link, uid('l')); n.link = links.get(c.link); }
         if (!p.tracks.some((t) => t.id === n.track)) n.track = p.tracks.find((t) => t.kind === (c.kind === 'fx' || isVideoClip(c) ? 'video' : 'audio'))!.id;
+        daVecchio.set(c.id, n);
         return n;
       });
       const set = new Set(nuove.map((c) => c.id));
@@ -289,10 +302,16 @@ reg({
         M.insertSpace(p, a, b - a, new Set(p.tracks.filter((t) => !t.lock).map((t) => t.id)), set);
       } else {
         // niente viene coperto: se la traccia è occupata la clip va su una libera
-        for (const c of nuove) {
-          // i blocchetti FX stanno sopra le clip: restano sulla loro traccia
-          if (c.kind !== 'fx') c.track = M.tracciaLibera(p, trackOf(p, c.track).kind, c.track, c.start, end(c));
+        for (const c of nuove.filter(M.solida)) {
+          c.track = M.tracciaLibera(p, trackOf(p, c.track).kind, c.track, c.start, end(c));
           p.clips.push(c);
+        }
+        // i blocchetti FX stanno sopra le clip: seguono la loro clip (o restano sulla loro traccia)
+        for (const [vecchio, n] of daVecchio) {
+          if (M.solida(n)) continue;
+          const padre = daVecchio.get(padreDi.get(vecchio) ?? '');
+          if (padre) n.track = padre.track;
+          p.clips.push(n);
         }
       }
       return [...set];
@@ -334,7 +353,7 @@ reg({
   id: 'fine', nome: 'Alla fine', gruppo: 'Trasporto', tasti: ['End'],
   fn: () => { if (motore.attivo === 'recorder') motore.vaiA(projectEnd(store.doc)); else { const m = store.doc.media.find((x) => x.id === motore.playerMedia); if (m) motore.playerVaiA(m.duration); } },
 });
-reg({ id: 'loop', nome: 'Riproduzione in loop (attacco-stacco)', gruppo: 'Trasporto', tasti: ['Ctrl+L'], fn: () => { motore.loop = !motore.loop; avviso(motore.loop ? '⟳ Loop acceso' : 'Loop spento', 'info', 1000); store.emit('status'); } });
+reg({ id: 'loop', nome: 'Riproduzione in loop (attacco-stacco, o tutto il montaggio)', gruppo: 'Trasporto', tasti: ['Ctrl+L'], fn: () => { motore.loop = !motore.loop; avviso(motore.loop ? '⟳ Loop acceso' : 'Loop spento', 'info', 1000); store.emit('status'); } });
 reg({
   id: 'monitor', nome: 'Monitor: sorgente ↔ montaggio', gruppo: 'Trasporto', tasti: ['Tab'],
   info: 'Il monitor mostra il montaggio; con doppio clic su un file del contenitore mostra la sorgente. Tab passa dall\'uno all\'altro.',
@@ -463,7 +482,8 @@ reg({
   fn: () => {
     const c = M.topClipAt(store.doc, head(), 'video') ?? M.topClipAt(store.doc, head());
     if (!c?.media) { avviso('Sotto il cursore non c\'è una sorgente', 'info'); return; }
-    const t = c.srcIn + (head() - c.start) / r();
+    // la sorgente allo stesso fotogramma anche nelle clip accelerate o rallentate
+    const t = srcTimeAt(store.doc, c, head());
     motore.caricaPlayer(c.media, t);
     motore.setMonitor('player');
     avviso('La sorgente nel monitor allo stesso fotogramma (Tab per tornare al montaggio)', 'info');
@@ -587,6 +607,6 @@ reg({ id: 'genNero', nome: 'Nero', gruppo: 'Generatori', fn: () => inserisciGene
 reg({ id: 'genColore', nome: 'Colore pieno', gruppo: 'Generatori', fn: () => inserisciGeneratore('color') });
 reg({ id: 'genCountdown', nome: 'Countdown da pellicola', gruppo: 'Generatori', tasti: ['Ctrl+Alt+C'], fn: () => inserisciGeneratore('countdown') });
 reg({ id: 'genTitolo', nome: 'Titolo', gruppo: 'Generatori', tasti: ['T', 'Ctrl+T'], fn: () => inserisciGeneratore('title') });
-reg({ id: 'genAnimazione', nome: 'Animazione (sottopancia, testo che si muove…)', gruppo: 'Generatori', tasti: ['Ctrl+Alt+A'], fn: () => inserisciGeneratore('anim') });
+reg({ id: 'genAnimazione', nome: 'Animazione (sottopancia, testo che si muove…)', gruppo: 'Generatori', tasti: ['Ctrl+Alt+N'], fn: () => inserisciGeneratore('anim') });
 
 export { head as cursore };

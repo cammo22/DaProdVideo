@@ -115,6 +115,14 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
 - **Conversione VFR/CBR dietro le quinte (1.2.0)**: `controllaVelocita` in `progetti.ts` (dopo l'import: esame nel gruppo "esame", conversione nella corsia pesante) e `mettiCopia`: la copia
   prende il posto del file con `store.aggiornaMedia(id, campi, spostaSrc)` (cambia progetto **e** cronologia annulla/ripeti, e sposta `srcIn` se l'inizio del file è cambiato), poi `apriMedia` di nuovo.
   `importa(sel, {soloDescrizione:true})` legge com'è fatto un file senza locandina né lavori. Nel browser la copia si tiene in IndexedDB `file` (≤ 300 MB) e si toglie la maniglia.
+- **Rifiniture (1.2.1)**: `store.edit` rimette il progetto com'era se la modifica lancia un errore; `store.revisione` sale a ogni
+  modifica e `autosalva` scrive solo se è cambiata. `progetto_scrivi` (Rust) scrive `<file>.salvo.tmp` e rinomina. `splitClip` divide anche
+  il movimento (`splitMovimento`: tf/tappe/tfFine ripartiti fra i due pezzi). `mixaggio` rende ogni pezzo da 10 s con 1,5 s prima
+  (`SCALDA`, poi buttati) così filtri, eco e limitatore non ripartono a ogni cucitura. `dialogo({chiudibile: () => bool})` = si chiude con
+  Esc/✕/clic fuori solo quando dice sì (Esporta mentre lavora). Con la pagina iniziale aperta (`html.home-aperta`) i tasti del montaggio
+  non passano. Nel browser `potaDeposito` (progetti.ts) tiene in IndexedDB solo i file del montaggio aperto e dei recenti. Copia/incolla
+  porta i blocchetti FX della clip (`padreDi`). In `fotogrammi.ts` un flusso buttato a metà play lascia il suo ultimo fotogramma in
+  `ponti` finché il nuovo non ne ha uno (niente nero). Prove: `test/prove-rifiniture.mjs`; nessun tasto deve stare su due comandi (lo controlla la prova).
 - **Cursore che si aggancia** (`agganciaCursore` in `src/ui/timeline.ts`): sul righello si aggancia sempre (calamita `N`), Alt lo lascia libero.
 - **Motore NVIDIA** (`src-tauri/src/motori.rs` + `src/media/nemo.ts`): NeMo-Speech.cpp v0.1.0 (Apache-2.0), programma a parte che l'app
   scarica dalla release di NVIDIA (`nemo-speech-0.1.0-{windows,macos,linux}-{x86_64,aarch64}-{cpu,cuda,vulkan,metal}`, `.sha256` a fianco) in
