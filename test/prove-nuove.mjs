@@ -12,13 +12,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { leggi, vicino, apriGruppi } from './aiuti.mjs';
 export { leggi, vicino };
 
-export async function proveNuove(ctx, quali = ['sfondo', 'animazioni', 'montage', 'pannello', 'seguito', 'attivita']) {
+export async function proveNuove(ctx, quali = ['sfondo', 'animazioni', 'montage', 'pannello', 'seguito', 'attivita', 'rifiniture']) {
   const { page, prova, OUT } = ctx;
   if (quali.includes('sfondo')) await proveSfondo({ page, prova, OUT });
   if (quali.includes('animazioni')) { const m = await import('./prove-animazioni.mjs').catch(() => null); if (m) await m.proveAnimazioni({ page, prova, OUT }); }
   if (quali.includes('seguito')) { const m = await import('./prove-seguito.mjs').catch((e) => { console.log('  ✗ prove-seguito:', e.message); return null; }); if (m) await m.proveSeguito({ page, prova, OUT }); }
   if (quali.includes('pannello')) { const m = await import('./prove-pannello.mjs').catch((e) => { console.log('  ✗ prove-pannello:', e.message); return null; }); if (m) await m.provePannello({ page, prova, OUT }); }
   if (quali.includes('attivita')) { const m = await import('./prove-attivita.mjs').catch((e) => { console.log('  ✗ prove-attivita:', e.message); return null; }); if (m) await m.proveAttivita({ page, prova, OUT }); }
+  if (quali.includes('rifiniture')) { const m = await import('./prove-rifiniture.mjs').catch((e) => { console.log('  ✗ prove-rifiniture:', e.message); return null; }); if (m) await m.proveRifiniture({ page, prova, OUT }); }
   if (quali.includes('montage')) { const m = await import('./prove-montage.mjs').catch(() => null); if (m) await m.proveMontage({ page, prova, OUT }); }
 }
 

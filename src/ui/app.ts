@@ -343,8 +343,13 @@ export function avvia(radice: HTMLElement) {
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
     if (document.querySelector('.velo')) return;
     const k = [(e.ctrlKey || e.metaKey) ? 'ctrl' : '', e.shiftKey && e.key.length > 1 || (e.shiftKey && /^[a-z]$/i.test(e.key)) ? 'shift' : '', e.key.toLowerCase()].filter(Boolean).join('+');
-    const fn = extra[k];
-    if (fn) { e.preventDefault(); fn(); }
+    const fn = extra[k] as (() => void) | undefined;
+    if (!fn) return;
+    // sopra la pagina iniziale valgono solo Apri e lo schermo intero
+    if (home.visibile && k !== 'ctrl+o' && k !== 'f11') return;
+    e.preventDefault();
+    if (k === 'ctrl+o') home.nascondi();
+    fn();
   });
   const sveglia = () => banco.sveglia();
   addEventListener('pointerdown', sveglia, { once: true });

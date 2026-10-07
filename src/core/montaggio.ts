@@ -2,7 +2,7 @@
 // I nomi sono quelli della centralina: taglia, elimina, elimina e chiudi, solleva (lift), estrai (extract),
 // inserisci, sovrascrivi, trim, roll, slip.
 import type { Clip, Key, Project, TrackKind, Transition } from './tipi';
-import { clipsOn, end, handles, keyValue, mediaOf, newClip, newTrack, nextTrackName, srcTimeAt, trackOf, uid, isVideoClip } from './progetto';
+import { clipsOn, end, handles, keyValue, mediaOf, newClip, newTrack, nextTrackName, srcTimeAt, tfAl, trackOf, uid, isVideoClip } from './progetto';
 import { f2s } from './timecode';
 import { blocchiDi, centro } from './blocchi';
 
@@ -22,6 +22,29 @@ function splitKeys(keys: Key[], cut: number, base: number): [Key[], Key[]] {
   return [left, right];
 }
 
+/**
+ * Il movimento (tf → tappe → tfFine) diviso al fotogramma locale lf: ognuno dei due pezzi fa solo la sua parte
+ * di strada (prima si ripartiva da capo in tutti e due: il Ken Burns di una foto tagliata tornava indietro).
+ */
+function splitMovimento(c: Clip, right: Clip, lf: number) {
+  const n = Math.max(1, c.len - 1), rlen = c.len - lf;
+  const fine = { ...c.tf, ...tfAl(c, lf - 1) }, inizio = { ...c.tf, ...tfAl(c, lf) };
+  const via = c.via ?? [];
+  // a destra: dal punto del taglio all'arrivo di prima
+  right.tf = inizio;
+  if (rlen > 1) {
+    right.tfFine = structuredClone(c.tfFine);
+    right.via = via.map((v) => ({ t: (v.t * n - lf) / (rlen - 1), tf: structuredClone(v.tf) })).filter((v) => v.t > 0.001 && v.t < 0.999);
+  } else { right.tfFine = undefined; right.via = undefined; }
+  // a sinistra: dalla partenza a dove era l'ultimo fotogramma prima del taglio
+  if (lf > 1) {
+    c.via = via.map((v) => ({ t: (v.t * n) / (lf - 1), tf: v.tf })).filter((v) => v.t > 0.001 && v.t < 0.999);
+    c.tfFine = fine;
+  } else { c.tf = fine; c.tfFine = undefined; c.via = undefined; }
+  if (!c.via?.length) c.via = undefined;
+  if (!right.via?.length) right.via = undefined;
+}
+
 /** taglia una clip al fotogramma f: ritorna il pezzo di destra (nuovo) o null */
 export function splitClip(p: Project, c: Clip, f: number, newLink?: string): Clip | null {
   if (f <= c.start || f >= end(c)) return null;
@@ -36,6 +59,7 @@ export function splitClip(p: Project, c: Clip, f: number, newLink?: string): Cli
   right.link = newLink ?? c.link;
   [c.opKeys, right.opKeys] = splitKeys(c.opKeys, lf, c.opacity);
   [c.gainKeys, right.gainKeys] = splitKeys(c.gainKeys, lf, c.gain);
+  if (c.tfFine) splitMovimento(c, right, lf);
   c.len = lf;
   c.fadeOut = 0;
   if (c.trIn && c.trIn.len > c.len) c.trIn.len = c.len;

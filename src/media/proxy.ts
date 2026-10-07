@@ -152,7 +152,9 @@ async function creaProxy(m: MediaItem, r: MediaRT, fonte: () => Source, l: Lavor
     l.segnale.addEventListener('abort', () => { void conv.cancel(); });
     for (;;) {
       if (l.fermato) return null;
-      if (fermo) await new Promise<void>((ok) => { riprendi = ok; });
+      // in pausa finché il montaggio suona; il ✕ del centro attività la sveglia subito (se no restava appesa)
+      if (fermo) await new Promise<void>((ok) => { riprendi = ok; l.segnale.addEventListener('abort', () => ok(), { once: true }); });
+      if (l.fermato) return null;
       pausa = new AbortController();
       await conv.execute({ pauseSignal: pausa.signal });
       pausa = null;

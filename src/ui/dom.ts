@@ -125,16 +125,21 @@ export function avviso(testo: string, tipo: 'info' | 'ok' | 'errore' | 'tasto' =
 // ——— dialoghi ———
 export interface Dialogo { el: HTMLElement; chiudi: () => void; corpo: HTMLElement; piede: HTMLElement }
 
-export function dialogo(titolo: string, opzioni: { largo?: boolean; onChiudi?: () => void; chiudibile?: boolean } = {}): Dialogo {
+/** chiudibile: false = solo dai suoi bottoni; una funzione = si chiude con Esc, ✕ o clic fuori solo quando dice sì
+ *  (la finestra Esporta mentre lavora: chiuderla lasciava l'export a girare senza modo di fermarlo) */
+export function dialogo(titolo: string, opzioni: { largo?: boolean; onChiudi?: () => void; chiudibile?: boolean | (() => boolean) } = {}): Dialogo {
   const corpo = h('div', { class: 'dlg-corpo' });
   const piede = h('div', { class: 'dlg-piede' });
-  const chiudi = () => { velo.classList.add('via'); setTimeout(() => velo.remove(), 180); document.removeEventListener('keydown', esc, true); opzioni.onChiudi?.(); };
-  const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && opzioni.chiudibile !== false) { e.stopPropagation(); chiudi(); } };
+  let chiuso = false;
+  const chiudi = () => { if (chiuso) return; chiuso = true; velo.classList.add('via'); setTimeout(() => velo.remove(), 180); document.removeEventListener('keydown', esc, true); opzioni.onChiudi?.(); };
+  const puo = () => (typeof opzioni.chiudibile === 'function' ? opzioni.chiudibile() : opzioni.chiudibile !== false);
+  const prova = () => { if (puo()) chiudi(); };
+  const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && opzioni.chiudibile !== false) { e.stopPropagation(); prova(); } };
   const el = h('div', { class: 'dialogo' + (opzioni.largo ? ' largo' : ''), role: 'dialog', 'aria-label': titolo },
     h('div', { class: 'dlg-testa' }, h('span', { class: 'led acceso' }), h('b', null, titolo),
-      opzioni.chiudibile === false ? null : h('button', { class: 'btn-icona', title: 'Chiudi (Esc)', on: { click: chiudi } }, icona('x', 16))),
+      opzioni.chiudibile === false ? null : h('button', { class: 'btn-icona', title: 'Chiudi (Esc)', on: { click: prova } }, icona('x', 16))),
     corpo, piede);
-  const velo = h('div', { class: 'velo', on: { pointerdown: (e: PointerEvent) => { if (e.target === velo && opzioni.chiudibile !== false) chiudi(); } } }, el);
+  const velo = h('div', { class: 'velo', on: { pointerdown: (e: PointerEvent) => { if (e.target === velo && opzioni.chiudibile !== false) prova(); } } }, el);
   document.body.appendChild(velo);
   document.addEventListener('keydown', esc, true);
   return { el, chiudi, corpo, piede };

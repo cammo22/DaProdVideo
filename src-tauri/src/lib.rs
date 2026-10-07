@@ -108,9 +108,28 @@ async fn progetto_leggi(app: AppHandle, path: String) -> Esito<String> {
         .map_err(|e| format!("non riesco a leggere {path}: {e}"))
 }
 
-/// Scrive un progetto, una EDL o un altro file di testo.
+/// Scrive un progetto, una EDL o un altro file di testo. Sul disco vero si scrive accanto e poi si rinomina: se il
+/// programma o il computer si fermano a metà, il progetto di prima resta intero (prima si troncava e si riscriveva).
 #[tauri::command]
 async fn progetto_scrivi(app: AppHandle, path: String, text: String) -> Esito<()> {
+    if let FilePath::Path(p) = percorso(&path) {
+        let mut nome = p.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+        nome.push(".salvo.tmp");
+        let tmp = p.with_file_name(nome);
+        let scritto = (|| -> std::io::Result<()> {
+            let mut f = std::fs::File::create(&tmp)?;
+            f.write_all(text.as_bytes())?;
+            f.sync_all()?;
+            std::fs::rename(&tmp, &p)
+        })();
+        match scritto {
+            Ok(()) => return Ok(()),
+            // cartelle dove non si possono creare file accanto (o rinominare): si scrive come prima
+            Err(_) => {
+                let _ = std::fs::remove_file(&tmp);
+            }
+        }
+    }
     let mut o = OpenOptions::new();
     o.write(true).create(true).truncate(true);
     let mut f = app

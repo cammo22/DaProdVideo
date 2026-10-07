@@ -122,6 +122,8 @@ export async function apri(item: MediaItem, sel: { file?: File; path?: string })
   } catch (e) {
     r.stato = 'errore';
     r.errore = e instanceof Error ? e.message : String(e);
+    r.input?.dispose();
+    r.input = undefined;
   }
   return r;
 }
@@ -272,6 +274,8 @@ export async function importa(sel: FileScelto, opz: { soloDescrizione?: boolean 
     }
     base.type = v ? 'video' : 'audio';
     if (v && !r.vDecodable && !(a && r.aDecodable)) {
+      rt.delete(id);
+      input.dispose();
       return { errore: `il video ${base.vcodec.toUpperCase()} non si decodifica su questo sistema`, nome };
     }
     r.stato = 'ok';
@@ -281,6 +285,7 @@ export async function importa(sel: FileScelto, opz: { soloDescrizione?: boolean 
     preparaLavori(base, r, chiave);
     return { item: base, rt: r };
   } catch (e) {
+    rt.get(id)?.input?.dispose();
     rt.delete(id);
     return { errore: e instanceof Error ? e.message : String(e), nome };
   }

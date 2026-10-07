@@ -723,6 +723,8 @@ button svg { pointer-events: none; }
 .marchio-grande b { color: var(--oro); }
 
 .avvisi { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 1100; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+/* sul telefono gli avvisi stanno sopra la barra delle attività e i pulsanti in basso (prima li coprivano) */
+@media (max-width: 899px) { .avvisi { bottom: 92px; width: max-content; max-width: calc(100vw - 24px); } }
 .avviso { padding: 7px 14px; border-radius: 20px; background: rgba(28, 27, 36, 0.96); border: 1px solid #000; box-shadow: var(--ombra), inset 0 0 0 1px var(--bordo-forte); font-weight: 700; animation: sale 0.15s; max-width: 80vw; text-align: center; }
 .avviso.ok { color: var(--verde); }
 .avviso.errore { color: #ffb1c0; box-shadow: var(--ombra), inset 0 0 0 1px rgba(255, 77, 109, 0.5); }

@@ -40,11 +40,14 @@ export class Home {
     this.disegna();
     this.el.style.display = '';
     this.visibile = true;
+    // i tasti del montaggio non arrivano al banco nascosto qui sotto (prima Spazio suonava e 2 toglieva una clip)
+    document.documentElement.classList.add('home-aperta');
   }
 
   nascondi() {
     this.el.style.display = 'none';
     this.visibile = false;
+    document.documentElement.classList.remove('home-aperta');
   }
 
   private disegna() {

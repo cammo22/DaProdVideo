@@ -37,6 +37,7 @@ export function installaTastiera() {
       return;
     }
     if (document.querySelector('.velo')) return; // dialogo aperto
+    if (document.documentElement.classList.contains('home-aperta')) return; // la pagina iniziale copre il banco
     if (/^Numpad\d$/.test(e.code) && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
       tcInserimento?.(e.code.slice(6));
