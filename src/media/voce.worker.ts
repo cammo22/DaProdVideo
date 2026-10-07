@@ -1,68 +1,68 @@
 // Il worker della voce: Whisper (il riconoscimento del parlato di OpenAI, nella versione di Hugging Face per il
-// browser) gira qui, lontano dall'interfaccia. La libreria (transformers.js) arriva dalla CDN solo la prima volta che
-// serve; il modello si scarica da Hugging Face una volta e resta nella cache del browser/app. L'audio non esce mai
-// dal computer: tutto il lavoro si fa qui.
-
-const LIBRERIA = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js';
+// browser) gira qui, lontano dall'interfaccia. La libreria (transformers.js) sta dentro l'app (src/media/libreriaAI.ts,
+// con la CDN di riserva); il modello si scarica da Hugging Face una volta e resta nella cache del browser/app. L'audio
+// non esce mai dal computer: tutto il lavoro si fa qui.
+import { caricaConRipieghi, dispositivi, erroreDellaScheda, libreria, nomeTipo, progressoScarico, testoErrore, type Dispositivo, type Tipo } from './libreriaAI';
 
 type Pipeline = (audio: Float32Array, opz: Record<string, unknown>) => Promise<{ text: string; chunks?: { timestamp: [number, number | null]; text: string }[] }>;
-interface Libreria {
-  env: { allowLocalModels: boolean };
-  pipeline: (compito: string, modello: string, opz: Record<string, unknown>) => Promise<Pipeline>;
-}
 
 let asr: Pipeline | null = null;
 let caricato = '';
+let dispositivo: Dispositivo = 'wasm';
+let base = '';
 const manda = (m: unknown) => (self as unknown as Worker).postMessage(m);
 
-async function carica(modello: string) {
-  if (asr && caricato === modello) { manda({ tipo: 'pronto' }); return; }
-  const T = (await import(/* @vite-ignore */ LIBRERIA)) as Libreria;
-  T.env.allowLocalModels = false;
-  // quanto si è scaricato: un messaggio ogni tanto, non a ogni pezzetto
-  const visti = new Map<string, number>();
-  const progress_callback = (x: { status: string; file?: string; loaded?: number; total?: number }) => {
-    if (x.status !== 'progress' || !x.file || !x.total) return;
-    const k = Math.floor(((x.loaded ?? 0) / x.total) * 50);
-    if (visti.get(x.file) === k) return;
-    visti.set(x.file, k);
-    manda({ tipo: 'scarico', file: x.file, loaded: x.loaded ?? 0, total: x.total });
-  };
-  const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
-  const conGpu = gpu ? await gpu.requestAdapter().catch(() => null) : null;
-  let device = conGpu ? 'webgpu' : 'wasm';
-  try {
-    asr = await T.pipeline('automatic-speech-recognition', modello, {
-      progress_callback, device, dtype: conGpu ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8',
-    });
-  } catch (e) {
-    if (!conGpu) throw e;
-    // la scheda video non ce la fa: si va col processore
-    device = 'wasm';
-    asr = await T.pipeline('automatic-speech-recognition', modello, { progress_callback, device, dtype: 'q8' });
-  }
+/** i tipi del modello da provare: sulla scheda il codificatore preciso e il decodificatore leggero, sul processore q8 */
+const tipi = (d: Dispositivo): Tipo[] => (d === 'webgpu'
+  ? [{ encoder_model: 'fp32', decoder_model_merged: 'q4' }, 'fp32']
+  : ['q8', 'fp32']);
+
+async function carica(modello: string, conScheda = true) {
+  if (asr && caricato === modello && (conScheda || dispositivo === 'wasm')) { manda({ tipo: 'pronto', device: dispositivo }); return; }
+  const { T, dove } = await libreria(base);
+  const progress_callback = progressoScarico(manda);
+  const ok = await caricaConRipieghi([modello], await dispositivi(conScheda), tipi,
+    (r, device, dtype) => T.pipeline('automatic-speech-recognition', r, { progress_callback, device, dtype }) as Promise<Pipeline>);
+  asr = ok.v;
   caricato = modello;
-  manda({ tipo: 'pronto', device });
+  dispositivo = ok.device;
+  manda({ tipo: 'pronto', device: ok.device, dettaglio: `${ok.device === 'webgpu' ? 'scheda video' : 'processore'} · ${nomeTipo(ok.dtype)} · libreria ${dove}` });
+}
+
+const LINGUE: Record<string, string> = { it: 'italian', en: 'english', es: 'spanish', fr: 'french', de: 'german', pt: 'portuguese' };
+
+async function trascrivi(audio: Float32Array, lingua?: string, traduci?: boolean) {
+  if (!asr) throw new Error('modello non caricato');
+  const opz = {
+    // "auto": Whisper riconosce da solo la lingua
+    ...(lingua && lingua !== 'auto' ? { language: LINGUE[lingua] ?? 'italian' } : {}),
+    task: traduci ? 'translate' : 'transcribe',
+    chunk_length_s: 30, stride_length_s: 5, return_timestamps: true,
+  };
+  try {
+    return await asr(audio, opz);
+  } catch (e) {
+    // la scheda video si è fermata a metà: si ricarica il modello sul processore e si rifà lo stesso pezzo
+    if (dispositivo !== 'webgpu' || !erroreDellaScheda(e)) throw e;
+    manda({ tipo: 'avviso', msg: 'La scheda video si è fermata: continuo col processore (più lento)' });
+    asr = null;
+    await carica(caricato, false);
+    return await asr!(audio, opz);
+  }
 }
 
 self.onmessage = async (e: MessageEvent) => {
-  const m = e.data as { tipo: string; id?: number; modello?: string; audio?: Float32Array; lingua?: string; traduci?: boolean };
+  const m = e.data as { tipo: string; id?: number; modello?: string; audio?: Float32Array; lingua?: string; traduci?: boolean; base?: string; scheda?: boolean };
   try {
-    if (m.tipo === 'carica') await carica(m.modello!);
+    if (m.base !== undefined) base = m.base;
+    if (m.tipo === 'carica') await carica(m.modello!, m.scheda !== false);
     else if (m.tipo === 'trascrivi') {
-      if (!asr) throw new Error('modello non caricato');
-      const lingue: Record<string, string> = { it: 'italian', en: 'english', es: 'spanish', fr: 'french', de: 'german', pt: 'portuguese' };
-      const out = await asr(m.audio!, {
-        // "auto": Whisper riconosce da solo la lingua
-        ...(m.lingua && m.lingua !== 'auto' ? { language: lingue[m.lingua] ?? 'italian' } : {}),
-        task: m.traduci ? 'translate' : 'transcribe',
-        chunk_length_s: 30, stride_length_s: 5, return_timestamps: true,
-      });
+      const out = await trascrivi(m.audio!, m.lingua, m.traduci);
       const pezzi = (out.chunks?.length ? out.chunks : [{ timestamp: [0, null] as [number, number | null], text: out.text }])
         .map((c) => ({ da: c.timestamp[0], a: c.timestamp[1], testo: c.text }));
       manda({ tipo: 'testo', id: m.id, pezzi });
     }
   } catch (err) {
-    manda({ tipo: 'errore', id: m.id, msg: err instanceof Error ? err.message : String(err) });
+    manda({ tipo: 'errore', id: m.id, msg: testoErrore(err) });
   }
 };

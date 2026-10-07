@@ -9,6 +9,8 @@ import { end, projectEnd, uid } from '../core/progetto';
 import { f2s, fps } from '../core/timecode';
 import { mixaggio } from './audio';
 import { assicuraMotore, motoreNemo } from './nemo';
+import { spiegaErroreAI } from './erroriAI';
+import { baseLocaleAI, usaSchedaAI } from './libreriaAI';
 
 export interface Modello { id: string; nome: string; info: string; mb: number }
 
@@ -55,7 +57,8 @@ function lavoratore(): Worker {
       let a = 0, b = 0;
       for (const [x, y] of scaricati.values()) { a += x; b += y; }
       caricamento.stato(`Scarico il modello: ${(a / 1048576).toFixed(0)} di ${(b / 1048576).toFixed(0)} MB (solo la prima volta)`, b ? a / b : 0);
-    } else if (m.tipo === 'pronto') { caricamento?.ok(m.device ?? ''); caricamento = null; }
+    } else if (m.tipo === 'avviso') { caricamento?.stato(m.msg ?? '', 0); avvisoVoce?.(m.msg ?? ''); }
+    else if (m.tipo === 'pronto') { caricamento?.ok(m.device ?? ''); caricamento = null; }
     else if (m.tipo === 'testo') { attese.get(m.id!)?.ok(m.pezzi ?? []); attese.delete(m.id!); }
     else if (m.tipo === 'errore') {
       const err = new Error(m.msg || 'errore della voce');
@@ -68,15 +71,22 @@ function lavoratore(): Worker {
     caricamento?.no(err); caricamento = null;
     for (const x of attese.values()) x.no(err);
     attese.clear();
+    // un worker che si è fermato (memoria finita…) non risponde più: si butta, la prossima volta se ne fa uno nuovo
+    // (prima si riusava quello morto e la funzione restava appesa per sempre)
+    worker?.terminate();
+    worker = null;
   };
   return worker;
 }
+
+/** chi vuole sapere i cambi in corsa (la scheda video si è fermata, si continua col processore) */
+let avvisoVoce: ((msg: string) => void) | null = null;
 
 const whisper: Trascrittore = {
   carica: (modello, stato) => new Promise((ok, no) => {
     scaricati.clear();
     caricamento = { ok, no, stato };
-    lavoratore().postMessage({ tipo: 'carica', modello });
+    lavoratore().postMessage({ tipo: 'carica', modello, base: baseLocaleAI(), scheda: usaSchedaAI() });
   }),
   trascrivi: (audio, lingua, traduci) => new Promise((ok, no) => {
     const id = ++seq;
@@ -196,20 +206,37 @@ export async function sottotitoliAI(p: Project, o: OpzioniVoce, stato: (fase: st
   for (let i = 0; i < audio.length; i += 64) picco = Math.max(picco, Math.abs(audio[i]));
   if (picco < 0.003) throw new Error('muto');
   const tagli = puntiDiTaglio(audio);
-  if (o.motore === 'nemotron') {
+  // nel browser il motore NVIDIA non c'è: si va con Whisper, e lo si dice
+  let ripiego = o.motore === 'nemotron' && !motoreNemo() ? 'c\'è solo nell\'app per Windows e Mac' : '';
+  if (o.motore === 'nemotron' && motoreNemo()) {
     // Nemotron 3.5 di NVIDIA, col motore dell'app: prima si prepara (motore e modello, solo la prima volta), poi si ascolta
-    const nem = motoreNemo();
-    if (!nem) throw new Error('Nemotron serve l\'app per Windows o Mac: nel browser usa Whisper');
-    await assicuraMotore(nem, ['asr'], (k, t) => stato(t, 0.1 + k * 0.4), segnale);
-    fermo();
-    const daAscoltare = tagli.slice(0, -1).map((a, k) => ({ da: a, audio: audio.slice(Math.floor(a * SR), Math.floor(tagli[k + 1] * SR)) }));
-    const pezzi = await nem.trascrivi(daAscoltare, { lingua: o.lingua }, (k, t) => stato(t, 0.5 + k * 0.5), segnale);
-    fermo();
-    stato('Fatto', 1);
-    return righeDaPezzi(pezzi, p);
+    const nem = motoreNemo()!;
+    try {
+      await assicuraMotore(nem, ['asr'], (k, t) => stato(t, 0.1 + k * 0.4), segnale);
+      fermo();
+      const daAscoltare = tagli.slice(0, -1).map((a, k) => ({ da: a, audio: audio.slice(Math.floor(a * SR), Math.floor(tagli[k + 1] * SR)) }));
+      const pezzi = await nem.trascrivi(daAscoltare, { lingua: o.lingua }, (k, t) => stato(t, 0.5 + k * 0.5), segnale);
+      fermo();
+      stato('Fatto', 1);
+      return righeDaPezzi(pezzi, p);
+    } catch (e) {
+      // il motore NVIDIA non è partito (niente internet per scaricarlo, scheda o sistema che non lo regge…): invece di
+      // fermarsi si passa a Whisper, che gira dentro l'app. Chi ha premuto "Ferma" invece si ferma davvero.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'fermato' || segnale?.aborted) throw e;
+      ripiego = msg;
+      stato(`Il motore NVIDIA non è partito (${msg}): passo a Whisper…`, 0.1);
+    }
   }
-  stato('Carico il modello…', 0.1);
-  const dove = await trascrittore.carica(o.modello, (fase, x) => stato(fase, 0.1 + x * 0.3));
+  stato(ripiego ? `Il motore NVIDIA ${motoreNemo() ? 'non è partito' : 'c\'è solo nell\'app'}: carico Whisper…` : 'Carico il modello…', 0.1);
+  let dove: string;
+  try {
+    dove = await trascrittore.carica(o.modello || MODELLI[1].id, (fase, x) => stato(fase, 0.1 + x * 0.3));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'fermato' || segnale?.aborted) throw e;
+    throw new Error(spiegaErroreAI(msg) + (ripiego ? ` (e il motore NVIDIA: ${ripiego})` : ''));
+  }
   fermo();
   const pezzi: Pezzo[] = [];
   for (let k = 0; k < tagli.length - 1; k++) {
@@ -217,7 +244,12 @@ export async function sottotitoliAI(p: Project, o: OpzioniVoce, stato: (fase: st
     const a = tagli[k], b = tagli[k + 1];
     stato(`Ascolto e scrivo${dove === 'webgpu' ? ' (con la scheda video)' : ''}: ${Math.round(a)} di ${Math.round(tagli[tagli.length - 1])} secondi`, 0.4 + (0.6 * k) / (tagli.length - 1));
     const pezzo = audio.slice(Math.floor(a * SR), Math.floor(b * SR));
-    const testo = await trascrittore.trascrivi(pezzo, o.lingua, o.traduci && o.lingua === 'it');
+    let testo: Pezzo[];
+    try { testo = await trascrittore.trascrivi(pezzo, o.lingua, o.traduci && o.lingua === 'it'); } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'fermato' || segnale?.aborted) throw e;
+      throw new Error(spiegaErroreAI(msg));
+    }
     for (const x of testo) pezzi.push({ da: x.da + a, a: x.a === null ? null : x.a + a, testo: x.testo });
   }
   fermo();

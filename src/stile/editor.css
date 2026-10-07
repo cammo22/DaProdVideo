@@ -1143,3 +1143,101 @@ body.pip-live { margin: 0; background: #111016; overflow: hidden; }
 .home-nulla { padding: 40px 12px; text-align: center; color: var(--testo3); border: 2px dashed #000; border-radius: 10px; }
 .home-nulla b { color: var(--testo2); font: 800 15px var(--ui); }
 @media (max-width: 800px) { .home-corpo { grid-template-columns: 1fr; } }
+
+/* ——— 1.3.0: cerca (Ctrl+K), guida "Come si fa", Centro AI ——— */
+.btn-cerca, .btn-ai { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; border: 1px solid #000; background: linear-gradient(180deg, #2e2c37, #23212b); color: var(--testo2); font: 800 11.5px var(--ui); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08); white-space: nowrap; }
+.btn-cerca { min-width: 150px; }
+.btn-cerca span { flex: 1; text-align: left; }
+.btn-cerca kbd { font-size: 10px; color: var(--testo3); }
+.btn-cerca:hover, .btn-ai:hover { color: var(--oro); }
+.btn-ai { color: #ffd0fb; border-color: #4a1546; background: linear-gradient(180deg, #3a1d3d, #26142b); }
+.btn-ai:hover { color: #fff; box-shadow: 0 0 12px rgba(255, 61, 242, 0.35); }
+/* la testata a gradini: prima vanno via le scritte di contorno, per ultime le etichette delle pagine; Esporta resta
+   sempre in vista (prima, su uno schermo da portatile, la testata traboccava e il tasto Esporta finiva fuori) */
+.btn-cerca kbd { display: none; }
+@media (min-width: 2000px) { .btn-cerca kbd { display: inline; } }
+.testata > * { flex-shrink: 0; }
+.testata-destra { min-width: 0; flex-shrink: 1; }
+@media (max-width: 1840px) { .badge.edizione { display: none; } }
+@media (max-width: 1720px) { .badge.formato { display: none; } .btn-progetti span { display: none; } .nome-progetto { max-width: 170px; } }
+@media (max-width: 1620px) { .voce-menu { padding: 6px 7px; } .pagina-btn { padding: 5px 10px; letter-spacing: 1px; } .pagine { margin-left: 4px; } .testata { gap: 7px; } }
+@media (max-width: 1520px) { .btn-cerca { min-width: 0; } .btn-cerca span { display: none; } .scritta i { display: none; } }
+@media (max-width: 1420px) { .marchio .scritta { display: none; } .nome-progetto { display: none; } }
+@media (max-width: 1250px) { .pagina-btn span, .btn-ai span { display: none; } .voce-menu { padding: 6px 5px; } }
+
+.cerca-velo { position: fixed; inset: 0; z-index: 950; background: rgba(5, 4, 10, 0.55); backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: flex-start; padding-top: 11vh; animation: appare 0.12s; }
+.cerca { width: min(700px, calc(100vw - 24px)); max-height: 72vh; display: flex; flex-direction: column; background: linear-gradient(180deg, #221f2b, #17161d); border: 1px solid #000; border-radius: 14px; box-shadow: var(--ombra), inset 0 0 0 1px var(--bordo-forte), 0 0 40px rgba(255, 213, 74, 0.08); overflow: hidden; animation: sale 0.15s; }
+.cerca-riga { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #000; box-shadow: 0 1px 0 var(--bordo); }
+.cerca-lente { font-size: 18px; }
+.cerca-input { flex: 1; background: transparent; border: 0; outline: none; font: 600 17px var(--ui); color: var(--testo); }
+.cerca-input::placeholder { color: var(--testo3); }
+.cerca-intesta { padding: 6px 14px 2px; font: 800 10.5px var(--ui); letter-spacing: 1px; text-transform: uppercase; color: var(--testo3); }
+.cerca-lista { overflow: auto; padding: 4px 6px 8px; }
+.cerca-voce { display: grid; grid-template-columns: 118px 1fr auto; gap: 10px; align-items: center; padding: 7px 9px; border-radius: 8px; cursor: pointer; }
+.cerca-voce.scelta { background: linear-gradient(90deg, rgba(255, 213, 74, 0.16), rgba(255, 213, 74, 0.04)); box-shadow: inset 2px 0 0 var(--oro); }
+.cerca-voce.manca .cerca-testo b { color: var(--testo2); }
+.cerca-testo b { display: block; font-size: 14px; color: var(--testo); font-weight: 700; }
+.cerca-testo small { display: block; color: var(--testo3); font-size: 11.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cerca-cat { font: 800 10px var(--ui); letter-spacing: 0.6px; text-transform: uppercase; color: var(--testo3); padding: 2px 6px; border-radius: 10px; background: #1f1d26; border: 1px solid #000; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cerca-cat[data-cat='AI'] { color: #ffd0fb; background: #2b1530; }
+.cerca-cat[data-cat='Guida'] { color: var(--verde); }
+.cerca-cat[data-cat='Pagine'] { color: var(--cia); }
+.cerca-cat[data-cat='Transizioni'], .cerca-cat[data-cat='Effetti a tempo'] { color: var(--oro); }
+.cerca-piede { display: flex; gap: 14px; align-items: center; padding: 8px 14px; border-top: 1px solid #000; color: var(--testo3); font-size: 11.5px; }
+.cerca-piede .spazio { flex: 1; }
+.cerca-piede kbd { margin-right: 2px; }
+@media (max-width: 899px) { .cerca-voce { grid-template-columns: 1fr auto; } .cerca-cat { display: none; } .cerca-velo { padding-top: 4vh; } }
+
+.dialogo.guida { width: min(940px, calc(100vw - 24px)); }
+.guida-dentro { display: grid; grid-template-columns: 270px 1fr; gap: 16px; min-height: 380px; }
+.guida-elenco { display: flex; flex-direction: column; gap: 1px; max-height: 62vh; overflow: auto; padding-right: 6px; border-right: 1px solid #000; box-shadow: 1px 0 0 var(--bordo); }
+.guida-elenco h5 { margin: 10px 0 3px; font: 800 10.5px var(--ui); letter-spacing: 1px; text-transform: uppercase; color: var(--oro); }
+.guida-elenco h5:first-child { margin-top: 0; }
+.guida-voce { display: flex; gap: 8px; align-items: center; text-align: left; padding: 6px 8px; border-radius: 7px; border: 0; background: transparent; color: var(--testo2); font-weight: 700; }
+.guida-voce:hover { background: #24222c; color: var(--testo); }
+.guida-voce.attiva { background: linear-gradient(90deg, rgba(255, 213, 74, 0.18), transparent); color: var(--oro); }
+.guida-ic { width: 22px; text-align: center; flex: none; }
+.guida-corpo h3 { margin: 0 0 4px; display: flex; gap: 8px; align-items: center; font: 800 17px var(--ui); color: var(--testo); }
+.guida-riassunto { margin: 0 0 12px; color: var(--testo2); font-weight: 500; }
+.guida-passi { margin: 0 0 16px; padding-left: 22px; display: flex; flex-direction: column; gap: 9px; font: 500 14px/1.45 var(--ui); color: var(--testo); }
+.guida-passi li::marker { color: var(--oro); font-weight: 800; }
+.guida-passi b { color: var(--oro); font-weight: 700; }
+.guida-vai { font-size: 13px; }
+@media (max-width: 899px) { .guida-dentro { grid-template-columns: 1fr; } .guida-elenco { max-height: 30vh; border-right: 0; box-shadow: none; } }
+
+.dialogo.centro-ai { width: min(1040px, calc(100vw - 24px)); }
+.ai-intro { margin: 0 0 12px; color: var(--testo2); font-weight: 500; }
+.ai-griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+.ai-carta { display: flex; flex-direction: column; gap: 6px; padding: 11px 12px; border-radius: 11px; border: 1px solid #000; background: linear-gradient(180deg, #24212c, #1b1a21); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+.ai-carta header { display: flex; align-items: center; gap: 8px; }
+.ai-carta header b { flex: 1; font-size: 14.5px; color: var(--testo); }
+.ai-ic { font-size: 19px; }
+.ai-dove { font: 800 9.5px var(--ui); letter-spacing: 0.5px; text-transform: uppercase; padding: 2px 6px; border-radius: 10px; background: #1a1920; border: 1px solid #000; color: var(--testo3); white-space: nowrap; }
+.ai-dove.app { color: var(--ambra); }
+.ai-dove.tutto { color: var(--cia); }
+.ai-carta p { margin: 0; color: var(--testo2); font-weight: 500; font-size: 12.5px; }
+.ai-come { margin: 0; padding-left: 18px; color: var(--testo); font: 500 12px/1.4 var(--ui); }
+.ai-stato { font-size: 11.5px; color: var(--testo3); font-weight: 600; min-height: 15px; }
+.ai-ok { color: var(--verde); }
+.ai-manca { color: var(--ambra) !important; font-size: 12px !important; }
+.ai-usa { margin-top: auto; align-self: flex-start; }
+.ai-sezione { margin-top: 14px; padding-top: 10px; border-top: 1px solid #000; box-shadow: inset 0 1px 0 var(--bordo); }
+.ai-sezione h4 { margin: 0 0 8px; font: 800 11px var(--ui); letter-spacing: 1px; text-transform: uppercase; color: var(--oro); }
+.ai-riga, .ai-imp { display: flex; gap: 10px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
+.ai-diagnosi { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.ai-diag { display: grid; grid-template-columns: 22px 150px 1fr; gap: 6px; align-items: baseline; font-weight: 500; }
+.ai-diag b { color: var(--testo); }
+.ai-diag-seg { font-weight: 800; text-align: center; }
+.ai-diag.ok .ai-diag-seg { color: var(--verde); }
+.ai-diag.no .ai-diag-seg { color: var(--rosso); }
+.ai-diag.no span:last-child { color: #ffb0bd; }
+.ai-diag.forse .ai-diag-seg { color: var(--testo3); }
+
+.home-impara { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.home-impara .btn { justify-content: flex-start; }
+
+/* il controllo indicato dalla guida o dal Centro AI lampeggia un attimo */
+.evidenziato { animation: evidenzia 0.85s ease-in-out 3; position: relative; z-index: 2; }
+@keyframes evidenzia { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 213, 74, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 213, 74, 0.85), 0 0 22px rgba(255, 213, 74, 0.6); } }
+.isp-aiuti { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.isp-aiuti .btn { display: inline-flex; gap: 6px; align-items: center; }

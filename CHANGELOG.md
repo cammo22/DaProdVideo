@@ -4,6 +4,39 @@ Tutte le versioni notevoli del banco di montaggio. Le date sono in formato AAAA-
 Ogni versione pubblicata ha la sua [release GitHub](https://github.com/cammo22/DaProdVideo/releases) con le app
 per Windows (portatile e installabile), Mac e Android, e va online su [GitHub Pages](https://cammo22.github.io/DaProdVideo/) come versione prova.
 
+## [1.3.0] — 2026-10-07 · Tutto si trova, l'AI non si ferma 🔍✨
+
+La versione per chi usa DaProd Video tutti i giorni: le funzioni AI che davano errore ora partono (e se una strada non va ne prendono un'altra da sole), e ogni strumento si trova in un attimo, con la spiegazione di come si usa.
+
+### L'AI che non si ferma
+- **I sottotitoli col motore NVIDIA non partivano nell'app**: l'app scaricava la versione 0.1.0 di NeMo-Speech.cpp, che **non ha mai avuto i programmi pronti da scaricare**, e finiva in "lo scarico non è riuscito". Ora usa la **0.2.0** (controllata riga per riga: nomi degli archivi, impronte, comandi `transcribe`, `synthesize`, `pull`).
+- **Se il motore NVIDIA non parte, i sottotitoli passano da soli a Whisper** (prima ci si fermava con un errore). Se la versione per la scheda video si ferma, si riprova **sul processore**.
+- **"Togli lo sfondo" dava "Could not locate file"** sul computer senza scheda video: la libreria cercava una versione del modello (q8) che per MODNet e BiRefNet non esiste. Ora il tipo del modello si dice sempre e, se un tipo manca, **si prova il successivo** (q8 → fp16 → fp32). Vale anche per Whisper e la traduzione.
+- **Se la scheda video si ferma a metà lavoro** (WebGPU), il modello si ricarica sul processore e lo stesso pezzo si rifà: prima tutta la trascrizione si fermava.
+- **La libreria AI e il suo motore stanno dentro l'app** (transformers.js 4.3.1 e ONNX Runtime): niente più download dalla CDN a ogni avvio, che su reti lente o aziendali faceva fallire tutto. La CDN resta come riserva.
+- **Un worker AI che si blocca non blocca più la funzione per sempre**: prima, dopo un errore di memoria, sottotitoli e traduzione restavano appesi fino al riavvio del programma.
+- **Gli errori si capiscono**: "Failed to fetch" diventa "serve internet la prima volta", "Could not locate file" diventa "il modello non si trova, provane un altro", la memoria finita suggerisce il modello più leggero, e così via.
+- La voce in cinese del motore NVIDIA non c'è nelle versioni che NVIDIA pubblica già pronte: ora lo si dice chiaro invece di un errore tecnico.
+
+### Il Centro AI (menu **AI**, pulsante **✨ AI** in alto)
+- **Tutte le funzioni intelligenti in un posto**: sottotitoli automatici, traduzione, voce AI, togli lo sfondo, segui un oggetto, montaggio automatico, colore automatico. Per ognuna: **cosa fa, come si usa in tre passi, cosa serve** ("prima servono i sottotitoli", "solo nell'app"…), se il **modello è già sul computer** e il pulsante **Usa** che porta dritto al punto giusto (e lo fa lampeggiare).
+- **🔍 Controlla l'AI**: prova davvero il motore AI su questo computer (senza scaricare niente), dice se c'è la scheda video, se Hugging Face si raggiunge, quali modelli sono già scaricati e com'è messo il motore NVIDIA, con cosa fare se qualcosa non va.
+- **Impostazioni**: la scheda video per l'AI si può spegnere (su alcuni computer c'è ma sbaglia), **Libera lo spazio** dei modelli scaricati, **togli il motore NVIDIA**.
+
+### Trovare tutto
+- **Cerca un comando (`Ctrl+K`, o 🔍 Cerca in alto)**: scrivi quello che vuoi fare — "rallenta", "sottotitoli", "togli lo sfondo", "tendina cuore", "neon" — e lo trovi, col suo tasto accanto. Dentro ci sono **tutti i comandi, le pagine, le funzioni AI, le 50 transizioni, gli effetti a tempo e sulla clip, i titoli, le 49 animazioni, i countdown e le guide**. Capisce anche senza accenti e coi sinonimi ("slow motion" → velocità). `Invio` lo fa davvero: la transizione va sul taglio, il titolo al cursore, l'effetto sulla clip scelta (e se manca la clip te lo dice).
+- **Come si fa (`F1`)**: 22 guide brevi — il primo montaggio in un minuto, tagliare, spostare, transizioni, effetti, titoli, movimento, velocità, audio, sottotitoli, lingue, sfondo, tracking, DaProdMontage, colore, export, progetti, LIVE, più timeline, "se un'AI non parte" — ognuna coi passi e il pulsante **Fallo adesso**. I tasti restano in Aiuto → Tasti.
+- **La pagina iniziale** ha "Impara a usarlo" (il primo montaggio, la guida, la ricerca, il Centro AI); il pannello Proprietà vuoto ha i pulsanti Cerca e Come si fa.
+- **I comandi sono tutti in un registro solo**: Salva, Importa, Esporta, le pagine, la vista e l'aiuto hanno ora lo stesso nome nei menu, nella ricerca e nella finestra dei tasti.
+- **Vista → Copie leggere**: scegli quando farle (da sole, sempre, mai) e **svuotale**; **Vista → Svuota la memoria delle misure**. Esistevano dentro il programma ma non c'era modo di arrivarci.
+
+### Sistemato
+- **La testata non esce più dallo schermo**: sui portatili (1366, 1440, 1536 pixel) il tasto **Esporta** finiva fuori dalla finestra. Ora la testata si stringe a gradini e tutto resta in vista, da 920 a 2200 pixel.
+
+### Per chi ha curiosità
+- `src/media/libreriaAI.ts` (libreria locale, dispositivi, tipi con ripiego), `erroriAI.ts`, `diagnosiAI.ts` + `provaAI.worker.ts`; `scripts/ai-locale.mjs` prende transformers.js e ONNX Runtime dal registro npm (impronta sha512 controllata) prima di ogni build; `src/ui/cerca.ts` + `fontiCerca.ts`, `guida.ts`, `centroAI.ts`.
+- Prove nuove in `test/prove-aiuto.mjs`. **Nota onesta**: i modelli veri (Whisper, NLLB, BEN2, MODNet, SAM) e il motore NVIDIA non si possono scaricare dal luogo dove si prova; le prove usano librerie e motori finti con lo stesso protocollo. Il **motore AI vero** (la libreria e ONNX Runtime) invece è provato davvero: parte dai file dell'app e fa i conti giusti.
+
 ## [1.2.1] — 2026-10-07 · Le rifiniture: più sicuro, più preciso, niente sorprese 🔧
 
 Una versione di pulizia: nessuno strumento nuovo, ma tante piccole cose che prima potevano andare storte.

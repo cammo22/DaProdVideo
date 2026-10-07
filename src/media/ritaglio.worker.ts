@@ -1,25 +1,14 @@
 // Il worker del ritaglio: i modelli che separano il soggetto dallo sfondo girano qui, lontano dall'interfaccia.
-// La libreria (transformers.js) arriva dalla CDN la prima volta che serve, il modello da Hugging Face una volta sola
-// (poi sta nella cache del browser/app). Le immagini non escono mai dal computer.
+// La libreria sta dentro l'app (src/media/libreriaAI.ts, con la CDN di riserva), il modello arriva da Hugging Face una
+// volta sola (poi sta nella cache del browser/app). Le immagini non escono mai dal computer.
 //  · famiglia "sfondo": la pipeline "background-removal" (BEN2, BiRefNet, MODNet…): un'immagine → la maschera;
 //  · famiglia "sam": Segment Anything (SAM 2.1, SlimSAM…): un'immagine + dei clic o un riquadro → la maschera dell'oggetto.
-// Ogni modello ha più indirizzi di riserva: si prova il primo, se non c'è si passa al successivo.
-
-// (l'export vuoto fa di questo file un modulo: le sue variabili non si mescolano con quelle degli altri worker)
-export {};
-
-const LIBRERIA = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js';
+// Ogni modello ha più indirizzi di riserva e più "tipi" (fp16, fp32, q8): si prova finché uno va. Il tipo si dice
+// sempre: prima no, e col processore la libreria cercava una versione (q8) che per MODNet e BiRefNet non c'è.
+import { caricaConRipieghi, dispositivi, erroreDellaScheda, libreria, nomeTipo, progressoScarico, testoErrore, type Dispositivo, type LibreriaAI, type Tipo } from './libreriaAI';
 
 interface Immagine { data: Uint8ClampedArray | Uint8Array; width: number; height: number; channels: number }
 interface Tensore { data: ArrayLike<number>; dims: number[] }
-interface Libreria {
-  env: { allowLocalModels: boolean };
-  RawImage: new (data: Uint8ClampedArray, w: number, h: number, canali: number) => unknown;
-  pipeline: (compito: string, modello: string, opz: Record<string, unknown>) => Promise<(img: unknown) => Promise<Immagine | Immagine[]>>;
-  AutoProcessor: { from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<Elaboratore> };
-  SamModel: { from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<ModelloSam> };
-  Sam2Model?: { from_pretrained: (m: string, o?: Record<string, unknown>) => Promise<ModelloSam> };
-}
 type Elaboratore = ((img: unknown, o: Record<string, unknown>) => Promise<Record<string, unknown>>) & {
   post_process_masks: (m: unknown, a: unknown, b: unknown) => Promise<Tensore[]>;
 };
@@ -27,51 +16,43 @@ type ModelloSam = (inputs: Record<string, unknown>) => Promise<{ pred_masks: unk
 
 interface Msg {
   tipo: string; id?: number; famiglia?: string; repo?: string[]; w?: number; h?: number; rgba?: Uint8ClampedArray;
-  punti?: { x: number; y: number; dentro: boolean }[]; riquadro?: [number, number, number, number];
+  punti?: { x: number; y: number; dentro: boolean }[]; riquadro?: [number, number, number, number]; base?: string; scheda?: boolean;
 }
 
-let T: Libreria | null = null;
+let T: LibreriaAI | null = null;
 let sfondo: ((img: unknown) => Promise<Immagine | Immagine[]>) | null = null;
 let sam: { model: ModelloSam; processor: Elaboratore } | null = null;
 let caricato = '';
+let ultimaRichiesta: { famiglia: string; repo: string[] } | null = null;
+let dispositivo: Dispositivo = 'wasm';
+let base = '';
 const manda = (m: unknown, trasferibili: Transferable[] = []) => (self as unknown as Worker).postMessage(m, trasferibili);
 
-async function carica(famiglia: string, repo: string[]) {
+/** i tipi da provare: sulla scheda mezza precisione (leggera e veloce), sul processore prima il quantizzato, poi il pieno */
+const tipi = (d: Dispositivo): Tipo[] => (d === 'webgpu' ? ['fp16', 'fp32'] : ['q8', 'fp16', 'fp32']);
+
+async function carica(famiglia: string, repo: string[], conScheda = true) {
   const chiave = famiglia + ':' + repo.join(',');
-  if (caricato === chiave && (sfondo || sam)) { manda({ tipo: 'pronto', device: 'già pronto' }); return; }
-  T ??= (await import(/* @vite-ignore */ LIBRERIA)) as Libreria;
-  T.env.allowLocalModels = false;
-  const visti = new Map<string, number>();
-  const progress_callback = (x: { status: string; file?: string; loaded?: number; total?: number }) => {
-    if (x.status !== 'progress' || !x.file || !x.total) return;
-    const k = Math.floor(((x.loaded ?? 0) / x.total) * 50);
-    if (visti.get(x.file) === k) return;
-    visti.set(x.file, k);
-    manda({ tipo: 'scarico', file: x.file, loaded: x.loaded ?? 0, total: x.total });
-  };
-  const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
-  const conGpu = gpu ? await gpu.requestAdapter().catch(() => null) : null;
-  const dispositivi = conGpu ? ['webgpu', 'wasm'] : ['wasm'];
+  if (caricato === chiave && (sfondo || sam) && (conScheda || dispositivo === 'wasm')) { manda({ tipo: 'pronto', device: dispositivo }); return; }
+  ultimaRichiesta = { famiglia, repo };
+  const lib = await libreria(base);
+  T = lib.T;
+  const progress_callback = progressoScarico(manda);
   sfondo = null; sam = null;
-  let ultimo: unknown = new Error('nessun modello');
-  for (const r of repo) {
-    for (const device of dispositivi) {
-      try {
-        if (famiglia === 'sam') {
-          const processor = await T.AutoProcessor.from_pretrained(r, { progress_callback });
-          const Classe = /sam2|edgetam/i.test(r) && T.Sam2Model ? T.Sam2Model : T.SamModel;
-          const model = await Classe.from_pretrained(r, { device, progress_callback });
-          sam = { model, processor };
-        } else {
-          sfondo = await T.pipeline('background-removal', r, { progress_callback, device });
-        }
-        caricato = chiave;
-        manda({ tipo: 'pronto', device, repo: r });
-        return;
-      } catch (e) { ultimo = e; }
+  const ok = await caricaConRipieghi(repo, await dispositivi(conScheda), tipi, async (r, device, dtype) => {
+    if (famiglia === 'sam') {
+      const processor = await T!.AutoProcessor.from_pretrained(r, { progress_callback });
+      const Classe = /sam2|edgetam/i.test(r) && T!.Sam2Model ? T!.Sam2Model : T!.SamModel;
+      const model = await Classe.from_pretrained(r, { device, dtype, progress_callback });
+      return { sam: { model, processor } as { model: ModelloSam; processor: Elaboratore } };
     }
-  }
-  throw ultimo;
+    return { sfondo: await T!.pipeline('background-removal', r, { progress_callback, device, dtype }) as (img: unknown) => Promise<Immagine | Immagine[]> };
+  });
+  sfondo = ok.v.sfondo ?? null;
+  sam = ok.v.sam ?? null;
+  caricato = chiave;
+  dispositivo = ok.device;
+  manda({ tipo: 'pronto', device: `${ok.device === 'webgpu' ? 'scheda video' : 'processore'} · ${nomeTipo(ok.dtype)}`, repo: ok.repo, libreria: lib.dove });
 }
 
 const senzaAlfa = (rgba: Uint8ClampedArray) => {
@@ -112,9 +93,22 @@ async function maschera(m: Msg): Promise<Uint8Array> {
   let best = 0;
   for (let i = 1; i < Math.min(k, punteggi.length); i++) if (punteggi[i] > punteggi[best]) best = i;
   const o = new Uint8Array(W * H);
-  const base = best * W * H;
-  for (let i = 0; i < o.length; i++) o[i] = t.data[base + i] ? 255 : 0;
+  const base0 = best * W * H;
+  for (let i = 0; i < o.length; i++) o[i] = t.data[base0 + i] ? 255 : 0;
   return W === w && H === h ? o : ridimensiona(o, W, H, w, h);
+}
+
+/** la maschera, e se la scheda video si ferma a metà si ricarica il modello sul processore e si rifà */
+async function mascheraSicura(m: Msg): Promise<Uint8Array> {
+  try {
+    return await maschera(m);
+  } catch (e) {
+    if (dispositivo !== 'webgpu' || !erroreDellaScheda(e) || !ultimaRichiesta) throw e;
+    manda({ tipo: 'avviso', msg: 'La scheda video si è fermata: continuo col processore (più lento)' });
+    caricato = '';
+    await carica(ultimaRichiesta.famiglia, ultimaRichiesta.repo, false);
+    return await maschera(m);
+  }
 }
 
 function ridimensiona(m: Uint8Array, w: number, h: number, W: number, H: number): Uint8Array {
@@ -129,12 +123,13 @@ function ridimensiona(m: Uint8Array, w: number, h: number, W: number, H: number)
 self.onmessage = async (e: MessageEvent) => {
   const m = e.data as Msg;
   try {
-    if (m.tipo === 'carica') await carica(m.famiglia!, m.repo!);
+    if (m.base !== undefined) base = m.base;
+    if (m.tipo === 'carica') await carica(m.famiglia!, m.repo!, m.scheda !== false);
     else if (m.tipo === 'maschera') {
-      const dati = await maschera(m);
+      const dati = await mascheraSicura(m);
       manda({ tipo: 'maschera', id: m.id, dati }, [dati.buffer]);
     }
   } catch (err) {
-    manda({ tipo: 'errore', id: m.id, msg: err instanceof Error ? err.message : String(err) });
+    manda({ tipo: 'errore', id: m.id, msg: testoErrore(err) });
   }
 };

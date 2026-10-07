@@ -28,6 +28,13 @@ import { statoDecoder } from '../media/fotogrammi';
 import { CentroAttivita } from './attivita';
 import { impostaUsoMedia, risvegliaProxy } from '../media/libreria';
 import { banco } from '../media/audio';
+import { registra } from '../azioni';
+import { apriCerca } from './cerca';
+import './fontiCerca';
+import { finestraGuida } from './guida';
+import { finestraCentroAI, FUNZIONI_AI } from './centroAI';
+import { modoProxy, impostaModoProxy, svuotaProxy } from '../media/proxy';
+import { svuotaCache } from '../media/cache';
 
 export function avvia(radice: HTMLElement) {
   const tl = new Timeline();
@@ -66,6 +73,16 @@ export function avvia(radice: HTMLElement) {
     mostraLato('clip');
   });
   document.addEventListener('dpv:ispettore', () => { pagina('montaggio'); mostraLato('clip'); apriFoglio('lato'); });
+  // "porta dove si fa" (guida, ricerca, Centro AI): una sezione delle proprietà della clip scelta
+  document.addEventListener('dpv:sezione', (e) => {
+    const id = (e as CustomEvent).detail as string;
+    pagina('montaggio');
+    if (radice.classList.contains('senza-lato')) { radice.classList.remove('senza-lato'); salvaBanco(); setTimeout(() => monitor.adatta(), 50); }
+    mostraLato('clip');
+    apriFoglio('lato');
+    if (!store.sel.size) { avviso('Scegli prima una clip nella timeline: qui compariranno le sue impostazioni', 'info', 3200); return; }
+    setTimeout(() => { if (!isp.apriSezione(id)) avviso('Per la clip scelta questa impostazione non c\'è: scegli una clip video', 'info', 3000); }, 60);
+  });
 
   // ——— le quattro pagine: Montaggio, Finale, LIVE e DaProdMontage ———
   type Pagina = 'montaggio' | 'finale' | 'live' | 'montage';
@@ -130,6 +147,14 @@ export function avvia(radice: HTMLElement) {
       { nome: 'Animazioni', sotto: GRUPPI_ANIM.map((g) => ({ nome: g.nome, sotto: animazioniDi(g.id).map((a) => ({ nome: a.nome, fn: () => { inserisciGeneratore('anim', undefined, undefined, { anim: a.id }); avviso(`${a.nome} al cursore`, 'ok', 1200); } })) })) },
       voce('genAnimazione'),
     ]],
+    ['AI', () => [
+      { nome: 'Centro AI (tutte le funzioni, come si usano)…', fn: () => finestraCentroAI() },
+      { sep: true },
+      ...FUNZIONI_AI.map((f) => ({ nome: `${f.icona} ${f.nome}`, fn: f.apri })),
+      { sep: true },
+      { nome: '🔍 Controlla l\'AI (se qualcosa non va)', fn: () => finestraCentroAI(true) },
+      { nome: 'Se un\'AI non parte (guida)', fn: () => finestraGuida('problemi-ai') },
+    ]],
     ['Vista', () => [
       { nome: 'Pagina Montaggio', spunta: radice.dataset.pagina === 'montaggio', tasto: 'F9', fn: () => pagina('montaggio') },
       { nome: 'Pagina Finale (colore, audio, esporta)', spunta: radice.dataset.pagina === 'finale', tasto: 'F9', fn: () => pagina('finale') },
@@ -154,9 +179,22 @@ export function avvia(radice: HTMLElement) {
       { sep: true },
       { nome: 'Strumenti di misura', fn: () => { pagina('montaggio'); mostraLato('scopi'); } },
       { nome: 'Mixer', fn: () => { pagina('montaggio'); mostraLato('mixer'); } },
+      { sep: true },
+      { nome: 'Copie leggere per il monitor (proxy)', sotto: [
+        { nome: 'Da sole, per le riprese pesanti (consigliato)', spunta: modoProxy() === 'auto', fn: () => { impostaModoProxy('auto'); avviso('Copie leggere: da sole per le riprese pesanti in timeline', 'info'); } },
+        { nome: 'Sempre (anche per i file leggeri)', spunta: modoProxy() === 'sempre', fn: () => { impostaModoProxy('sempre'); avviso('Copie leggere: sempre', 'info'); } },
+        { nome: 'Mai (il monitor legge gli originali)', spunta: modoProxy() === 'mai', fn: () => { impostaModoProxy('mai'); avviso('Copie leggere spente: il monitor legge gli originali', 'info'); } },
+        { sep: true },
+        { nome: 'Svuota le copie leggere (si rifanno quando servono)', fn: async () => { await svuotaProxy(); avviso('Copie leggere tolte dal disco: si rifanno da sole quando servono', 'ok', 2600); } },
+      ] },
+      { nome: 'Svuota la memoria delle misure (forme d\'onda, colore, locandine)', fn: async () => { await svuotaCache(); avviso('Memoria delle misure svuotata: si rifanno alla prossima apertura dei file', 'ok', 2600); } },
     ]],
     ['Aiuto', () => [
-      { nome: 'Tasti della centralina', tasto: 'F1', fn: () => finestraTasti() },
+      { nome: 'Come si fa (la guida)', tasto: 'F1', fn: () => finestraGuida() },
+      { nome: 'Cerca un comando…', tasto: 'Ctrl+K', fn: () => apriCerca() },
+      { nome: 'Tasti della centralina', fn: () => finestraTasti() },
+      { nome: 'Centro AI…', fn: () => finestraCentroAI() },
+      { sep: true },
       { nome: `Novità della ${VERSIONE}`, fn: () => finestraNovita() },
       ...(isTauri ? [{ nome: 'Aggiornamenti…', fn: () => void finestraAggiornamenti() }] : []),
       { nome: 'Scarica le app (Windows, Mac, Android)', fn: () => apriLink('https://github.com/cammo22/DaProdVideo/releases/latest') },
@@ -202,6 +240,8 @@ export function avvia(radice: HTMLElement) {
       h('span', { class: 'moneta' }, 'D'), h('span', { class: 'scritta' }, 'Da', h('b', null, 'Prod'), h('i', null, ' VIDEO'))),
     h('button', { class: 'btn-progetti', title: 'I tuoi progetti: nuovo, apri, recenti', on: { click: () => home.mostra() } }, icona('apri', 15), h('span', null, 'Progetti')),
     barraMenu,
+    h('button', { class: 'btn-cerca', title: 'Cerca un comando, un effetto, una transizione, una funzione AI o una guida (Ctrl+K)', on: { click: () => apriCerca() } }, '🔍', h('span', null, 'Cerca'), h('kbd', null, 'Ctrl K')),
+    h('button', { class: 'btn-ai', title: 'Centro AI: tutte le funzioni intelligenti, come si usano e se sono pronte', on: { click: () => finestraCentroAI() } }, '✨', h('span', null, 'AI')),
     h('div', { class: 'pagine' },
       tastoPagina('montaggio', 'MONTAGGIO', 'montaggio', 'Il banco di montaggio (F9)'),
       tastoPagina('finale', 'FINALE', 'finale', 'Colore e audio su tutto il montaggio, poi esporta (F9)'),
@@ -323,32 +363,53 @@ export function avvia(radice: HTMLElement) {
   // ——— tastiera, trascinamenti, audio ———
   installaTastiera();
   if (isTauri && grandezzaUI() !== 1) void impostaGrandezzaUI(grandezzaUI());
-  const extra: Record<string, () => void> = {
-    'ctrl+s': () => salva(), 'ctrl+shift+s': () => salva(true), 'ctrl+o': () => apri(), 'ctrl+i': () => importaDialogo(),
-    'ctrl+m': () => finestraEsporta(), 'ctrl+n': () => nuovo(), f1: () => finestraTasti(), '+': () => tl.zoom(1.5), '-': () => tl.zoom(1 / 1.5),
-    '\\': () => tl.adattaTutto(), v: () => vistaStretta(), g: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); },
-    f11: () => void schermoIntero(), f9: () => pagina(radice.dataset.pagina === 'finale' ? 'montaggio' : 'finale'),
-    f10: () => pagina(radice.dataset.pagina === 'live' ? 'montaggio' : 'live'),
-    f8: () => pagina(radice.dataset.pagina === 'montage' ? 'montaggio' : 'montage'),
-    // la grandezza dell'interfaccia nell'app, un gradino alla volta (Ctrl 0 torna al 100%); nel browser fa il browser
-    ...(isTauri ? {
-      'ctrl++': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
-      'ctrl+=': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
-      'ctrl+-': () => void impostaGrandezzaUI([...GRANDEZZE_UI].reverse().find((k) => k < grandezzaUI() - 0.01) ?? grandezzaUI()),
-      'ctrl+0': () => void impostaGrandezzaUI(1),
-    } : {}),
-  };
+  // i comandi del banco (file, pagine, vista, aiuto): stanno nel registro di src/azioni.ts come tutti gli altri, così
+  // hanno un tasto solo, compaiono nella ricerca (Ctrl+K) e nella finestra dei tasti
+  const cambiaPagina = (pg: Pagina) => pagina(radice.dataset.pagina === pg ? 'montaggio' : pg);
+  for (const a of [
+    { id: 'importa', nome: 'Importa video, audio, immagini…', gruppo: 'File', tasti: ['Ctrl+I'], fn: () => void importaDialogo() },
+    { id: 'salva', nome: 'Salva il progetto', gruppo: 'File', tasti: ['Ctrl+S'], fn: () => void salva() },
+    { id: 'salvaCome', nome: 'Salva come…', gruppo: 'File', tasti: ['Ctrl+Shift+S'], fn: () => void salva(true) },
+    { id: 'apri', nome: 'Apri un progetto…', gruppo: 'File', tasti: ['Ctrl+O'], fn: () => { home.nascondi(); void apri(); } },
+    { id: 'nuovo', nome: 'Nuovo progetto', gruppo: 'File', tasti: ['Ctrl+N'], fn: () => void nuovo() },
+    { id: 'progetti', nome: 'Pagina iniziale (i progetti recenti)', gruppo: 'File', fn: () => home.mostra() },
+    { id: 'pacchetto', nome: 'Salva il pacchetto .daprod (con tutti i file)…', gruppo: 'File', info: 'Il progetto e tutti i suoi file in un file solo, da aprire identico su un altro computer.', fn: () => void salvaPacchetto() },
+    { id: 'ricollega', nome: 'Ricollega i file mancanti…', gruppo: 'File', fn: () => void ricollega() },
+    { id: 'esporta', nome: 'Esporta il video (master)…', gruppo: 'File', tasti: ['Ctrl+M'], info: 'MP4, MOV, WebM o WAV; tutto il montaggio o solo fra attacco e stacco.', fn: () => finestraEsporta() },
+    { id: 'esportaEdl', nome: 'Esporta la EDL (CMX3600)…', gruppo: 'File', fn: () => esportaEdl() },
+    { id: 'esportaFotogramma', nome: 'Esporta il fotogramma in PNG', gruppo: 'File', fn: () => esportaFotogramma() },
+    { id: 'impostazioniProgetto', nome: 'Impostazioni del progetto (misura, fotogrammi)…', gruppo: 'File', fn: () => finestraProgetto() },
+    { id: 'demo', nome: 'Montaggio dimostrativo', gruppo: 'File', info: 'Un piccolo montaggio di prova, per vedere come funziona.', fn: () => montaggioDimostrativo() },
+    { id: 'paginaFinale', nome: 'Pagina Finale ↔ Montaggio', gruppo: 'Pagine', tasti: ['F9'], fn: () => cambiaPagina('finale') },
+    { id: 'paginaLive', nome: 'Pagina LIVE (registra lo schermo)', gruppo: 'Pagine', tasti: ['F10'], fn: () => cambiaPagina('live') },
+    { id: 'paginaMontage', nome: 'DaProdMontage (montaggio automatico)', gruppo: 'Pagine', tasti: ['F8'], fn: () => cambiaPagina('montage') },
+    { id: 'vistaStretta', nome: 'Timeline stretta ↔ larga (proprietà fino in fondo)', gruppo: 'Vista', tasti: ['V'], fn: () => vistaStretta() },
+    { id: 'zoneSicure', nome: 'Zone di sicurezza sul monitor', gruppo: 'Vista', tasti: ['G'], fn: () => { modi.zoneSicure = !modi.zoneSicure; monitor.disegnaSopra(); } },
+    { id: 'zoomPiu', nome: 'Zoom avanti sulla timeline', gruppo: 'Vista', tasti: ['+'], fn: () => tl.zoom(1.5) },
+    { id: 'zoomMeno', nome: 'Zoom indietro sulla timeline', gruppo: 'Vista', tasti: ['-'], fn: () => tl.zoom(1 / 1.5) },
+    { id: 'adatta', nome: 'Tutto il montaggio nella finestra', gruppo: 'Vista', tasti: ['\\'], fn: () => tl.adattaTutto() },
+    { id: 'schermoIntero', nome: 'Finestra a schermo intero', gruppo: 'Vista', tasti: ['F11'], fn: () => void schermoIntero() },
+    { id: 'guida', nome: 'Come si fa (la guida)', gruppo: 'Aiuto', tasti: ['F1'], info: 'I lavori principali in pochi passi, col pulsante che porta dove si fa.', fn: () => finestraGuida() },
+    { id: 'cerca', nome: 'Cerca un comando', gruppo: 'Aiuto', tasti: ['Ctrl+K'], info: 'Scrivi cosa vuoi fare: comandi, effetti, transizioni, titoli, AI e guide.', fn: () => apriCerca() },
+    { id: 'tasti', nome: 'Tutti i tasti della centralina', gruppo: 'Aiuto', fn: () => finestraTasti() },
+    { id: 'centroAI', nome: 'Centro AI (tutte le funzioni intelligenti)', gruppo: 'AI', info: 'Sottotitoli, traduzione, voce, sfondo, segui un oggetto, montaggio automatico: cosa fanno e come si usano.', fn: () => finestraCentroAI() },
+    { id: 'controllaAI', nome: 'Controlla l\'AI (se qualcosa non va)', gruppo: 'AI', fn: () => finestraCentroAI(true) },
+  ]) registra(a);
+  // la grandezza dell'interfaccia nell'app, un gradino alla volta (Ctrl 0 torna al 100%); nel browser fa il browser
+  const zoomApp: Record<string, () => void> = isTauri ? {
+    'ctrl++': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
+    'ctrl+=': () => void impostaGrandezzaUI(GRANDEZZE_UI.find((k) => k > grandezzaUI() + 0.01) ?? grandezzaUI()),
+    'ctrl+-': () => void impostaGrandezzaUI([...GRANDEZZE_UI].reverse().find((k) => k < grandezzaUI() - 0.01) ?? grandezzaUI()),
+    'ctrl+0': () => void impostaGrandezzaUI(1),
+  } : {};
   addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
     if (document.querySelector('.velo')) return;
-    const k = [(e.ctrlKey || e.metaKey) ? 'ctrl' : '', e.shiftKey && e.key.length > 1 || (e.shiftKey && /^[a-z]$/i.test(e.key)) ? 'shift' : '', e.key.toLowerCase()].filter(Boolean).join('+');
-    const fn = extra[k] as (() => void) | undefined;
+    const k = [(e.ctrlKey || e.metaKey) ? 'ctrl' : '', e.key.toLowerCase()].filter(Boolean).join('+');
+    const fn = zoomApp[k] as (() => void) | undefined;
     if (!fn) return;
-    // sopra la pagina iniziale valgono solo Apri e lo schermo intero
-    if (home.visibile && k !== 'ctrl+o' && k !== 'f11') return;
     e.preventDefault();
-    if (k === 'ctrl+o') home.nascondi();
     fn();
   });
   const sveglia = () => banco.sveglia();
@@ -366,6 +427,11 @@ export function avvia(radice: HTMLElement) {
   }
 
   document.addEventListener('dpv:demo', () => montaggioDimostrativo());
+  document.addEventListener('dpv:cerca', () => apriCerca());
+  document.addEventListener('dpv:guida', (e) => finestraGuida((e as CustomEvent).detail as string | undefined));
+  document.addEventListener('dpv:tasti', () => finestraTasti());
+  document.addEventListener('dpv:centro-ai', () => finestraCentroAI());
+  document.addEventListener('dpv:finale', (e) => { pagina('finale'); finale.mostra((e as CustomEvent).detail as Parameters<Finale['mostra']>[0]); });
   document.addEventListener('dpv:sottotitoli', () => { pagina('finale'); finale.mostra('sottotitoli'); });
   document.addEventListener('dpv:pagina', (e) => pagina((e as CustomEvent).detail as Pagina));
   document.addEventListener('dpv:adatta', () => tl.adattaTutto());

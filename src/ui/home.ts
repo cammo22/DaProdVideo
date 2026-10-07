@@ -16,6 +16,7 @@ const quando = (t: number) => {
   const g = Math.floor(d / 86_400_000);
   return g === 1 ? 'ieri' : g < 30 ? `${g} giorni fa` : new Date(t).toLocaleDateString('it-IT');
 };
+const evento = (nome: string, detail?: unknown) => document.dispatchEvent(new CustomEvent(nome, { detail }));
 const durataUmana = (s: number) => { const m = Math.floor(s / 60), r = Math.round(s % 60); return m ? `${m}:${String(r).padStart(2, '0')}` : `${r} s`; };
 
 export class Home {
@@ -33,7 +34,9 @@ export class Home {
           h('div', null, h('b', null, 'DaProd Video'), h('small', null, 'i tuoi progetti')),
           h('button', { class: 'btn-icona home-chiudi', title: 'Torna al montaggio (Esc)', on: { click: () => this.nascondi() } }, icona('x', 18))),
         this.corpo));
-    document.addEventListener('keydown', (e) => { if (this.visibile && e.key === 'Escape') { e.stopPropagation(); this.nascondi(); } }, true);
+    document.addEventListener('keydown', (e) => { if (this.visibile && e.key === 'Escape' && !document.querySelector('.cerca-velo, .velo')) { e.stopPropagation(); this.nascondi(); } }, true);
+    // chi porta da un'altra parte (la ricerca, la guida) chiude la pagina iniziale
+    document.addEventListener('dpv:home-nascondi', () => { if (this.visibile) this.nascondi(); });
   }
 
   mostra() {
@@ -70,7 +73,14 @@ export class Home {
         h('span', null, `${p.name || 'Montaggio senza nome'} · ${p.clips.filter((c) => c.kind !== 'fx').length} clip`),
         h('button', { class: 'btn primario', on: { click: () => this.nascondi() } }, '▶ Continua')) : null,
       h('h3', null, 'Ricomincia'),
-      chipFormati, nuovoB, apriB, mont, demo);
+      chipFormati, nuovoB, apriB, mont, demo,
+      // per chi comincia: la guida, la ricerca dei comandi e il Centro AI (prima non c'era un posto da cui partire)
+      h('h3', null, 'Impara a usarlo'),
+      h('div', { class: 'home-impara' },
+        h('button', { class: 'btn', on: { click: () => evento('dpv:guida', 'inizio') } }, '🚀 Il primo montaggio in un minuto'),
+        h('button', { class: 'btn', on: { click: () => evento('dpv:guida') } }, '📖 Come si fa (tutte le guide, F1)'),
+        h('button', { class: 'btn', on: { click: () => evento('dpv:cerca') } }, '🔍 Cerca un comando (Ctrl+K)'),
+        h('button', { class: 'btn', on: { click: () => evento('dpv:centro-ai') } }, '✨ Centro AI: sottotitoli, sfondo, voce…')));
 
     // 2 · i recenti
     const lista = recenti();

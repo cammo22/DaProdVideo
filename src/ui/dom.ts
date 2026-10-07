@@ -251,3 +251,24 @@ export function trascina(e: PointerEvent, muovi: (ev: PointerEvent, dx: number, 
 }
 
 export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+
+/**
+ * Porta lo sguardo su un controllo: aspetta che compaia (fino a 2 s: la pagina o il pannello si stanno aprendo), lo fa
+ * scorrere in vista e lo fa lampeggiare un attimo. Serve alla guida, alla ricerca e al Centro AI ("Fallo adesso").
+ */
+export function evidenzia(selettore: string, dentro: ParentNode = document) {
+  const t0 = performance.now();
+  const prova = () => {
+    const el = dentro.querySelector(selettore) as HTMLElement | null;
+    if (!el || !el.offsetParent) {
+      if (performance.now() - t0 < 2000) setTimeout(prova, 80);
+      return;
+    }
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('evidenziato');
+    void el.offsetWidth;
+    el.classList.add('evidenziato');
+    setTimeout(() => el.classList.remove('evidenziato'), 2600);
+  };
+  prova();
+}

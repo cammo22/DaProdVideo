@@ -26,6 +26,9 @@ export interface Azione {
 
 export const azioni = new Map<string, Azione>();
 const reg = (a: Azione) => azioni.set(a.id, a);
+/** per chi registra comandi da fuori (app.ts: salva, importa, esporta, le pagine…): così stanno tutti in un posto, coi
+ *  loro tasti, nella ricerca (Ctrl+K), nella guida dei tasti e nei menu */
+export const registra = reg;
 export const esegui = (id: string) => azioni.get(id)?.fn();
 
 /** stato dei modi della centralina */

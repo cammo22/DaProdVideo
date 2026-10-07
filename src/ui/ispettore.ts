@@ -5,7 +5,7 @@ import { store } from '../core/store';
 import type { Clip, TitleSpec } from '../core/tipi';
 import { clipById, end, isVideoClip, mediaOf, trackOf, TF0, FX0 } from '../core/progetto';
 import { frameToTc, fps } from '../core/timecode';
-import { avviso, h } from './dom';
+import { avviso, h, evidenzia } from './dom';
 import * as M from '../core/montaggio';
 import { esegui, modi, mettiBlocco } from '../azioni';
 import { DIREZIONALI, EFFETTI, TENDINE } from '../render/transizioni';
@@ -78,7 +78,11 @@ export class Ispettore {
           h('li', null, h('kbd', null, 'S'), ' separa o unisce i gruppi di clip'),
           h('li', null, h('kbd', null, 'Q'), ' / ', h('kbd', null, 'W'), ' via lo scarto a sinistra / a destra'),
           h('li', null, h('kbd', null, 'rotella'), ' un fotogramma alla volta, col suono'),
-          h('li', null, h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'rotella'), ' zoom della timeline'))));
+          h('li', null, h('kbd', null, 'Ctrl'), '+', h('kbd', null, 'rotella'), ' zoom della timeline')),
+        // da qui si arriva a tutto il resto: la ricerca dei comandi e la guida
+        h('div', { class: 'isp-aiuti' },
+          h('button', { class: 'btn', on: { click: () => document.dispatchEvent(new CustomEvent('dpv:cerca')) } }, '🔍 Cerca un comando ', h('kbd', null, 'Ctrl K')),
+          h('button', { class: 'btn', on: { click: () => document.dispatchEvent(new CustomEvent('dpv:guida')) } }, '📖 Come si fa ', h('kbd', null, 'F1')))));
       return;
     }
     const blocchi = cs.filter((c) => c.kind === 'fx');
@@ -552,6 +556,21 @@ export class Ispettore {
       h('p', { class: 'nota' }, 'Le immagini e le istantanee si allungano quanto vuoi; i video fino alla fine della ripresa.'));
     this.campi.push({ el, aggiorna: agg });
     return el;
+  }
+
+  /**
+   * Apre una sezione da fuori (la guida, la ricerca, il Centro AI: "porta dove si fa") e la mette in vista. Ritorna
+   * false se per la clip scelta quella sezione non c'è (per esempio "Togli lo sfondo" su una clip audio).
+   */
+  apriSezione(id: string): boolean {
+    this.aperti.add(id);
+    this.firma = '';
+    this.costruisci();
+    const el = this.corpo.querySelector(`.isp-gruppo[data-g="${id}"]`) as HTMLDetailsElement | null;
+    if (!el) return false;
+    el.open = true;
+    evidenzia(`.isp-gruppo[data-g="${id}"] > summary`, this.corpo);
+    return true;
   }
 
   // ——— mattoncini ———

@@ -15,6 +15,8 @@ import { firmaRitaglio, istantiCampioni, levigaMaschere, puoRitagliare, QUALITA_
 import { mediaRT } from './libreria';
 import { misuraPer, pixelAl, type Pixel } from './campiona';
 import { impostaMaschere, potaMaschere, type Maschere } from './maschere';
+import { spiegaErroreAI } from './erroriAI';
+import { baseLocaleAI, usaSchedaAI } from './libreriaAI';
 
 export interface ModelloRitaglio {
   id: string;
@@ -64,7 +66,8 @@ function lavoratore(): Worker {
       let a = 0, b = 0;
       for (const [x, y] of scaricati.values()) { a += x; b += y; }
       caricamento.stato(`Scarico il modello: ${(a / 1048576).toFixed(0)} di ${(b / 1048576).toFixed(0)} MB (solo la prima volta)`, b ? a / b : 0);
-    } else if (m.tipo === 'pronto') { caricamento?.ok((m.repo ? m.repo + ' · ' : '') + (m.device ?? '')); caricamento = null; }
+    } else if (m.tipo === 'avviso') { caricamento?.stato(m.msg ?? '', 0); }
+    else if (m.tipo === 'pronto') { caricamento?.ok((m.repo ? m.repo + ' · ' : '') + (m.device ?? '')); caricamento = null; }
     else if (m.tipo === 'maschera') { attese.get(m.id!)?.ok(m.dati!); attese.delete(m.id!); }
     else if (m.tipo === 'errore') {
       const err = new Error(m.msg || 'errore del modello');
@@ -86,7 +89,7 @@ const conIlWorker: Segmentatore = {
   carica: (m, stato) => new Promise((ok, no) => {
     scaricati.clear();
     caricamento = { ok, no, stato };
-    lavoratore().postMessage({ tipo: 'carica', famiglia: m.famiglia, repo: m.repo });
+    lavoratore().postMessage({ tipo: 'carica', famiglia: m.famiglia, repo: m.repo, base: baseLocaleAI(), scheda: usaSchedaAI() });
   }),
   maschera: (px, o) => new Promise((ok, no) => {
     const id = ++seq;
@@ -169,7 +172,7 @@ export async function elaboraRitaglio(p: Project, c: Clip, o: OpzioniElabora = {
   stato(`Preparo il modello ${mod.nome}…`, 0);
   let dispositivo = '';
   try { dispositivo = await segmentatore.carica(mod, (fase, k) => stato(fase, k * 0.1)); } catch (e) {
-    return { ok: false, motivo: 'Non riesco a caricare il modello: ' + (e instanceof Error ? e.message : String(e)) };
+    return { ok: false, motivo: 'Non riesco a caricare il modello: ' + spiegaErroreAI(e) };
   }
   if (ferma()) return { ok: false, motivo: 'Fermato' };
   const q = QUALITA_RITAGLIO[Math.max(0, Math.min(QUALITA_RITAGLIO.length - 1, r.qualita))];
@@ -231,7 +234,7 @@ export async function elaboraRitaglio(p: Project, c: Clip, o: OpzioniElabora = {
       }
     }
   } catch (e) {
-    return { ok: false, motivo: 'Il modello si è fermato: ' + (e instanceof Error ? e.message : String(e)) };
+    return { ok: false, motivo: 'Il modello si è fermato: ' + spiegaErroreAI(e) };
   }
   if (ferma()) return { ok: false, motivo: 'Fermato' };
   const completi = dati.filter(Boolean);
