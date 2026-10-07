@@ -135,7 +135,8 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   (1840/1720/1620/1520/1420/1250 px) così **Esporta resta sempre nello schermo** (la prova la misura da 1024 a 1920).
 - **L'AI che non si ferma (1.3.0)**: `src/media/libreriaAI.ts` è la base di tutti i worker AI (voce, traduci, ritaglio, provaAI): la libreria
   **viaggia dentro l'app** in `public/ai/` (→ `dist/ai/`, la scrive `scripts/ai-locale.mjs` in `prebuild` da registry.npmjs.org col controllo
-  sha512, è in `.gitignore`; se manca si va sulla CDN), `wasmPaths` puntano lì (asyncify). `caricaConRipieghi` prova **WebGPU poi WASM** e per
+  sha512, è in `.gitignore`; se manca si va sulla CDN; **su Pages no**: `pages.yml` toglie `dist/ai` perché la protezione dei segreti di GitHub
+  scambia `Mistral3ForConditionalGeneration` per una chiave e blocca il push), `wasmPaths` puntano lì (asyncify). `caricaConRipieghi` prova **WebGPU poi WASM** e per
   ognuno **più pesi** (q8/fp16/fp32: a MODNet e BiRefNet manca q8); se la scheda si rompe a metà lavoro si ricarica su WASM e si rifà. Scheda video
   spegnibile (`dpv-ai-scheda`). Un worker morto si butta (`onerror` → `null`). **Errori**: `src/media/erroriAI.ts` (`spiegaErroreAI`: regole
   regex → frase italiana con cosa fare; le frasi già italiane passano). Nemotron che sbaglia → Whisper da solo (`ripiego` in `sottotitoliAI`), e
