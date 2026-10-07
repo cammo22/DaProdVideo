@@ -25,7 +25,9 @@ const exe = process.env.CHROME || (fs.existsSync('/opt/pw-browsers/chromium') ? 
 const browser = await chromium.launch({ executablePath: exe, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 }, acceptDownloads: true });
 const errori = [];
-page.on('pageerror', (e) => errori.push(e.message + ' @ ' + String(e.stack ?? '').split('\n').slice(1, 5).join(' | ')));
+/** l'errore con le prime righe dello stack (per capire da dove viene, anche dalle pagine aperte a parte) */
+const conStack = (e) => e.message + ' @ ' + String(e.stack ?? '').split('\n').slice(1, 5).join(' | ');
+page.on('pageerror', (e) => errori.push(conStack(e)));
 page.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
 
 const doc = () => page.evaluate(() => window.__dpv.doc);
@@ -1055,7 +1057,7 @@ try {
   console.log('▶ Pacchetto .daprod: salva con tutti i file e riapri identico');
   {
     const pg = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-    pg.on('pageerror', (e) => errori.push(e.message));
+    pg.on('pageerror', (e) => errori.push(conStack(e)));
     await pg.goto(srv.url + '/app/');
     await pg.waitForSelector('.pulsantiera');
     await pg.click('text=Prova con il montaggio dimostrativo');
@@ -1096,7 +1098,7 @@ try {
   console.log('▶ LIVE con webcam, conto alla rovescia, segni e stile presentazione');
   {
     const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
-    pg.on('pageerror', (e) => errori.push(e.message));
+    pg.on('pageerror', (e) => errori.push(conStack(e)));
     await pg.goto(srv.url + '/app/');
     await pg.waitForSelector('.pulsantiera');
     await pg.evaluate(() => {
@@ -1175,7 +1177,7 @@ try {
   console.log('▶ 1.1.3: motore NVIDIA (finto nelle prove), sottotitoli con Nemotron, voce AI, barra col tempo');
   {
     const pa = await browser.newPage({ viewport: { width: 1600, height: 950 } });
-    pa.on('pageerror', (e) => errori.push(e.message));
+    pa.on('pageerror', (e) => errori.push(conStack(e)));
     pa.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
     await pa.goto(srv.url + '/app/');
     await pa.waitForSelector('.pulsantiera');
@@ -1336,7 +1338,7 @@ try {
   console.log('▶ LIVE: voce e audio del computer separati');
   {
     const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
-    pg.on('pageerror', (e) => errori.push(e.message));
+    pg.on('pageerror', (e) => errori.push(conStack(e)));
     await pg.goto(srv.url + '/app/');
     await pg.waitForSelector('.pulsantiera');
     await pg.evaluate(() => {
@@ -1394,7 +1396,7 @@ try {
   console.log('▶ 1.1.2: effetti che si sommano davvero, tappe di mezzo, stira e ritaglia, tracking, effetti/transizioni/titoli nuovi');
   {
     const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
-    page.on('pageerror', (e) => errori.push(e.message));
+    page.on('pageerror', (e) => errori.push(conStack(e)));
     await page.goto(srv.url + '/app/');
     await page.waitForSelector('.pulsantiera');
     await page.waitForTimeout(1000);
@@ -1626,7 +1628,7 @@ try {
   console.log('▶ 1.1.3: velocità delle clip, movimento fluido, cursore che si aggancia ai tagli');
   {
     const pv = await browser.newPage({ viewport: { width: 1600, height: 950 } });
-    pv.on('pageerror', (e) => errori.push(e.message));
+    pv.on('pageerror', (e) => errori.push(conStack(e)));
     pv.on('console', (m) => { if (m.type() === 'error') errori.push(m.text()); });
     await pv.goto(srv.url + '/app/');
     await pv.waitForSelector('.pulsantiera');
@@ -1827,7 +1829,7 @@ try {
 
   console.log('▶ LIVE con più finestre');
   const pg = await browser.newPage({ viewport: { width: 1600, height: 950 } });
-  pg.on('pageerror', (e) => errori.push(e.message));
+  pg.on('pageerror', (e) => errori.push(conStack(e)));
   await pg.goto(srv.url + '/app/');
   await pg.waitForSelector('.pulsantiera');
   await pg.evaluate(() => {
@@ -1900,7 +1902,7 @@ try {
   console.log('▶ Riproduzione: ripresa coi fotogrammi chiave radi (e il suo proxy)');
   {
     const pg = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-    pg.on('pageerror', (e) => errori.push(e.message));
+    pg.on('pageerror', (e) => errori.push(conStack(e)));
     await pg.goto(srv.url + '/app/');
     await pg.waitForSelector('.pulsantiera');
     await pg.waitForTimeout(800);
