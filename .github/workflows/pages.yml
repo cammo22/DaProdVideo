@@ -24,6 +24,10 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run build
+      # la libreria AI dentro l'app (dist/ai/) non va su Pages: la protezione dei segreti di GitHub scambia il nome di una
+      # classe della libreria ("Mistral3ForConditionalGeneration", 32 lettere vicino a "mistral") per una chiave API e
+      # blocca il push. Nel browser la libreria arriva dalla CDN come prima (libreria() in src/media/libreriaAI.ts).
+      - run: rm -rf dist/ai
       - name: Pubblica sul ramo gh-pages
         env:
           GH_TOKEN: ${{ github.token }}

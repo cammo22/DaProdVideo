@@ -135,7 +135,8 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   (1840/1720/1620/1520/1420/1250 px) così **Esporta resta sempre nello schermo** (la prova la misura da 1024 a 1920).
 - **L'AI che non si ferma (1.3.0)**: `src/media/libreriaAI.ts` è la base di tutti i worker AI (voce, traduci, ritaglio, provaAI): la libreria
   **viaggia dentro l'app** in `public/ai/` (→ `dist/ai/`, la scrive `scripts/ai-locale.mjs` in `prebuild` da registry.npmjs.org col controllo
-  sha512, è in `.gitignore`; se manca si va sulla CDN), `wasmPaths` puntano lì (asyncify). `caricaConRipieghi` prova **WebGPU poi WASM** e per
+  sha512, è in `.gitignore`; se manca si va sulla CDN; **su Pages no**: `pages.yml` toglie `dist/ai` perché la protezione dei segreti di GitHub
+  scambia `Mistral3ForConditionalGeneration` per una chiave e blocca il push), `wasmPaths` puntano lì (asyncify). `caricaConRipieghi` prova **WebGPU poi WASM** e per
   ognuno **più pesi** (q8/fp16/fp32: a MODNet e BiRefNet manca q8); se la scheda si rompe a metà lavoro si ricarica su WASM e si rifà. Scheda video
   spegnibile (`dpv-ai-scheda`). Un worker morto si butta (`onerror` → `null`). **Errori**: `src/media/erroriAI.ts` (`spiegaErroreAI`: regole
   regex → frase italiana con cosa fare; le frasi già italiane passano). Nemotron che sbaglia → Whisper da solo (`ripiego` in `sottotitoliAI`), e
@@ -169,6 +170,9 @@ Editor video "vecchio stile, moderno dentro" (ispirato a EDIUS e alle centraline
   dentro l'app) e `src-tauri/src/aggiorna.rs` (scarica col `curl` di sistema e apre setup/portatile/DMG).
 - **La riproduzione non deve mai bloccarsi**: `src/media/fotogrammi.ts` non butta un flusso che non ha ancora il primo
   fotogramma, e i proxy (`src/media/proxy.ts`) si fanno da soli per le riprese pesanti. L'export legge gli originali.
+  **`pulisci()` conta dall'ultima richiesta di un fotogramma (`ultimaRichiesta`), non dall'orologio** (1.3.1): un disegno lento non deve
+  far buttare il flusso che si guarda (col GOP lungo il nuovo ripartirebbe dal fotogramma chiave: immagine ferma, poi nera). Chi presta
+  il fotogramma di ripiego (ricerca, altra qualità) si tiene vivo. Nelle prove `__dpvTest.FT` = il modulo dei fotogrammi.
 - **Il montaggio non copre mai niente** da solo: spostare, lasciare, incollare e i generatori usano il modo `libero`
   (`src/core/montaggio.ts`: si fermano contro le vicine o vanno su una traccia libera). Copre solo SOVR dal monitor.
   Le transizioni non cambiano la durata delle clip. Il taglio tocca solo le tracce accese (se ce ne sono).
