@@ -22,8 +22,11 @@ export function firmaSovr(p: Project, f: number, w: number, h: number): string |
   const riga = rigaAl(p, f);
   if (!logo && !riga) return null;
   const s = p.sottotitoli;
-  return JSON.stringify([w, h, logo, riga?.testo ?? null, s ? [s.dimensione, s.fascia, s.alto] : null]);
+  return JSON.stringify([w, h, logo, riga ? testoRiga(p, riga) : null, s ? [s.dimensione, s.fascia, s.alto] : null]);
 }
+
+/** il testo da scrivere nel video: con il nome di chi parla davanti, se si è scelto così */
+const testoRiga = (p: Project, r: Sottotitolo) => (p.sottotitoli?.nomi && r.chi ? `${r.chi}: ${r.testo}` : r.testo);
 
 /** va a capo perché ogni riga stia nella larghezza */
 function aCapo(ctx: Ctx2D, testo: string, max: number): string[] {
@@ -61,7 +64,7 @@ export function disegnaSovr(ctx: Ctx2D, p: Project, f: number, W: number, H: num
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    const righe = aCapo(ctx, riga.testo, W * 0.84);
+    const righe = aCapo(ctx, testoRiga(p, riga), W * 0.84);
     const lh = size * 1.22;
     const tot = righe.length * lh;
     const y0 = s.alto ? H * 0.07 + lh / 2 : H * 0.93 - tot + lh / 2;

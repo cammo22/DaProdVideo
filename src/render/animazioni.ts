@@ -10,12 +10,14 @@ import { DATI } from './anim/dati';
 import { SOCIAL } from './anim/social';
 import { SFONDI } from './anim/sfondi';
 import { CERIMONIA } from './anim/cerimonia';
+import { RETRO3D } from './anim/retro3d';
+import { OGGETTO } from './anim/oggetto';
 
 type Tela = HTMLCanvasElement | OffscreenCanvas;
 
 /** id → come si disegna (ogni modulo del catalogo aggiunge le sue) */
 export const DISEGNA: Record<string, (q: Q) => void> = {
-  ...SOTTOPANCIA, ...TESTO, ...DATI, ...SOCIAL, ...SFONDI, ...CERIMONIA,
+  ...SOTTOPANCIA, ...TESTO, ...DATI, ...SOCIAL, ...SFONDI, ...CERIMONIA, ...RETRO3D, ...OGGETTO,
 };
 
 const tele = new Map<string, Tela>();

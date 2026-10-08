@@ -395,6 +395,8 @@ export interface Sottotitolo {
   id: string; da: number; a: number; testo: string;
   /** la clip audio con la voce AI di questa riga (si sceglie dalla riga e si gestisce come ogni altra clip) */
   voce?: string;
+  /** chi parla (dialoghi scritti a mano, 1.4.0): ogni personaggio ha la sua voce AI (Sottotitoli.voci) */
+  chi?: string;
 }
 
 export interface Sottotitoli {
@@ -408,6 +410,10 @@ export interface Sottotitoli {
   alto: boolean;
   /** la lingua in cui sono scritti (per il file .srt e, domani, per la traduzione) */
   lingua: string;
+  /** la voce AI di ogni personaggio (nome → voce 0..4), per i dialoghi */
+  voci?: Record<string, number>;
+  /** nel video si scrive anche chi parla ("Marco: …") */
+  nomi?: boolean;
 }
 
 export type LookFinale = 'nessuno' | 'cinema' | 'caldo' | 'freddo' | 'vivace' | 'vintage' | 'bn' | 'pellicola' | 'notte';

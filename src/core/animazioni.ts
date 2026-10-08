@@ -17,7 +17,7 @@ export interface CampoAnim {
   scelte?: [string, string][];
 }
 
-export type GruppoAnim = 'sottopancia' | 'testo' | 'dati' | 'social' | 'fondi' | 'cerimonia';
+export type GruppoAnim = 'sottopancia' | 'testo' | 'dati' | 'social' | 'fondi' | 'cerimonia' | 'retro3d' | 'oggetto';
 
 export interface Anim {
   id: string;
@@ -38,6 +38,8 @@ export const GRUPPI_ANIM: { id: GruppoAnim; nome: string; info: string }[] = [
   { id: 'social', nome: 'Social e chiusure', info: 'segui, iscriviti, post, notifiche, chat' },
   { id: 'fondi', nome: 'Fondi e luci', info: 'aurora, stelle, neve, bokeh, perdite di luce, HUD' },
   { id: 'cerimonia', nome: 'Cerimonie e feste', info: 'monogramma, cornici, cuori, petali, palloncini' },
+  { id: 'retro3d', nome: 'Retro 3D', info: 'logo cromato, testo che gira, tubi, warp, synthwave: i segreti degli anni \'90' },
+  { id: 'oggetto', nome: 'Sull\'oggetto', info: 'cerchio, freccia, etichetta, mirino, emoji: si attaccano a un oggetto tracciato' },
 ];
 
 // ——— i campi ———
@@ -156,6 +158,42 @@ export const ANIMAZIONI: Anim[] = [
     campi: [C('colore', 'Colore', '#ff4d6d'), C('colore2', 'Secondo colore', '#35e8ff'), C('colore3', 'Terzo colore', '#ffd23f'), N('quanti', 'Quanti', 14, 3, 40, 1)] },
   { id: 'cr-coriandoli', nome: 'Coriandoli', gruppo: 'cerimonia', info: 'uno scoppio di coriandoli colorati', durata: 5,
     campi: [C('colore', 'Colore', '#ff4d6d'), C('colore2', 'Secondo colore', '#ffd23f'), C('colore3', 'Terzo colore', '#35e8ff'), N('quanti', 'Quanti', 140, 20, 400, 10)] },
+
+  // ——— retro 3D (1.4.0): i trucchi delle sigle e dei salvaschermi anni '90 e 2000 ———
+  { id: 'r3-logo', nome: 'Logo cromato che vola', gruppo: 'retro3d', info: 'arriva da lontano girando, si ferma con il bagliore, riflesso che passa', durata: 6,
+    campi: [T('testo', 'Testo', 'DAPROD'), T('sotto', 'Sotto', 'presenta'), S('cromo', 'Cromo', 'argento', [['argento', 'Argento'], ['oro', 'Oro'], ['neon', 'Neon'], ['rame', 'Rame']]), { id: 'scia', nome: 'Scia mentre arriva', tipo: 'spunta', def: true }, DIM] },
+  { id: 'r3-wordart', nome: 'Testo 3D che gira', gruppo: 'retro3d', info: 'lettere arcobaleno con lo spessore che girano e saltano', durata: 5,
+    campi: [T('testo', 'Testo', 'FANTASTICO!'), S('stile', 'Colori', 'arcobaleno', [['arcobaleno', 'Arcobaleno'], ['fuoco', 'Fuoco'], ['ghiaccio', 'Ghiaccio']]), N('giri', 'Giri', 2, 0, 8, 0.5), DIM] },
+  { id: 'r3-tubi', nome: 'Tubi 3D (salvaschermo)', gruppo: 'retro3d', info: 'tubi colorati che crescono e girano ad angolo, con le giunture a palla', durata: 10,
+    campi: [N('quanti', 'Quanti tubi', 4, 1, 8), N('velocita', 'Velocità', 6, 1, 20), { id: 'nero', nome: 'Fondo nero', tipo: 'spunta', def: false }] },
+  { id: 'r3-warp', nome: 'Warp delle stelle', gruppo: 'retro3d', info: 'le stelle vengono incontro e diventano strisce: il salto nell\'iperspazio', durata: 6, fondo: true,
+    campi: [C('colore', 'Colore', '#bfe3ff'), C('base', 'Fondo', '#02030a'), N('quanti', 'Quante stelle', 400, 50, 1200, 10)] },
+  { id: 'r3-griglia', nome: 'Griglia synthwave', gruppo: 'retro3d', info: 'sole a righe, montagne di fil di ferro, pavimento a griglia che scorre', durata: 8, fondo: true,
+    campi: [T('testo', 'Titolo (anche vuoto)', 'DAPROD'), C('colore', 'Colore', '#ff3df2'), C('colore2', 'Montagne', '#35e8ff'), N('velocita', 'Velocità', 1.2, 0, 5, 0.1)] },
+  { id: 'r3-cubo', nome: 'Cubo che gira', gruppo: 'retro3d', info: 'un cubo con le facce in luce, gli spigoli al neon e la scritta sopra', durata: 6,
+    campi: [T('testo', 'Scritta sulle facce', 'DAPROD'), C('colore', 'Colore', '#35e8ff'), DIM] },
+  { id: 'r3-crawl', nome: 'Scritta che si allontana', gruppo: 'retro3d', info: 'righe gialle che scorrono verso le stelle, in prospettiva', durata: 14, fondo: true,
+    campi: [T('titolo', 'Titolo', 'EPISODIO I'), L('testo', 'Testo', 'Tanto tempo fa, in una sala di montaggio\nnon troppo lontana, un videomaker\nscoprì i segreti del 3D anni \'90.'), C('colore', 'Colore', '#ffd54a'), N('velocita', 'Velocità', 60, 10, 200, 5)] },
+  { id: 'r3-tunnel', nome: 'Tunnel della demoscene', gruppo: 'retro3d', info: 'anelli colorati che vengono incontro girando', durata: 8, fondo: true,
+    campi: [S('forma', 'Forma', 'quadrati', [['quadrati', 'Quadrati'], ['esagoni', 'Esagoni'], ['cerchi', 'Cerchi']]), N('velocita', 'Velocità', 2, 0.2, 8, 0.1)] },
+  { id: 'r3-terreno', nome: 'Volo sul terreno a poligoni', gruppo: 'retro3d', info: 'montagne a poligoni piatti al tramonto, come le prime console 3D', durata: 10, fondo: true,
+    campi: [C('colore', 'Colore', '#5dffb4'), { id: 'fili', nome: 'Fil di ferro', tipo: 'spunta', def: true }, N('velocita', 'Velocità', 3, 0.5, 10, 0.5)] },
+  { id: 'r3-pianeta', nome: 'Pianeta con l\'anello', gruppo: 'retro3d', info: 'un pianeta di fil di ferro con l\'anello che gira', durata: 8,
+    campi: [T('testo', 'Scritta sotto', ''), C('colore', 'Colore', '#35e8ff'), C('colore2', 'Anello', '#ff3df2'), DIM] },
+
+  // ——— sull'oggetto (1.4.0): disegnati attorno al centro, così seguono un oggetto tracciato ———
+  { id: 'ob-cerchio', nome: 'Cerchio sull\'oggetto', gruppo: 'oggetto', info: 'un cerchio che si disegna attorno e pulsa', durata: 4,
+    campi: [T('etichetta', 'Scritta sotto', ''), C('colore', 'Colore', '#ff3df2'), N('dim', 'Grandezza', 100, 30, 300, 5)] },
+  { id: 'ob-freccia', nome: 'Freccia che indica', gruppo: 'oggetto', info: 'una freccia arriva e indica l\'oggetto, col testo', durata: 4,
+    campi: [T('testo', 'Testo', 'GUARDA QUI'), S('da', 'Arriva da', 'sinistra', [['sinistra', 'Sinistra'], ['destra', 'Destra'], ['sopra', 'Sopra'], ['sotto', 'Sotto']]), C('colore', 'Colore', '#ffd54a'), N('dim', 'Distanza', 100, 30, 300, 5)] },
+  { id: 'ob-etichetta', nome: 'Etichetta con la linea', gruppo: 'oggetto', info: 'un punto, una linea e il nome (come nei documentari)', durata: 4,
+    campi: [T('titolo', 'Nome', 'Il protagonista'), T('sotto', 'Sotto', ''), S('verso', 'Verso', 'destra', [['destra', 'A destra'], ['sinistra', 'A sinistra']]), C('colore', 'Colore', '#35e8ff')] },
+  { id: 'ob-aggancio', nome: 'Mirino che aggancia', gruppo: 'oggetto', info: 'quattro angoli si stringono sull\'oggetto: AGGANCIATO', durata: 4,
+    campi: [T('etichetta', 'Scritta', 'AGGANCIATO'), C('colore', 'Colore', '#5dffb4'), N('dim', 'Grandezza', 100, 30, 300, 5)] },
+  { id: 'ob-emoji', nome: 'Emoji sull\'oggetto', gruppo: 'oggetto', info: 'un\'emoji grande che rimbalza', durata: 3,
+    campi: [T('emoji', 'Emoji (o parola)', '😂'), N('dim', 'Grandezza', 100, 30, 300, 5)] },
+  { id: 'ob-riquadro', nome: 'Riquadro con etichetta', gruppo: 'oggetto', info: 'un riquadro che si disegna attorno, con l\'etichetta', durata: 4,
+    campi: [T('etichetta', 'Etichetta', 'NUOVO'), C('colore', 'Colore', '#ffd54a'), N('dim', 'Grandezza', 100, 30, 300, 5)] },
 ];
 
 export const animazione = (id: string) => ANIMAZIONI.find((a) => a.id === id);

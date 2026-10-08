@@ -61,6 +61,8 @@ const SEZIONI: { id: Sezione; nome: string; icona: string; info: string }[] = [
 ];
 
 export class Finale {
+  /** fa partire "Fai parlare i sottotitoli" (l'ultimo pulsante disegnato) */
+  private parlaOra: (() => void) | null = null;
   el: HTMLElement;
   private corpo: HTMLElement;
   private riepilogo: HTMLElement;
@@ -87,6 +89,8 @@ export class Finale {
       h('div', { class: 'fin-dentro' }, this.corpo, this.menu));
     this.mostra('colore');
     store.on('doc', () => { this.aggiornaRiepilogo(); for (const c of this.campi) c.aggiorna(); this.aggiornaSott(); });
+    // la finestra dei dialoghi (o un pulsante del pannello della clip) chiede di far parlare i sottotitoli adesso
+    document.addEventListener('dpv:fai-parlare', () => { document.dispatchEvent(new CustomEvent('dpv:finale', { detail: 'lingue' })); setTimeout(() => this.parlaOra?.(), 80); });
     store.on('head', () => this.segnaRigaCorrente());
   }
 
@@ -387,6 +391,7 @@ export class Finale {
     const lavoro = new BarraLavoro('Voce AI dai sottotitoli', 'ai', () => this.lavoroVoce?.abort());
     const ferma = h('button', { class: 'btn-mini', style: 'display:none', on: { click: () => this.lavoroVoce?.abort() } }, '■ Ferma');
     const vai = h('button', { class: 'btn primario ai-vai', 'data-ai': 'voce', title: 'Legge i sottotitoli con la voce scelta e mette il risultato su una traccia audio nuova', on: { click: () => void this.faiParlare(lavoro, vai, ferma) } }, '🗣 Fai parlare i sottotitoli');
+    this.parlaOra = () => { if (!vai.disabled) vai.click(); else if (!motoreNemo()) avviso('La voce AI gira nell\'app per Windows e Mac: i sottotitoli del dialogo sono pronti', 'info', 3600); };
     const silenzia = h('input', { type: 'checkbox' }) as HTMLInputElement;
     silenzia.addEventListener('change', () => { this.voce.silenzia = silenzia.checked; salva(); });
     sinc.push(() => { silenzia.checked = this.voce.silenzia; });

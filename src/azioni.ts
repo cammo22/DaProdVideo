@@ -7,6 +7,7 @@ import { clipById, end, isVideoClip, newClip, newTrack, nextTrackName, projectEn
 import { fps, frameToTc, s2f } from './core/timecode';
 import { avviso } from './ui/dom';
 import { finestraVelocita } from './ui/velocita';
+import { apriDialogoScritto } from './ui/dialogo';
 import type { Clip, Transition } from './core/tipi';
 import { STILI_CONTO, type StileConto } from './render/grafica';
 import { applicaPresetTitolo, presetTitolo } from './core/generatori';
@@ -455,6 +456,11 @@ reg({
   id: 'velocita', nome: 'Velocità della clip…', gruppo: 'Montaggio', tasti: ['Alt+E'],
   info: 'Velocizza o rallenta la clip selezionata (o quella sotto il cursore): la voce resta naturale e, se rallenti molto, il movimento si ricostruisce fluido.',
   fn: () => finestraVelocita(selezionateOSottoCursore()),
+});
+reg({
+  id: 'dialogo', nome: 'Dialogo e voce fuori campo…', gruppo: 'Sottotitoli',
+  info: 'Scrivi le battute ("Marco: Ciao!"), scegli lingua e voci: diventano sottotitoli e la voce AI le dice, ognuno con la sua voce.',
+  fn: () => apriDialogoScritto(),
 });
 reg({ id: 'edit', nome: 'EDIT (nel modo attivo)', gruppo: 'Centralina', tasti: ['E', 'Enter'], fn: () => montaDalPlayer(modi.inserisci ? 'insert' : 'overwrite') });
 reg({

@@ -30,6 +30,7 @@ import { h } from './ui/dom';
 import { isTauri } from './platform';
 import { preparaRiserva } from './media/riserva';
 import { caricaFontAnimazioni } from './render/font';
+import { attivaTendine } from './ui/tendina';
 
 const radice = document.getElementById('app')!;
 let banco: ReturnType<typeof avvia> | null = null;
@@ -56,6 +57,8 @@ if (problema) {
   // nell'app, prima di aprire qualunque file, si accende (se serve) la decodifica audio di riserva in Rust
   await preparaRiserva().catch(() => []);
   banco = avvia(radice);
+  // ogni <select> del programma diventa una tendina DaProd (grande, a gruppi, con la ricerca)
+  attivaTendine();
   // i caratteri delle animazioni arrivano in silenzio: quando ci sono, il monitor ridisegna
   void caricaFontAnimazioni().then(() => import('./motore').then((m) => m.motore.ridisegna()));
   setTimeout(() => { avvio.classList.add('via'); setTimeout(() => avvio.remove(), 500); }, isTauri ? 500 : 900);

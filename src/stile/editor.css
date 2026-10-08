@@ -1241,3 +1241,76 @@ body.pip-live { margin: 0; background: #111016; overflow: hidden; }
 @keyframes evidenzia { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 213, 74, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 213, 74, 0.85), 0 0 22px rgba(255, 213, 74, 0.6); } }
 .isp-aiuti { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .isp-aiuti .btn { display: inline-flex; gap: 6px; align-items: center; }
+
+/* ——— le tendine DaProd (src/ui/tendina.ts): il <select> vero resta lì, invisibile ——— */
+.tendina-nativa { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: hidden; }
+.tendina { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; padding: 6px 10px 6px 12px; border-radius: 9px; border: 1px solid #000;
+  background: linear-gradient(180deg, #24232c, #1a1920); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5); color: var(--testo); font-weight: 700; text-align: left; }
+.tendina:hover:not(:disabled) { border-color: rgba(255, 213, 74, 0.45); }
+.tendina.aperta { border-color: var(--oro); box-shadow: 0 0 0 2px rgba(255, 213, 74, 0.18); }
+.tendina:disabled { opacity: 0.45; cursor: default; }
+.tendina-valore { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tendina-freccia { color: var(--oro); font-size: 11px; transition: transform 0.15s; }
+.tendina.aperta .tendina-freccia { transform: rotate(180deg); }
+.isp-riga .tendina, .tendina.largo { flex: 1; width: 100%; }
+.tendina-pannello { position: fixed; z-index: 1400; display: flex; flex-direction: column; background: #17161d; border: 1px solid rgba(255, 213, 74, 0.35);
+  border-radius: 12px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.7); overflow: hidden; animation: tendina-entra 0.12s ease-out; }
+@keyframes tendina-entra { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+.tendina-cerca { margin: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid #000; background: #0e0d12; color: var(--testo); outline: none; user-select: text; -webkit-user-select: text; }
+.tendina-cerca:focus { border-color: var(--oro); }
+.tendina-lista { overflow-y: auto; padding: 4px 6px 8px; min-height: 0; }
+.tendina-gruppo { position: sticky; top: 0; z-index: 1; padding: 8px 8px 4px; background: #17161d; color: var(--oro); font: 700 11px var(--marchio); letter-spacing: 0.08em; text-transform: uppercase; }
+.tendina-voce { display: flex; flex-direction: column; gap: 1px; padding: 7px 10px; border-radius: 8px; cursor: pointer; border-left: 3px solid transparent; }
+.tendina-voce.attiva { background: rgba(255, 255, 255, 0.07); }
+.tendina-voce.scelta { border-left-color: var(--oro); background: rgba(255, 213, 74, 0.1); }
+.tendina-voce.scelta .tendina-nome::after { content: '  ✓'; color: var(--oro); }
+.tendina-voce.spenta { opacity: 0.4; cursor: default; }
+.tendina-nome { font-weight: 700; font-size: 13.5px; }
+.tendina-info { color: var(--testo2); font-size: 12px; font-weight: 600; }
+.tendina-vuota { padding: 14px; color: var(--testo3); text-align: center; }
+
+/* ——— il pannello della clip a pulsanti (1.4.0): ogni sezione chiusa è un pulsante grande con icona, cosa c'è dentro
+   e com'è messa; aperta diventa una scheda con la striscia del suo colore ——— */
+.isp-gruppo { --tinta: var(--oro); border: 1px solid #000; border-radius: 12px; background: linear-gradient(180deg, #1f1e26, #19181f); margin-bottom: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.45); overflow: hidden; transition: border-color 0.15s, transform 0.08s; }
+.isp-gruppo:not([open]):hover { border-color: color-mix(in srgb, var(--tinta) 55%, transparent); transform: translateY(-1px); }
+.isp-gruppo summary { padding: 8px 8px 8px 10px; font: 700 13px var(--ui); letter-spacing: 0; text-transform: none; color: var(--testo); gap: 10px; min-height: 46px; }
+.isp-gruppo summary::before { content: none; }
+.isp-icona { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; font-size: 17px;
+  background: color-mix(in srgb, var(--tinta) 16%, #111016); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tinta) 40%, transparent); }
+.isp-titolo { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.isp-titolo b { font: 800 12.5px var(--ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--tinta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.isp-titolo small { color: var(--testo3); font-weight: 600; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.isp-stato { flex: none; max-width: 92px; padding: 2px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: #111; background: var(--tinta); }
+.isp-grip { margin-left: 0; }
+.isp-gruppo[open] { border-color: color-mix(in srgb, var(--tinta) 45%, #000); box-shadow: inset 3px 0 0 var(--tinta), 0 2px 10px rgba(0, 0, 0, 0.4); }
+.isp-gruppo[open] summary { border-bottom: 1px solid var(--bordo); margin-bottom: 8px; background: color-mix(in srgb, var(--tinta) 8%, transparent); }
+.isp-gruppo[open] .isp-titolo small { display: none; }
+.isp-gruppo > :not(summary) { margin: 0 10px 8px 12px; }
+/* i pulsanti grandi in cima */
+.isp-rapide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin: 2px 0 10px; }
+.isp-rapida { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 58px; padding: 6px 4px; border-radius: 11px;
+  border: 1px solid #000; background: var(--metallo-chiaro); color: var(--testo); font: 700 11.5px/1.1 var(--ui); text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 0 #08070b; transition: transform 0.06s, border-color 0.15s; }
+.isp-rapida:hover { border-color: var(--oro); }
+.isp-rapida:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+.isp-rapida-icona { font-size: 19px; line-height: 1; }
+/* le scelte a schede (formati, voci, modelli): al posto delle tendine quando le voci sono poche */
+.isp-schede { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 5px; }
+.isp-scheda { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px; border-radius: 10px; border: 1px solid #000; background: #15141b; color: var(--testo2); font: 700 11.5px/1.1 var(--ui); text-align: center; }
+.isp-scheda .ico { font-size: 20px; line-height: 1; }
+.isp-scheda small { color: var(--testo3); font-weight: 600; font-size: 10.5px; }
+.isp-scheda:hover { border-color: rgba(255, 213, 74, 0.5); color: var(--testo); }
+.isp-scheda.acceso { border-color: var(--oro); color: var(--oro); background: rgba(255, 213, 74, 0.09); }
+.isp-passi { display: flex; gap: 4px; margin: 2px 0 6px; }
+.isp-passo { flex: 1; padding: 5px 4px; border-radius: 8px; background: #121117; border: 1px solid #000; color: var(--testo3); font-size: 11px; font-weight: 700; text-align: center; }
+.isp-passo.fatto { color: #111; background: var(--verde); }
+.isp-passo.ora { color: #111; background: var(--oro); }
+/* la finestra dei dialoghi */
+.dlg-dialogo { width: 100%; min-height: 190px; font: 600 15px/1.45 var(--ui); user-select: text; -webkit-user-select: text; }
+.dlg-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 16px; margin: 10px 0; }
+.dlg-cast { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.dlg-personaggio { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 9px; background: #15141b; border: 1px solid #000; }
+.dlg-personaggio b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-gruppo { display: inline-flex; gap: 2px; }

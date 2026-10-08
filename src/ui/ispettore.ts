@@ -7,7 +7,9 @@ import { clipById, end, isVideoClip, mediaOf, trackOf, TF0, FX0 } from '../core/
 import { frameToTc, fps } from '../core/timecode';
 import { avviso, h, evidenzia } from './dom';
 import * as M from '../core/montaggio';
-import { esegui, modi, mettiBlocco } from '../azioni';
+import { esegui, modi, mettiBlocco, inserisciGeneratore } from '../azioni';
+import { ATTACCHI, attacca, attaccatiA } from './attacca';
+import { apriDialogoScritto } from './dialogo';
 import { DIREZIONALI, EFFETTI, TENDINE } from '../render/transizioni';
 import { oggettoSulQuadro, tracciate } from '../core/traccia';
 import type { Project } from '../core/tipi';
@@ -15,7 +17,7 @@ import { EFFETTI_AUDIO, EFFETTI_VIDEO, adatte, alternaEffetto } from '../effetti
 import { cambiaModello, durataDelBlocco, EFFETTI_TEMPO, effettoTempo, haCentro, nomeBlocco, nuovoBlocco, posaBlocco, taglioDelBlocco, taglioVicino, transizioneSul } from '../core/blocchi';
 import { SUONI } from '../core/suoni';
 import { ascoltaSuono } from '../media/audio';
-import { bolla, MOVIMENTI, movimentoPronto, presentazione, SFONDI } from '../core/cornici';
+import { bolla, MOVIMENTI, MOVIMENTI_3D, movimento3D, movimentoPronto, presentazione, SFONDI } from '../core/cornici';
 import { ANIMAZIONI as CATALOGO_ANIM, GRUPPI_ANIM, animazione, nuovaAnim, valoriDi, type CampoAnim } from '../core/animazioni';
 import { CHIAVI, coloriChiave, QUALITA_RITAGLIO, SPILL0 } from '../core/sfondo';
 import { modelliPer, modelloRitaglio, maschereAggiornate } from '../media/ritaglio';
@@ -33,6 +35,32 @@ const STILI_TITOLO: [string, string][] = [
   ['ombraLunga', 'Ombra lunga'], ['contorno', 'Solo contorno'],
 ];
 const ANIMAZIONI: [string, string][] = [['', 'Come lo stile'], ['dissolve', 'Dissolve'], ['sale', 'Sale'], ['scende', 'Scende'], ['sinistra', 'Da sinistra'], ['destra', 'Da destra'], ['zoom', 'Zoom'], ['rimbalza', 'Rimbalza']];
+
+/** le icone delle animazioni Retro 3D nei pulsanti */
+const ICONE_RETRO: Record<string, string> = { 'r3-logo': '🥇', 'r3-wordart': '🌈', 'r3-tubi': '🧪', 'r3-warp': '🌠', 'r3-griglia': '🌅', 'r3-cubo': '🧊', 'r3-crawl': '📜', 'r3-tunnel': '🌀', 'r3-terreno': '🏔', 'r3-pianeta': '🪐' };
+
+/** le sezioni del pannello: l'icona del pulsante, cosa c'è dentro (una riga), il colore della striscia */
+const SEZIONI: Record<string, { icona: string; cosa: string; tinta: string }> = {
+  fxv: { icona: '⚡', cosa: 'vivace, cinema, pellicola, vignetta… un clic', tinta: '#ffd54a' },
+  fxa: { icona: '🎚', cosa: 'voce chiara, radio, eco, ovattato… un clic', tinta: '#ffd54a' },
+  immagine: { icona: '🖼', cosa: 'grandezza, riquadro, bolla, movimento', tinta: '#35e8ff' },
+  sfondo: { icona: '✂️', cosa: 'green screen o AI: persona, soggetto, oggetto', tinta: '#5dffb4' },
+  segui: { icona: '🎯', cosa: 'traccia un oggetto e attaccaci testo ed effetti', tinta: '#ff3df2' },
+  tre: { icona: '🧊', cosa: 'giri, ribaltoni, voli e animazioni 3D anni \'90', tinta: '#8f7bff' },
+  voce: { icona: '🎙', cosa: 'dialoghi, voce fuori campo, sottotitoli', tinta: '#ff8a3d' },
+  colore: { icona: '🎨', cosa: 'luce, contrasto, saturazione, temperatura', tinta: '#ff6b9e' },
+  audio: { icona: '🔊', cosa: 'volume e panorama', tinta: '#5dffb4' },
+  durata: { icona: '⏱', cosa: 'quanto dura, velocità', tinta: '#a19db0' },
+  trclip: { icona: '🔀', cosa: 'all\'inizio e alla fine della clip', tinta: '#35e8ff' },
+  generatore: { icona: '🎛', cosa: 'colore, barre, tono', tinta: '#a19db0' },
+  animazione: { icona: '✨', cosa: 'testi, colori e numeri dell\'animazione', tinta: '#ff3df2' },
+  titolo: { icona: '🅣', cosa: 'testo, stile, carattere, entrata', tinta: '#ff3df2' },
+  csuono: { icona: '🔔', cosa: 'un suono che parte con la clip', tinta: '#ffd54a' },
+  avanzate: { icona: '⚙️', cosa: 'posizione al pixel, rotazione, ritaglio, tinta', tinta: '#6f6b7d' },
+  bdurata: { icona: '⏱', cosa: 'più lungo = più lento', tinta: '#a19db0' },
+  btipo: { icona: '✨', cosa: 'quale, forza, colore, centro', tinta: '#ff3df2' },
+  bsuono: { icona: '🔔', cosa: 'whoosh, colpo, zap…', tinta: '#ffd54a' },
+};
 
 export class Ispettore {
   el: HTMLElement;
@@ -118,8 +146,40 @@ export class Ispettore {
       this.campi.push({ el: b, aggiorna: agg });
       return b;
     }));
-    if (video.length) out.push(this.gruppo('fxv', 'Effetti al volo', [chips(EFFETTI_VIDEO, video)]));
-    if (audio.length) out.push(this.gruppo('fxa', video.length ? 'Effetti audio' : 'Effetti al volo', [chips(EFFETTI_AUDIO, audio)]));
+    // ——— i pulsanti grandi: le cose che si fanno di più, a un clic
+    const ripresa = video.find((c) => c.kind === 'media' && mediaOf(p, c)?.type === 'video');
+    const evento = (n: string, d?: string) => document.dispatchEvent(new CustomEvent(n, { detail: d }));
+    if (video.length && primo.kind === 'media') {
+      out.push(this.azioniRapide([
+        ...(ripresa ? [['🎯', primo.traccia ? 'Attacca all\'oggetto' : 'Segui un oggetto', 'Segna un oggetto e attaccaci scritte, frecce, censura, faretto…', () => { this.vai('segui'); if (!primo.traccia) evento('dpv:mira'); }] as [string, string, string, () => void]] : []),
+        ['✂️', 'Scontorna', 'Togli lo sfondo: green screen o AI', () => this.vai('sfondo')],
+        ['🧊', '3D e animazioni', 'Giri, voli e animazioni 3D anni \'90', () => this.vai('tre')],
+        ['💬', 'Testo sopra', 'Un titolo sopra la clip, dal suo inizio', () => { inserisciGeneratore('title', primo.start); }],
+        ['🎙', 'Dialogo / voce', 'Scrivi un dialogo: sottotitoli e voci AI', () => apriDialogoScritto()],
+        ['⏩', 'Velocità', 'Rallenta o velocizza (Alt+E)', () => esegui('velocita')],
+        ...(!ripresa ? [['🎨', 'Colore', 'Luce, contrasto, saturazione', () => this.vai('colore')] as [string, string, string, () => void]] : []),
+      ]));
+    } else if (video.length) {
+      out.push(this.azioniRapide([
+        ['🎯', 'Segui un oggetto', 'Fa seguire a questa clip un oggetto tracciato', () => this.vai('segui')],
+        ['🧊', '3D e animazioni', 'Giri, voli e animazioni 3D anni \'90', () => this.vai('tre')],
+        ['⏩', 'Velocità', 'Rallenta o velocizza (Alt+E)', () => esegui('velocita')],
+      ]));
+    } else if (audio.length) {
+      out.push(this.azioniRapide([
+        ['🔊', 'Volume', 'Volume e panorama', () => this.vai('audio')],
+        ['🎚', 'Effetti', 'Voce chiara, radio, eco…', () => this.vai('fxa')],
+        ['⏩', 'Velocità', 'Rallenta o velocizza col tono giusto', () => esegui('velocita')],
+        ['🎙', 'Dialogo / voce', 'Scrivi un dialogo: sottotitoli e voci AI', () => apriDialogoScritto()],
+        ['📝', 'Sottotitoli AI', 'L\'AI ascolta e scrive i sottotitoli', () => evento('dpv:finale', 'sottotitoli')],
+        ['🗣', 'Fai parlare', 'La voce AI legge i sottotitoli', () => evento('dpv:fai-parlare')],
+      ]));
+    }
+
+    const accesi = (lista: typeof EFFETTI_VIDEO, quali: Clip[]) => lista.filter((e) => { const q = adatte(e, quali); return q.length > 0 && q.every((c) => e.acceso(c, p)); }).length;
+    const nAcc = (lista: typeof EFFETTI_VIDEO, quali: Clip[]) => { const n = accesi(lista, quali); return n ? `${n} ${n === 1 ? 'acceso' : 'accesi'}` : undefined; };
+    if (video.length) out.push(this.gruppo('fxv', 'Effetti al volo', [chips(EFFETTI_VIDEO, video)], nAcc(EFFETTI_VIDEO, video)));
+    if (audio.length) out.push(this.gruppo('fxa', video.length ? 'Effetti audio' : 'Effetti al volo', [chips(EFFETTI_AUDIO, audio)], nAcc(EFFETTI_AUDIO, audio)));
 
     if (video.length) {
       out.push(this.gruppo('immagine', 'Immagine', [
@@ -149,6 +209,9 @@ export class Ispettore {
       out.push(this.sfondoGruppo(video));
       const sg = this.seguiGruppo(video);
       if (sg) out.push(sg);
+      out.push(this.treGruppo(video));
+      const v0 = video[0].fx;
+      const ritoccato = v0.bright !== 0 || v0.contrast !== 1 || v0.sat !== 1 || (v0.temp ?? 0) !== 0 || v0.hue !== 0;
       out.push(this.gruppo('colore', 'Colore della clip', [
         this.cursore('Luce', -50, 50, 1, (c) => Math.round(c.fx.bright * 100), (c, v) => { c.fx.bright = v / 100; }, '', video),
         this.cursore('Contrasto', 50, 150, 1, (c) => Math.round(c.fx.contrast * 100), (c, v) => { c.fx.contrast = v / 100; }, '%', video),
@@ -156,7 +219,7 @@ export class Ispettore {
         this.cursore('Temperatura', -100, 100, 1, (c) => Math.round((c.fx.temp ?? 0) * 100), (c, v) => { c.fx.temp = v / 100; }, '', video),
         this.pulsanti([['Azzera', () => store.edit('Azzera colore', () => { for (const c of video) { c.fx.bright = 0; c.fx.contrast = 1; c.fx.sat = 1; c.fx.hue = 0; c.fx.temp = 0; c.fx.look = 'none'; c.fx.effetti = undefined; } })]]),
         h('p', { class: 'nota' }, 'Il colore automatico e il look di tutto il montaggio sono nella pagina Finale.'),
-      ]));
+      ], ritoccato ? 'ritoccato' : undefined));
     }
     if (audio.length) {
       out.push(this.gruppo('audio', 'Volume', [
@@ -166,6 +229,7 @@ export class Ispettore {
         h('p', { class: 'nota' }, 'Nella timeline la linea gialla è il volume: trascinala, doppio clic per un punto, tasto destro → "Abbassa qui".'),
       ]));
     }
+    if (video.some((c) => c.kind === 'media') || audio.length) out.push(this.voceGruppo());
     out.push(this.gruppo('durata', 'Durata', [this.durata(cs.filter((c) => c.kind !== 'fx'))]));
     if (video.length) out.push(this.transizioniClip(video[0]));
     const gen = cs.filter((c) => c.kind === 'color' || c.kind === 'bars' || c.kind === 'tone' || c.kind === 'beep');
@@ -341,31 +405,88 @@ export class Ispettore {
         this.spunta('Inverti: tieni lo sfondo', (c) => !!c.ritaglio?.inverti, (c, v) => { if (c.ritaglio) c.ritaglio.inverti = v || undefined; }, video),
         h('p', { class: 'nota' }, `Il modello${mod ? ' ' + mod.nome + ' (licenza ' + mod.licenza + ')' : ''} si scarica da Hugging Face la prima volta e poi resta nel computer; le immagini non escono mai. Guarda il risultato col tasto SFONDO sopra il monitor. La velocità dipende dalla scheda video: senza, scegli "Veloce".`));
     }
-    return this.gruppo('sfondo', 'Togli lo sfondo', righe);
+    return this.gruppo('sfondo', 'Togli lo sfondo', righe, modo !== 'nessuno' ? NOMI_MODO[modo] : undefined);
   }
 
-  /** "Segui": un oggetto tracciato in una ripresa, e chi lo segue (titoli, immagini, centri degli effetti) */
+  /** "Segui": un oggetto tracciato in una ripresa (1 segna, 2 controlla, 3 attacca) e chi lo segue */
   private seguiGruppo(cs: Clip[]): HTMLElement | null {
     const p = store.doc;
     const c0 = cs[0];
     const righe: HTMLElement[] = [];
+    let stato: string | undefined;
     if (c0.kind === 'media' && isVideoClip(c0, p) && mediaOf(p, c0)?.type === 'video') {
       const tr = c0.traccia;
+      const attaccati = attaccatiA(p, c0.id);
+      const passo = (n: string, fatto: boolean, ora: boolean) => h('div', { class: 'isp-passo' + (fatto ? ' fatto' : ora ? ' ora' : '') }, n);
+      righe.push(h('div', { class: 'isp-passi' },
+        passo('1 · Segna', !!tr, !tr), passo('2 · Controlla', !!tr, false), passo('3 · Attacca', attaccati.length > 0, !!tr && !attaccati.length)));
       righe.push(this.pulsanti([[tr ? '🎯 Rifai il tracking' : '🎯 Segna un oggetto sul monitor', () => document.dispatchEvent(new CustomEvent('dpv:mira'))]]));
       if (tr) {
-        righe.push(h('p', { class: 'nota' }, `Oggetto seguito: ${tr.punti.length} punti, sicurezza ${Math.round(tr.fiducia * 100)}%. Il percorso azzurro si vede sul monitor.`));
+        stato = `${Math.round(tr.fiducia * 100)}%`;
+        righe.push(h('p', { class: 'nota' + (tr.fiducia > 0.6 ? ' ok' : '') }, `Oggetto seguito per ${tr.punti.length} punti, sicurezza ${Math.round(tr.fiducia * 100)}%: il percorso azzurro sul monitor. ${tr.fiducia < 0.6 ? 'Se in qualche punto lo perde, rifai il tracking partendo da dove si vede meglio.' : 'Ora attaccaci qualcosa:'}`));
+        // ——— 3 · Attacca: un clic e la cosa segue l'oggetto per tutta la ripresa
+        righe.push(h('label', { class: 'etichetta' }, 'Attacca all\'oggetto'));
+        righe.push(h('div', { class: 'isp-schede' }, ATTACCHI.map((a) => h('button', {
+          class: 'isp-scheda', title: a.info, 'data-attacca': a.id,
+          on: { click: () => { const id = attacca(c0.id, a); if (id) avviso(`${a.icona} ${a.nome}: segue l'oggetto. Cambiala dal pannello, spostala sul monitor`, 'ok', 2600); } },
+        }, h('span', { class: 'ico' }, a.icona), a.nome))));
+        if (attaccati.length) {
+          righe.push(h('label', { class: 'etichetta' }, `Già attaccati (${attaccati.length})`));
+          righe.push(h('div', { class: 'isp-chips' }, attaccati.map((x) => h('span', { class: 'chip-gruppo' },
+            h('button', { class: 'chip acceso', title: 'Sceglila per cambiarla', on: { click: () => store.select([x.id]) } }, x.kind === 'fx' ? nomeBlocco(x.fxb!) : x.name.split(' · ')[0]),
+            h('button', { class: 'chip', title: 'Togli', on: { click: () => store.edit('Togli', (pp) => { pp.clips = pp.clips.filter((z) => z.id !== x.id); }) } }, '✕')))));
+        }
         righe.push(this.spunta('Tieni ferma la ripresa sull\'oggetto (stabilizza)', (c) => !!c.stabilizza, (c, v) => { c.stabilizza = v || undefined; }, [c0]));
         righe.push(this.pulsanti([['Togli il tracking', () => store.edit('Toglie il tracking', (pp) => { for (const z of pp.clips) { if (z.id === c0.id) { delete z.traccia; delete z.stabilizza; } if (z.segue === c0.id) delete z.segue; if (z.fxb?.segue === c0.id) delete z.fxb.segue; } })]]));
-      } else righe.push(h('p', { class: 'nota' }, 'Metti il cursore dove l\'oggetto si vede bene, premi il tasto e trascina il mirino sopra: il programma lo segue per tutta la ripresa.'));
+      } else righe.push(h('p', { class: 'nota' }, 'Metti il cursore dove l\'oggetto si vede bene, premi il tasto e trascina il mirino sopra: il programma lo segue per tutta la ripresa. Poi un clic e ci attacchi una scritta, una freccia, una censura, un faretto…'));
     }
     const seguibili = tracciate(p).filter((x) => x.id !== c0.id);
     const get = (c: Clip) => (c.kind === 'fx' ? c.fxb?.segue : c.segue) ?? '';
     if (seguibili.length) {
       const opz: [string, string][] = [['', 'Nessuno (sta fermo)'], ...seguibili.map((x) => [x.id, x.name] as [string, string])];
       righe.push(this.scelta('Segue', opz, get, (c, v) => agganciaSegue(store.doc, c, v), cs));
-      if (get(c0)) righe.push(h('p', { class: 'nota' }, 'Segue l\'oggetto: trascinandolo sul monitor lo sposti rispetto a lui (lo scarto).'));
+      if (get(c0)) { stato ??= 'segue'; righe.push(h('p', { class: 'nota' }, 'Segue l\'oggetto: trascinandolo sul monitor lo sposti rispetto a lui (lo scarto).')); }
     }
-    return righe.length ? this.gruppo('segui', 'Segui un oggetto', righe) : null;
+    return righe.length ? this.gruppo('segui', 'Segui un oggetto', righe, stato) : null;
+  }
+
+  /** "3D e animazioni": i movimenti 2,5D della clip e le animazioni Retro 3D da mettere sopra */
+  private treGruppo(video: Clip[]): HTMLElement {
+    const ids = video.map((c) => c.id);
+    const c0 = video[0];
+    const tutte = (nome: string, fn: (pp: Project, c: Clip) => void) => store.edit(nome, (pp) => { for (const id of ids) { const c = clipById(pp, id); if (c) fn(pp, c); } });
+    const retro = CATALOGO_ANIM.filter((a) => a.gruppo === 'retro3d');
+    const righe: HTMLElement[] = [
+      h('label', { class: 'etichetta' }, 'La clip si muove in 3D'),
+      h('div', { class: 'isp-schede' }, MOVIMENTI_3D.map((m) => h('button', {
+        class: 'isp-scheda', title: m.info, on: { click: () => tutte('3D: ' + m.nome.slice(2).trim(), (pp, c) => movimento3D(pp, c, m.id)) },
+      }, h('span', { class: 'ico' }, m.nome.slice(0, 2).trim()), m.nome.slice(2).trim()))),
+      c0.tfFine ? this.pulsanti([['■ Ferma: togli il movimento', () => tutte('Togli il movimento', (_pp, c) => { delete c.tfFine; delete c.via; })]]) : null,
+      h('p', { class: 'nota' }, 'Il trucco degli anni \'90: niente prospettiva vera, la clip si stringe di taglio, rimpicciolisce da lontano e gira, con le tappe nel tempo. Dopo lo sistemi dal monitor come ogni movimento (◀ Inizio / Fine ▶, ＋ Tappa).'),
+      h('label', { class: 'etichetta' }, 'Animazioni Retro 3D (sopra la clip, dal suo inizio)'),
+      h('div', { class: 'isp-schede' }, retro.map((a) => h('button', {
+        class: 'isp-scheda', title: a.info,
+        on: { click: () => { inserisciGeneratore('anim', c0.start, undefined, { anim: a.id }); avviso(`🧊 ${a.nome}: cambia testo e colori qui nel pannello`, 'ok', 2400); } },
+      }, h('span', { class: 'ico' }, ICONE_RETRO[a.id] ?? '🧊'), a.nome))),
+    ].filter(Boolean) as HTMLElement[];
+    return this.gruppo('tre', '3D e animazioni', righe, c0.tfFine ? 'si muove' : undefined);
+  }
+
+  /** "Voce e dialoghi": scrivere un dialogo o una voce fuori campo, i sottotitoli dell'AI, la voce AI */
+  private voceGruppo(): HTMLElement {
+    const s = store.doc.sottotitoli;
+    const dialogo = s?.righe.filter((x) => x.chi).length ?? 0;
+    const evento = (n: string, d?: string) => document.dispatchEvent(new CustomEvent(n, { detail: d }));
+    return this.gruppo('voce', 'Voce e dialoghi', [
+      h('div', { class: 'isp-schede' },
+        h('button', { class: 'isp-scheda', title: 'Scrivi le battute: diventano sottotitoli e la voce AI le dice', on: { click: () => apriDialogoScritto() } }, h('span', { class: 'ico' }, '💬'), 'Dialogo / voce fuori campo'),
+        h('button', { class: 'isp-scheda', title: 'L\'AI ascolta e scrive i sottotitoli', on: { click: () => evento('dpv:finale', 'sottotitoli') } }, h('span', { class: 'ico' }, '📝'), 'Sottotitoli AI'),
+        h('button', { class: 'isp-scheda', title: 'La voce AI legge i sottotitoli', on: { click: () => evento('dpv:fai-parlare') } }, h('span', { class: 'ico' }, '🗣'), 'Fai parlare'),
+        h('button', { class: 'isp-scheda', title: 'Traduci i sottotitoli in un\'altra lingua', on: { click: () => evento('dpv:finale', 'lingue') } }, h('span', { class: 'ico' }, '🌍'), 'Traduci')),
+      h('p', { class: 'nota' }, dialogo
+        ? `Nel montaggio c'è un dialogo di ${dialogo} righe: riaprilo con "Dialogo" per correggerlo.`
+        : 'Scrivi "Nome: battuta", una per riga, nella lingua che vuoi: ogni personaggio avrà la sua voce. Le righe senza nome sono la voce fuori campo.'),
+    ], dialogo ? `${dialogo} righe` : undefined);
   }
 
   /** le transizioni all'inizio e alla fine della clip: i blocchetti che stanno su quei bordi */
@@ -574,15 +695,35 @@ export class Ispettore {
   }
 
   // ——— mattoncini ———
-  private gruppo(id: string, titolo: string, righe: (HTMLElement | null)[]): HTMLElement {
+  /**
+   * Una sezione del pannello: chiusa è un pulsante grande (icona, nome, cosa c'è dentro e com'è messa adesso),
+   * aperta mostra i suoi comandi. Si trascina dalla maniglia ⠿ e l'ordine si ricorda.
+   */
+  private gruppo(id: string, titolo: string, righe: (HTMLElement | null)[], stato?: string): HTMLElement {
     const grip = h('span', { class: 'isp-grip', title: 'Trascina per spostare la sezione (l\'ordine si ricorda)' }, '⠿');
-    const el = h('details', { class: 'isp-gruppo', open: this.aperti.has(id), 'data-g': id }, h('summary', null, titolo, grip), ...righe.filter(Boolean) as HTMLElement[]);
+    const info = SEZIONI[id];
+    const el = h('details', { class: 'isp-gruppo' + (stato ? ' con-stato' : ''), open: this.aperti.has(id), 'data-g': id, style: info ? `--tinta:${info.tinta}` : undefined },
+      h('summary', null,
+        h('span', { class: 'isp-icona' }, info?.icona ?? '•'),
+        h('span', { class: 'isp-titolo' }, h('b', null, titolo), info ? h('small', null, info.cosa) : null),
+        stato ? h('span', { class: 'isp-stato' }, stato) : null,
+        grip),
+      ...righe.filter(Boolean) as HTMLElement[]);
     el.addEventListener('toggle', () => { if ((el as HTMLDetailsElement).open) this.aperti.add(id); else this.aperti.delete(id); });
     // la maniglia non apre né chiude: serve solo a trascinare
     grip.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
     grip.addEventListener('pointerdown', (e) => this.trascina(el, e));
     return el;
   }
+
+  /** i pulsanti grandi in cima: le cose che si fanno di più con questo tipo di clip, a un clic */
+  private azioniRapide(lista: [string, string, string, () => void][]): HTMLElement {
+    return h('div', { class: 'isp-rapide' }, lista.map(([icona, nome, info, fn]) => h('button', { class: 'isp-rapida', title: info, on: { click: fn } },
+      h('span', { class: 'isp-rapida-icona' }, icona), h('span', null, nome))));
+  }
+
+  /** apre (e mette in vista) una sezione del pannello da un pulsante del pannello stesso */
+  private vai(id: string) { this.apriSezione(id); }
 
   // ——— l'ordine delle sezioni: si riordinano trascinando la maniglia e l'ordine si salva per ogni tipo di elemento ———
   private ordiniSalvati(): Record<string, string[]> {

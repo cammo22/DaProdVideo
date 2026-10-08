@@ -291,6 +291,7 @@ uniform float u_bagliore, u_flare, u_flarePh, u_arco, u_arcoPh, u_espo, u_neon, 
 uniform float u_eco, u_duo, u_poster, u_solar, u_termico, u_visore, u_retino, u_muto, u_gocce, u_specchio, u_quadri, u_rullo, u_pesce;
 uniform float u_raggi, u_bokeh, u_scint, u_anam, u_neve, u_pioggia, u_polvere, u_coriandoli;
 uniform float u_olo, u_prisma, u_matita, u_tunnel, u_nebbia, u_braci, u_vetro, u_nosegn, u_iride, u_mini, u_esa, u_scan;
+uniform float u_censP, u_censS, u_faro;   // sull'oggetto: censura a quadretti, censura sfocata, faretto (la forza = la grandezza)
 uniform vec3 u_flashCol, u_fadeCol, u_tinta;
 uniform vec2 u_centro;   // il centro di zoom e distorsioni (lo sceglie chi posa l'effetto)
 uniform vec2 u_sole;     // il sole del riflesso d'obiettivo (x < -1 = passa da solo)
@@ -458,6 +459,16 @@ void main() {
     vec4 hh = vec4(pe - hc.xy * szh, pe - (hc.zw + 0.5) * szh);
     vec2 idc = dot(hh.xy, hh.xy) < dot(hh.zw, hh.zw) ? hc.xy : hc.zw + 0.5;
     uv = mix(uv, idc * szh / nn / vec2(asp, 1.0), min(1.0, u_esa * 4.0));
+  }
+  // la censura: dentro il cerchio attorno al centro (l'oggetto tracciato) l'immagine diventa a quadrettoni
+  float censD = length((v_uv - u_centro) * vec2(asp, 1.0));
+  if (u_censP > 0.0) {
+    float censR = 0.03 + 0.2 * min(1.0, u_censP);
+    if (censD < censR + 0.01) {
+      float lato = max(10.0, censR * u_res.y / 6.0) / u_res.y;
+      vec2 cella = vec2(lato / asp, lato);
+      uv = mix((floor(uv / cella) + 0.5) * cella, uv, smoothstep(censR - 0.01, censR + 0.01, censD));
+    }
   }
   g_sp = u_rgb * 0.014 + u_glitch * 0.012 + u_vhs * 0.004 + u_prisma * 0.012 + u_olo * 0.003;
   vec3 col;
@@ -668,6 +679,27 @@ void main() {
     float nv = hash(floor(v_uv * vec2(320.0, 180.0)) + fase);
     vec3 sig = mix(barre * 0.8, vec3(nv), 0.45);
     col = mix(col, sig, smoothstep(0.3, 0.7, min(1.0, u_nosegn) * (0.55 + 0.45 * hash(vec2(fase, 1.0)))));
+  }
+  if (u_censS > 0.0) {
+    // la censura sfocata: una macchia molto sfocata nel cerchio, col bordo morbido
+    float censR = 0.03 + 0.2 * min(1.0, u_censS);
+    float dentro = 1.0 - smoothstep(censR - 0.015, censR + 0.015, censD);
+    if (dentro > 0.0) {
+      vec3 sf = vec3(0.0);
+      float rb = censR * 0.55;
+      for (int i = 0; i < 28; i++) {
+        float fi = float(i);
+        float a = fi * 2.39996;
+        float d = sqrt((fi + 0.5) / 28.0) * rb;
+        sf += campione(uv + vec2(cos(a) / asp, sin(a)) * d);
+      }
+      col = mix(col, sf / 28.0, dentro);
+    }
+  }
+  if (u_faro > 0.0) {
+    // il faretto: fuori dal cerchio di luce si fa buio
+    float fr = 0.06 + 0.3 * min(1.0, u_faro);
+    col *= mix(1.0, 0.16, smoothstep(fr, fr + 0.14, censD) * min(1.0, u_faro * 4.0));
   }
   col = mix(col, u_flashCol, u_flash);
   col = mix(col, u_fadeCol, u_fade);

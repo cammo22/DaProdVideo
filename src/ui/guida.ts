@@ -96,7 +96,7 @@ export const ARGOMENTI: Argomento[] = [
   },
   {
     id: 'titoli', gruppo: 'Effetti e titoli', icona: '🅣', titolo: 'Scrivere un titolo o un sottopancia',
-    riassunto: 'titoli pronti e 49 animazioni', parole: 'titolo testo scritta sottopancia nome lower third animazione',
+    riassunto: 'titoli pronti e 65 animazioni (anche Retro 3D)', parole: 'titolo testo scritta sottopancia nome lower third animazione',
     passi: [
       '`T` mette un titolo al cursore. Scrivi il testo nelle **Proprietà → Titolatrice** (font, colore, ombra, entrata e uscita).',
       'Pronti: contenitore → **Titoli** (cinema, neon, macchina da scrivere, rullo dei crediti…).',

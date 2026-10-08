@@ -24,7 +24,7 @@ export interface OpzioniDoppiaggio {
 }
 
 /** una frase da dire, coi tempi in secondi dall'inizio del montaggio */
-export interface Enunciato { id: string; da: number; a: number; testo: string; /** le righe dei sottotitoli che ci sono dentro */ righe?: string[] }
+export interface Enunciato { id: string; da: number; a: number; testo: string; /** le righe dei sottotitoli che ci sono dentro */ righe?: string[]; /** chi parla (dialoghi) */ chi?: string }
 
 /** l'audio finale esce a 48 kHz */
 export const SR_VOCE = 48000;
@@ -43,11 +43,12 @@ export function enunciatiDaRighe(righe: Sottotitolo[], p: Project): Enunciato[] 
     const da = x.da / r, a = Math.max(x.da + 1, x.a) / r;
     const testo = x.testo.replace(/\s*\n\s*/g, ' ').replace(/\s+/g, ' ').trim();
     const u = out[out.length - 1];
-    if (u && da - u.a <= 0.5 && !FINE_FRASE.test(u.testo) && u.testo.length + testo.length < 170) {
+    // (due personaggi diversi non si uniscono mai: hanno voci diverse)
+    if (u && (u.chi ?? '') === (x.chi ?? '') && da - u.a <= 0.5 && !FINE_FRASE.test(u.testo) && u.testo.length + testo.length < 170) {
       u.testo += ' ' + testo;
       u.a = Math.max(u.a, a);
       u.righe!.push(x.id);
-    } else out.push({ id: uid('f'), da, a, testo, righe: [x.id] });
+    } else out.push({ id: uid('f'), da, a, testo, righe: [x.id], chi: x.chi });
   }
   return out;
 }
@@ -138,7 +139,20 @@ export async function doppia(p: Project, o: OpzioniDoppiaggio, stato: (testo: st
   await assicuraMotore(nem, ['tts'], (k, t) => stato(t, (serve ? 0.3 : 0) + k * 0.2), segnale);
   fermo();
   const base = serve ? 0.5 : 0.2;
-  const parlati = await nem.sintetizza(enunc.map((e, i) => ({ id: e.id, testo: testi[i] })), { lingua: o.lingua, voce: o.voce }, (k, t) => stato(t, base + k * (0.92 - base)), segnale);
+  // i dialoghi: ogni personaggio con la sua voce (una passata del motore per ogni voce, poi si rimette tutto insieme)
+  const voci = sottotitoliDi(p).voci ?? {};
+  const voceDi = (e: Enunciato) => (e.chi && voci[e.chi] !== undefined ? voci[e.chi] : o.voce);
+  const gruppi = new Map<number, number[]>();
+  enunc.forEach((e, i) => { const v = voceDi(e); gruppi.set(v, [...(gruppi.get(v) ?? []), i]); });
+  const parlati = new Map<string, Parlato>();
+  let fatti = 0;
+  for (const [voce, idx] of gruppi) {
+    const parte = await nem.sintetizza(idx.map((i) => ({ id: enunc[i].id, testo: testi[i] })), { lingua: o.lingua, voce },
+      (k, t) => stato(t, base + ((fatti + k * idx.length) / enunc.length) * (0.92 - base)), segnale);
+    for (const [k, v] of parte) parlati.set(k, v);
+    fatti += idx.length;
+    fermo();
+  }
   fermo();
   stato('Metto le frasi al loro posto…', 0.94);
   const { audio, posti } = componiVoceConPosti(enunc, parlati);

@@ -17,7 +17,9 @@ export type V3 = [number, number, number];
 /** le quantità degli effetti nuovi (colore, particelle, specchi…): ognuna 0 o più, e si sommano come le altre */
 export const CAMPI_FX = ['eco', 'duo', 'poster', 'solar', 'termico', 'visore', 'retino', 'muto', 'gocce', 'specchio', 'quadri', 'rullo', 'pesce',
   'raggi', 'bokeh', 'scint', 'anam', 'neve', 'pioggia', 'polvere', 'coriandoli',
-  'olo', 'prisma', 'matita', 'tunnel', 'nebbia', 'braci', 'vetro', 'nosegn', 'iride', 'mini', 'esa', 'scan'] as const;
+  'olo', 'prisma', 'matita', 'tunnel', 'nebbia', 'braci', 'vetro', 'nosegn', 'iride', 'mini', 'esa', 'scan',
+  // 1.4.0: quelli da attaccare a un oggetto tracciato (censura a pixel o sfocata, faretto)
+  'censP', 'censS', 'faro'] as const;
 type CampiFx = { [K in typeof CAMPI_FX[number]]: number };
 
 /** come si muove l'immagine in quel fotogramma: tutti gli effetti accesi si sommano qui */
@@ -52,7 +54,7 @@ const neutro = (): StatoFx => ({
 });
 
 /** gli effetti che hanno un centro da mettere dove vuoi sul quadro (e da far muovere lungo il blocco) */
-const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare', 'pizzico', 'gocce', 'raggi', 'pesce', 'tunnel', 'irideChiude', 'irideApre']);
+const CENTRATI = new Set<Motore>(['zoomColpo', 'zoomLento', 'battito', 'bolla', 'vortice', 'caleido', 'zoomSfocato', 'flare', 'pizzico', 'gocce', 'raggi', 'pesce', 'tunnel', 'irideChiude', 'irideApre', 'censuraPixel', 'censuraSfoca', 'faretto']);
 export const haCentro = (id: string) => { const e = effettoTempo(id); return !!e && CENTRATI.has(e.motore); };
 
 /** le tappe del centro di un effetto in ordine: la partenza, quelle di mezzo, l'arrivo (vuoto se il centro sta fermo) */
@@ -87,7 +89,8 @@ type Motore = 'flash' | 'scossa' | 'camera' | 'zoomColpo' | 'battito' | 'zoomLen
   | 'onda' | 'bolla' | 'vortice' | 'caleido' | 'calore' | 'zoomSfocato'
   | 'eco' | 'vibra' | 'raggi' | 'bokeh' | 'scintille' | 'anamorfico' | 'duotone' | 'posterizza' | 'solarizza' | 'termico' | 'visore'
   | 'retino' | 'filmMuto' | 'pizzico' | 'gocce' | 'specchio' | 'quadri' | 'rullo' | 'pesce' | 'neve' | 'pioggia' | 'polvere' | 'coriandoli'
-  | 'ologramma' | 'prisma' | 'matita' | 'tunnel' | 'nebbia' | 'braci' | 'vetro' | 'noSegnale' | 'irideChiude' | 'irideApre' | 'miniatura' | 'esagoni' | 'scansione';
+  | 'ologramma' | 'prisma' | 'matita' | 'tunnel' | 'nebbia' | 'braci' | 'vetro' | 'noSegnale' | 'irideChiude' | 'irideApre' | 'miniatura' | 'esagoni' | 'scansione'
+  | 'censuraPixel' | 'censuraSfoca' | 'faretto';
 
 export interface EffettoTempo {
   id: string;
@@ -95,7 +98,7 @@ export interface EffettoTempo {
   info: string;
   /** secondi di partenza del blocco */
   durata: number;
-  gruppo: 'rapidi' | 'lunghi' | 'luci' | 'distorsioni' | 'colore' | 'particelle';
+  gruppo: 'rapidi' | 'lunghi' | 'luci' | 'distorsioni' | 'colore' | 'particelle' | 'oggetto';
   motore: Motore;
   /** colore di partenza (lampi e dissolvenze) */
   colore?: string;
@@ -180,6 +183,10 @@ export const EFFETTI_TEMPO: EffettoTempo[] = [
   { id: 'scansione', nome: 'Scansione', info: 'una riga di luce che sale, come uno scanner', durata: 2, gruppo: 'luci', motore: 'scansione' },
   { id: 'nebbia', nome: 'Nebbia', info: 'una foschia che scorre piano', durata: 6, gruppo: 'particelle', motore: 'nebbia' },
   { id: 'braci', nome: 'Braci', info: 'scintille calde che salgono da un fuoco', durata: 5, gruppo: 'particelle', motore: 'braci' },
+  // 1.4.0: da mettere su un oggetto tracciato (o col mirino): la forza è la grandezza del cerchio
+  { id: 'censuraPixel', nome: 'Censura a quadretti', info: 'quadrettoni sopra una faccia o una targa (segue l\'oggetto)', durata: 5, gruppo: 'oggetto', motore: 'censuraPixel' },
+  { id: 'censuraSfoca', nome: 'Censura sfocata', info: 'una macchia sfocata sopra l\'oggetto (segue l\'oggetto)', durata: 5, gruppo: 'oggetto', motore: 'censuraSfoca' },
+  { id: 'faretto', nome: 'Faretto', info: 'tutto scuro tranne un cerchio di luce sull\'oggetto', durata: 5, gruppo: 'oggetto', motore: 'faretto' },
 ];
 
 export const effettoTempo = (id: string) => EFFETTI_TEMPO.find((e) => e.id === id);
@@ -494,6 +501,10 @@ function applica(st: StatoFx, p: Project, bl: Clip, f: number) {
     case 'scansione': st.scan += k * bordi(x, 6); break;
     case 'nebbia': st.nebbia += k * bordi(x, 6); break;
     case 'braci': st.braci += k * bordi(x, 6); break;
+    // sull'oggetto: il cerchio è grande quanto la forza, entra e esce in un attimo
+    case 'censuraPixel': st.censP = Math.max(st.censP, Math.max(0.05, k) * bordi(x, 30)); break;
+    case 'censuraSfoca': st.censS = Math.max(st.censS, Math.max(0.05, k) * bordi(x, 30)); break;
+    case 'faretto': st.faro = Math.max(st.faro, Math.max(0.05, k) * bordi(x, 12)); break;
   }
 }
 

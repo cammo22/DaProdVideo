@@ -751,6 +751,7 @@ export class Contenitore {
       ['fx:distorsioni', 'Distorsioni', g('distorsioni')],
       ['fx:colore', 'Colore', g('colore')],
       ['fx:particelle', 'Particelle', g('particelle')],
+      ['fx:oggetto', 'Sull\'oggetto', g('oggetto')],
       ['fx:clip', 'Stile della clip', this.filtra(EFFETTI_VIDEO).map(carta)],
       ['fx:audio', 'Audio', this.filtra(EFFETTI_AUDIO).map(carta)],
     ])));
