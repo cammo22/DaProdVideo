@@ -1,0 +1,1 @@
+import{t as e}from"./motore-D0LSrwYq.js";export{e as motore};
