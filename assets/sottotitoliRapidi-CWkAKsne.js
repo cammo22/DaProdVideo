@@ -1,0 +1,1 @@
+import{i as e,n as t,o as n,r,t as i}from"./sottotitoliRapidi-B88mJFQY.js";export{i as faiParlareSottotitoli,t as generaSottotitoli,r as nuovaRigaQui,e as opzioniAI,n as stileSottotitoli};
