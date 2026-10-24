@@ -1,0 +1,1 @@
+import{c as e,u as t}from"./window-BMgDPiz5.js";export{t as LogicalSize,e as getCurrentWindow};
